@@ -826,3 +826,1026 @@ describe('Page object structure', () => {
     expect(page.matchPropsOn).toBeUndefined()
   })
 })
+
+// =========================================================================
+// Combinatorial prop types
+// =========================================================================
+describe('Combinatorial prop types', () => {
+  it('handles all prop types in a single render call', async () => {
+    const deferredFn = vi.fn(() => 'deferred-value')
+    const optionalFn = vi.fn(() => 'optional-value')
+
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        plain: 'hello',
+        lazy: () => 'lazy-value',
+        alwaysProp: always('always-value'),
+        optProp: optional(optionalFn),
+        deferProp: deferred(deferredFn, 'sidebar'),
+        mergeProp: merge(() => [1, 2]),
+        onceProp: once(() => 'once-value'),
+      }),
+    )
+
+    // Full visit
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+
+    expect(page.props.plain).toBe('hello')
+    expect(page.props.lazy).toBe('lazy-value')
+    expect(page.props.alwaysProp).toBe('always-value')
+    expect(page.props.optProp).toBeUndefined()
+    expect(page.props.deferProp).toBeUndefined()
+    expect(page.props.mergeProp).toEqual([1, 2])
+    expect(page.props.onceProp).toBe('once-value')
+
+    expect(page.deferredProps).toEqual({ sidebar: ['deferProp'] })
+    expect(page.mergeProps).toEqual(['mergeProp'])
+    expect(page.onceProps).toEqual({
+      onceProp: { prop: 'onceProp', expiresAt: null },
+    })
+
+    expect(deferredFn).not.toHaveBeenCalled()
+    expect(optionalFn).not.toHaveBeenCalled()
+  })
+
+  it('handles all prop types in a partial reload requesting specific keys', async () => {
+    const deferredFn = vi.fn(() => 'deferred-value')
+    const optionalFn = vi.fn(() => 'optional-value')
+    const lazyFn = vi.fn(() => 'lazy-value')
+    const mergeFn = vi.fn(() => [1, 2])
+
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        plain: 'hello',
+        lazy: lazyFn,
+        alwaysProp: always('always-value'),
+        optProp: optional(optionalFn),
+        deferProp: deferred(deferredFn, 'sidebar'),
+        mergeProp: merge(mergeFn),
+        onceProp: once(() => 'once-value'),
+      }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'optProp,deferProp',
+      }),
+    })
+    const page = await getPage(res)
+
+    // Only requested + always + errors
+    expect(page.props.optProp).toBe('optional-value')
+    expect(page.props.deferProp).toBe('deferred-value')
+    expect(page.props.alwaysProp).toBe('always-value')
+    expect(page.props.errors).toEqual({})
+
+    // Not requested — not included
+    expect(page.props.plain).toBeUndefined()
+    expect(page.props.lazy).toBeUndefined()
+    expect(page.props.mergeProp).toBeUndefined()
+    expect(page.props.onceProp).toBeUndefined()
+
+    // Only requested fns called
+    expect(optionalFn).toHaveBeenCalledOnce()
+    expect(deferredFn).toHaveBeenCalledOnce()
+    expect(lazyFn).not.toHaveBeenCalled()
+    expect(mergeFn).not.toHaveBeenCalled()
+  })
+})
+
+// =========================================================================
+// Multiple deferred groups
+// =========================================================================
+describe('Multiple deferred groups', () => {
+  it('registers multiple groups in deferredProps', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        title: 'Page',
+        comments: deferred(() => ['c1'], 'sidebar'),
+        likes: deferred(() => 42, 'sidebar'),
+        analytics: deferred(() => ({ views: 100 }), 'footer'),
+        related: deferred(() => ['r1'], 'aside'),
+      }),
+    )
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+
+    expect(page.deferredProps).toEqual({
+      sidebar: ['comments', 'likes'],
+      footer: ['analytics'],
+      aside: ['related'],
+    })
+    expect(page.props.comments).toBeUndefined()
+    expect(page.props.likes).toBeUndefined()
+    expect(page.props.analytics).toBeUndefined()
+    expect(page.props.related).toBeUndefined()
+    expect(page.props.title).toBe('Page')
+  })
+
+  it('fetches only requested deferred props from one group', async () => {
+    const sidebarFn = vi.fn(() => ['c1'])
+    const footerFn = vi.fn(() => ({ views: 100 }))
+
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        comments: deferred(sidebarFn, 'sidebar'),
+        analytics: deferred(footerFn, 'footer'),
+      }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'comments',
+      }),
+    })
+    const page = await getPage(res)
+
+    expect(page.props.comments).toEqual(['c1'])
+    expect(page.props.analytics).toBeUndefined()
+    expect(sidebarFn).toHaveBeenCalledOnce()
+    expect(footerFn).not.toHaveBeenCalled()
+  })
+
+  it('handles deferred with merge+once chaining', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        feed: deferred(() => [1, 2], 'main').merge().once('feed-key', 3600),
+      }),
+    )
+
+    // Full visit: listed in deferredProps with merge metadata
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+
+    expect(page.props.feed).toBeUndefined()
+    expect(page.deferredProps).toEqual({ main: ['feed'] })
+    expect(page.mergeProps).toEqual(['feed'])
+
+    // Partial fetch: includes value with merge+once metadata
+    const res2 = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'feed',
+      }),
+    })
+    const page2 = await getPage(res2)
+
+    expect(page2.props.feed).toEqual([1, 2])
+    expect(page2.mergeProps).toEqual(['feed'])
+    expect(page2.onceProps).toEqual({
+      feed: { prop: 'feed-key', expiresAt: 3600 },
+    })
+  })
+
+  it('skips deferred+once prop when client already has it', async () => {
+    const fn = vi.fn(() => [1, 2])
+
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        feed: deferred(fn, 'main').once(),
+      }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'feed',
+        'X-Inertia-Except-Once-Props': 'feed',
+      }),
+    })
+    const page = await getPage(res)
+
+    expect(page.props.feed).toBeUndefined()
+    expect(fn).not.toHaveBeenCalled()
+  })
+})
+
+// =========================================================================
+// Optional + once chaining
+// =========================================================================
+describe('Optional + once chaining', () => {
+  it('excludes optional+once from full visits', async () => {
+    const fn = vi.fn(() => 'data')
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        expensive: optional(fn).once('exp-key', 7200),
+      }),
+    )
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+
+    expect(page.props.expensive).toBeUndefined()
+    expect(fn).not.toHaveBeenCalled()
+  })
+
+  it('includes optional+once on partial reload with once metadata', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        expensive: optional(() => 'data').once('exp-key', 7200),
+      }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'expensive',
+      }),
+    })
+    const page = await getPage(res)
+
+    expect(page.props.expensive).toBe('data')
+    expect(page.onceProps).toEqual({
+      expensive: { prop: 'exp-key', expiresAt: 7200 },
+    })
+  })
+
+  it('skips optional+once when client already has it', async () => {
+    const fn = vi.fn(() => 'data')
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        expensive: optional(fn).once(),
+      }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'expensive',
+        'X-Inertia-Except-Once-Props': 'expensive',
+      }),
+    })
+    const page = await getPage(res)
+
+    expect(page.props.expensive).toBeUndefined()
+    expect(fn).not.toHaveBeenCalled()
+  })
+})
+
+// =========================================================================
+// Partial reload edge cases
+// =========================================================================
+describe('Partial reload edge cases', () => {
+  it('handles both Partial-Data and Partial-Except simultaneously', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        a: 'A',
+        b: 'B',
+        c: 'C',
+        d: 'D',
+      }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'a,b,c',
+        'X-Inertia-Partial-Except': 'b',
+      }),
+    })
+    const page = await getPage(res)
+
+    // Partial-Data includes a,b,c; Partial-Except removes b
+    expect(page.props.a).toBe('A')
+    expect(page.props.b).toBeUndefined()
+    expect(page.props.c).toBe('C')
+    expect(page.props.d).toBeUndefined()
+  })
+
+  it('always preserves errors even when not in Partial-Data', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        users: [1],
+        errors: { name: 'Required' },
+      }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'users',
+      }),
+    })
+    const page = await getPage(res)
+
+    expect(page.props.users).toEqual([1])
+    expect(page.props.errors).toEqual({ name: 'Required' })
+  })
+
+  it('cannot exclude errors via Partial-Except', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        users: [1],
+        errors: { name: 'Required' },
+      }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Except': 'errors',
+      }),
+    })
+    const page = await getPage(res)
+
+    expect(page.props.errors).toEqual({ name: 'Required' })
+    expect(page.props.users).toEqual([1])
+  })
+
+  it('excludes optional props when component does not match', async () => {
+    const fn = vi.fn(() => 'opt')
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        plain: 'hello',
+        opt: optional(fn),
+      }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Other',
+        'X-Inertia-Partial-Data': 'opt',
+      }),
+    })
+    const page = await getPage(res)
+
+    // Component mismatch → treated as full visit → optional excluded
+    expect(page.props.plain).toBe('hello')
+    expect(page.props.opt).toBeUndefined()
+    expect(fn).not.toHaveBeenCalled()
+  })
+
+  it('does not show deferredProps in partial reload response', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        users: [1],
+        comments: deferred(() => ['c1'], 'sidebar'),
+      }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'users',
+      }),
+    })
+    const page = await getPage(res)
+
+    expect(page.props.users).toEqual([1])
+    expect(page.deferredProps).toBeUndefined()
+  })
+})
+
+// =========================================================================
+// Shared props accumulation
+// =========================================================================
+describe('Shared props accumulation', () => {
+  it('accumulates from multiple share() calls', async () => {
+    const app = createApp()
+    app.use(async (c, next) => {
+      c.var.inertia.share({ a: 1 })
+      c.var.inertia.share({ b: 2 })
+      await next()
+    })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.props.a).toBe(1)
+    expect(page.props.b).toBe(2)
+  })
+
+  it('later share() calls override earlier keys', async () => {
+    const app = createApp()
+    app.use(async (c, next) => {
+      c.var.inertia.share({ x: 'first' })
+      c.var.inertia.share({ x: 'second' })
+      await next()
+    })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.props.x).toBe('second')
+  })
+
+  it('merges config share + middleware share + render props', async () => {
+    const app = createApp({
+      share: () => ({ fromConfig: 'config', shared: 'config' }),
+    })
+    app.use(async (c, next) => {
+      c.var.inertia.share({ fromMiddleware: 'middleware', shared: 'middleware' })
+      await next()
+    })
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', { fromRender: 'render', shared: 'render' }),
+    )
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+
+    expect(page.props.fromConfig).toBe('config')
+    expect(page.props.fromMiddleware).toBe('middleware')
+    expect(page.props.fromRender).toBe('render')
+    // Render props win over middleware, middleware wins over config
+    expect(page.props.shared).toBe('render')
+  })
+
+  it('accumulates share() across chained middleware', async () => {
+    const app = createApp()
+    app.use(async (c, next) => {
+      c.var.inertia.share({ from1: 'mw1' })
+      await next()
+    })
+    app.use(async (c, next) => {
+      c.var.inertia.share({ from2: 'mw2' })
+      await next()
+    })
+    app.use(async (c, next) => {
+      c.var.inertia.share({ from3: 'mw3' })
+      await next()
+    })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.props.from1).toBe('mw1')
+    expect(page.props.from2).toBe('mw2')
+    expect(page.props.from3).toBe('mw3')
+  })
+})
+
+// =========================================================================
+// Reset props edge cases
+// =========================================================================
+describe('Reset props edge cases', () => {
+  it('strips merge metadata but preserves value on reset', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        posts: merge(() => [1, 2, 3]).setMatchOn('id'),
+      }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'posts',
+        'X-Inertia-Reset': 'posts',
+      }),
+    })
+    const page = await getPage(res)
+
+    expect(page.props.posts).toEqual([1, 2, 3])
+    expect(page.mergeProps).toBeUndefined()
+    expect(page.matchPropsOn).toBeUndefined()
+  })
+
+  it('strips merge metadata on deferred+merge reset', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        feed: deferred(() => [1, 2], 'main').merge(),
+      }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'feed',
+        'X-Inertia-Reset': 'feed',
+      }),
+    })
+    const page = await getPage(res)
+
+    expect(page.props.feed).toEqual([1, 2])
+    expect(page.mergeProps).toBeUndefined()
+  })
+})
+
+// =========================================================================
+// Once props edge cases
+// =========================================================================
+describe('Once props edge cases', () => {
+  it('uses custom key in onceProps metadata', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        plans: once(() => ['free'], 'custom-plans-key', 3600),
+      }),
+    )
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+
+    expect(page.onceProps).toEqual({
+      plans: { prop: 'custom-plans-key', expiresAt: 3600 },
+    })
+  })
+
+  it('passes through expiresAt value', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        config: once(() => ({}), undefined, 86400),
+      }),
+    )
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+
+    expect(page.onceProps?.config?.expiresAt).toBe(86400)
+  })
+})
+
+// =========================================================================
+// URL edge cases
+// =========================================================================
+describe('URL edge cases', () => {
+  it('preserves trailing slash', async () => {
+    const app = createApp()
+    app.get('/users/', (c) => c.var.inertia.render('Users'))
+
+    const res = await app.request('/users/', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.url).toBe('/users/')
+  })
+
+  it('handles query with special characters', async () => {
+    const app = createApp()
+    app.get('/search', (c) => c.var.inertia.render('Search'))
+
+    const res = await app.request('/search?q=hello%20world&tag=c%2B%2B', {
+      headers: inertiaHeaders(),
+    })
+    const page = await getPage(res)
+    expect(page.url).toBe('/search?q=hello%20world&tag=c%2B%2B')
+  })
+
+  it('handles path without query string', async () => {
+    const app = createApp()
+    app.get('/users', (c) => c.var.inertia.render('Users'))
+
+    const res = await app.request('/users', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.url).toBe('/users')
+  })
+})
+
+// =========================================================================
+// History encryption edge cases
+// =========================================================================
+describe('History encryption edge cases', () => {
+  it('can explicitly disable encryptHistory with false', async () => {
+    const app = createApp()
+    app.get('/test', (c) => {
+      c.var.inertia.encryptHistory(true)
+      c.var.inertia.encryptHistory(false)
+      return c.var.inertia.render('Test')
+    })
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.encryptHistory).toBe(false)
+  })
+
+  it('can explicitly disable clearHistory with false', async () => {
+    const app = createApp()
+    app.get('/test', (c) => {
+      c.var.inertia.clearHistory(true)
+      c.var.inertia.clearHistory(false)
+      return c.var.inertia.render('Test')
+    })
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.clearHistory).toBe(false)
+  })
+
+  it('supports both encryptHistory and clearHistory together', async () => {
+    const app = createApp()
+    app.get('/test', (c) => {
+      c.var.inertia.encryptHistory()
+      c.var.inertia.clearHistory()
+      return c.var.inertia.render('Test')
+    })
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.encryptHistory).toBe(true)
+    expect(page.clearHistory).toBe(true)
+  })
+})
+
+// =========================================================================
+// View data edge cases
+// =========================================================================
+describe('View data edge cases', () => {
+  it('accumulates from multiple viewData() calls', async () => {
+    let receivedViewData: Record<string, unknown> | undefined
+
+    const app = new Hono<InertiaEnv>()
+    app.use(
+      inertia({
+        version: '1.0',
+        render: (page, viewData) => {
+          receivedViewData = viewData
+          return `<div data-page='${JSON.stringify(page)}'></div>`
+        },
+      }),
+    )
+    app.get('/test', (c) => {
+      c.var.inertia.viewData({ a: 1 })
+      c.var.inertia.viewData({ b: 2 })
+      return c.var.inertia.render('Test')
+    })
+
+    await app.request('/test')
+    expect(receivedViewData).toEqual({ a: 1, b: 2 })
+  })
+
+  it('merges render viewData arg with accumulated viewData', async () => {
+    let receivedViewData: Record<string, unknown> | undefined
+
+    const app = new Hono<InertiaEnv>()
+    app.use(
+      inertia({
+        version: '1.0',
+        render: (page, viewData) => {
+          receivedViewData = viewData
+          return `<div data-page='${JSON.stringify(page)}'></div>`
+        },
+      }),
+    )
+    app.get('/test', (c) => {
+      c.var.inertia.viewData({ fromMethod: 'method', shared: 'method' })
+      return c.var.inertia.render('Test', {}, { fromRender: 'render', shared: 'render' })
+    })
+
+    await app.request('/test')
+    expect(receivedViewData).toEqual({
+      fromMethod: 'method',
+      fromRender: 'render',
+      shared: 'render',
+    })
+  })
+
+  it('does not send view data on Inertia JSON responses', async () => {
+    let receivedViewData: Record<string, unknown> | undefined
+    let renderCalled = false
+
+    const app = new Hono<InertiaEnv>()
+    app.use(
+      inertia({
+        version: '1.0',
+        render: (_page, viewData) => {
+          renderCalled = true
+          receivedViewData = viewData
+          return '<div></div>'
+        },
+      }),
+    )
+    app.get('/test', (c) => {
+      c.var.inertia.viewData({ meta: 'value' })
+      return c.var.inertia.render('Test')
+    })
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+
+    // Render function not called for JSON responses
+    expect(renderCalled).toBe(false)
+    expect(page.props.meta).toBeUndefined()
+  })
+})
+
+// =========================================================================
+// Error bag edge cases
+// =========================================================================
+describe('Error bag edge cases', () => {
+  it('returns empty errors when errors is empty and bag is requested', async () => {
+    const app = createApp()
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({ 'X-Inertia-Error-Bag': 'createUser' }),
+    })
+    const page = await getPage(res)
+    expect(page.props.errors).toEqual({})
+  })
+
+  it('returns full errors when no error bag header is sent', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        errors: {
+          createUser: { name: 'Required' },
+          updateUser: { email: 'Invalid' },
+        },
+      }),
+    )
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.props.errors).toEqual({
+      createUser: { name: 'Required' },
+      updateUser: { email: 'Invalid' },
+    })
+  })
+})
+
+// =========================================================================
+// Async version function
+// =========================================================================
+describe('Async version function', () => {
+  it('resolves async version and matches', async () => {
+    const app = createApp({
+      version: async () => 'async-v1',
+    })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', {
+      headers: {
+        'X-Inertia': 'true',
+        'X-Inertia-Version': 'async-v1',
+      },
+    })
+    expect(res.status).toBe(200)
+    const page = await getPage(res)
+    expect(page.version).toBe('async-v1')
+  })
+
+  it('resolves async version and returns 409 on mismatch', async () => {
+    const app = createApp({
+      version: async () => 'async-v2',
+    })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', {
+      headers: {
+        'X-Inertia': 'true',
+        'X-Inertia-Version': 'old-version',
+      },
+    })
+    expect(res.status).toBe(409)
+    expect(res.headers.get('X-Inertia-Location')).toContain('/test')
+  })
+})
+
+// =========================================================================
+// SSR integration
+// =========================================================================
+describe('SSR integration', () => {
+  it('passes SSR result to render function', async () => {
+    let receivedSsr: { head: string; body: string } | undefined
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          head: ['<title>SSR</title>'],
+          body: '<div id="app">rendered</div>',
+        }),
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    const app = new Hono<InertiaEnv>()
+    app.use(
+      inertia({
+        version: '1.0',
+        ssr: { url: 'http://localhost:13714' },
+        render: (page, _viewData, ssr) => {
+          receivedSsr = ssr
+          return `<html>${ssr?.head ?? ''}<body>${ssr?.body ?? JSON.stringify(page)}</body></html>`
+        },
+      }),
+    )
+    app.get('/test', (c) => c.var.inertia.render('Test', { data: 1 }))
+
+    const res = await app.request('/test')
+    expect(res.status).toBe(200)
+    expect(receivedSsr).toEqual({
+      head: '<title>SSR</title>',
+      body: '<div id="app">rendered</div>',
+    })
+    expect(mockFetch).toHaveBeenCalledOnce()
+
+    vi.restoreAllMocks()
+  })
+
+  it('falls back gracefully when SSR fails', async () => {
+    let receivedSsr: { head: string; body: string } | undefined
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')))
+
+    const app = new Hono<InertiaEnv>()
+    app.use(
+      inertia({
+        version: '1.0',
+        ssr: { url: 'http://localhost:13714' },
+        render: (page, _viewData, ssr) => {
+          receivedSsr = ssr
+          return `<div data-page='${JSON.stringify(page)}'></div>`
+        },
+      }),
+    )
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test')
+    expect(res.status).toBe(200)
+    expect(receivedSsr).toBeUndefined()
+
+    vi.restoreAllMocks()
+  })
+
+  it('skips SSR for Inertia JSON requests', async () => {
+    const mockFetch = vi.fn()
+    vi.stubGlobal('fetch', mockFetch)
+
+    const app = new Hono<InertiaEnv>()
+    app.use(
+      inertia({
+        version: '1.0',
+        ssr: { url: 'http://localhost:13714' },
+        render: (page) => `<div data-page='${JSON.stringify(page)}'></div>`,
+      }),
+    )
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    await app.request('/test', { headers: inertiaHeaders() })
+    expect(mockFetch).not.toHaveBeenCalled()
+
+    vi.restoreAllMocks()
+  })
+
+  it('skips SSR when ssr.enabled is false', async () => {
+    const mockFetch = vi.fn()
+    vi.stubGlobal('fetch', mockFetch)
+
+    const app = new Hono<InertiaEnv>()
+    app.use(
+      inertia({
+        version: '1.0',
+        ssr: { url: 'http://localhost:13714', enabled: false },
+        render: (page) => `<div data-page='${JSON.stringify(page)}'></div>`,
+      }),
+    )
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    await app.request('/test')
+    expect(mockFetch).not.toHaveBeenCalled()
+
+    vi.restoreAllMocks()
+  })
+})
+
+// =========================================================================
+// Lazy evaluation edge cases
+// =========================================================================
+describe('Lazy evaluation edge cases', () => {
+  it('handles lazy function returning null', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', { data: () => null }),
+    )
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.props.data).toBeNull()
+  })
+
+  it('handles lazy function returning undefined', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', { data: () => undefined }),
+    )
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.props.data).toBeUndefined()
+  })
+
+  it('resolves multiple async lazy functions in parallel', async () => {
+    const order: string[] = []
+
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        a: async () => {
+          order.push('a-start')
+          await new Promise((r) => setTimeout(r, 50))
+          order.push('a-end')
+          return 'A'
+        },
+        b: async () => {
+          order.push('b-start')
+          await new Promise((r) => setTimeout(r, 10))
+          order.push('b-end')
+          return 'B'
+        },
+      }),
+    )
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+
+    expect(page.props.a).toBe('A')
+    expect(page.props.b).toBe('B')
+    // Both should start before either finishes (parallel)
+    expect(order[0]).toBe('a-start')
+    expect(order[1]).toBe('b-start')
+  })
+
+  it('handles merge prop with lazy function value', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        posts: merge(async () => [1, 2, 3]),
+      }),
+    )
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.props.posts).toEqual([1, 2, 3])
+    expect(page.mergeProps).toEqual(['posts'])
+  })
+})
+
+// =========================================================================
+// Version defaults
+// =========================================================================
+describe('Version defaults', () => {
+  it('defaults to empty string when no version provided', async () => {
+    const app = new Hono<InertiaEnv>()
+    app.use(
+      inertia({
+        render: (page) => `<div data-page='${JSON.stringify(page)}'></div>`,
+      }),
+    )
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', {
+      headers: { 'X-Inertia': 'true', 'X-Inertia-Version': '' },
+    })
+    expect(res.status).toBe(200)
+    const page = await getPage(res)
+    expect(page.version).toBe('')
+  })
+})
+
+// =========================================================================
+// 302→303 redirect edge cases
+// =========================================================================
+describe('302→303 redirect edge cases', () => {
+  it('preserves 301 redirects unchanged', async () => {
+    const app = createApp()
+    app.put('/submit', (c) => c.redirect('/result', 301))
+
+    const res = await app.request('/submit', {
+      method: 'PUT',
+      headers: inertiaHeaders(),
+    })
+    expect(res.status).toBe(301)
+  })
+
+  it('does not convert POST 302 to 303', async () => {
+    const app = createApp()
+    app.post('/submit', (c) => c.redirect('/result', 302))
+
+    const res = await app.request('/submit', {
+      method: 'POST',
+      headers: inertiaHeaders(),
+    })
+    expect(res.status).toBe(302)
+  })
+
+  it('sets Vary header on converted 303 response', async () => {
+    const app = createApp()
+    app.put('/submit', (c) => c.redirect('/result', 302))
+
+    const res = await app.request('/submit', {
+      method: 'PUT',
+      headers: inertiaHeaders(),
+    })
+    expect(res.status).toBe(303)
+    expect(res.headers.get('Vary')).toContain('X-Inertia')
+  })
+})
