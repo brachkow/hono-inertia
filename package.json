@@ -17,6 +17,7 @@
     "dist"
   ],
   "scripts": {
+    "prepare": "tsup",
     "build": "tsup",
     "test": "vitest run",
     "test:watch": "vitest",
