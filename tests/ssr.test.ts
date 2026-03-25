@@ -7,8 +7,6 @@ const mockPage: PageObject = {
   props: { data: 'value' },
   url: '/test',
   version: '1.0',
-  encryptHistory: false,
-  clearHistory: false,
 }
 
 afterEach(() => {

@@ -6,6 +6,8 @@ import type {
   MergeStrategy,
   OnceProp,
   OptionalProp,
+  ScrollMetadata,
+  ScrollProp,
   TaggedProp,
 } from './types.js'
 
@@ -195,5 +197,23 @@ export function once(
     value: fn,
     onceKey: key ?? null,
     expiresAt: expiresAt ?? null,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// scroll(value, metadata) — infinite scroll with pagination metadata
+// ---------------------------------------------------------------------------
+
+export function scroll(
+  value: unknown | (() => unknown | Promise<unknown>),
+  metadata: ScrollMetadata,
+): ScrollProp {
+  return {
+    [PROP_TYPE]: 'scroll',
+    value,
+    pageName: metadata.getPageName(),
+    currentPage: metadata.getCurrentPage(),
+    previousPage: metadata.getPreviousPage(),
+    nextPage: metadata.getNextPage(),
   }
 }

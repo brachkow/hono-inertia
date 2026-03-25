@@ -1,6 +1,6 @@
 # hono-inertia
 
-Inertia.js v2 server-side adapter for [Hono](https://hono.dev).
+Inertia.js v3 server-side adapter for [Hono](https://hono.dev).
 
 ## Install
 
@@ -28,7 +28,8 @@ app.use(
   <script type="module" src="/src/main.ts"></script>
 </head>
 <body>
-  <div id="app" data-page='${JSON.stringify(page)}'></div>
+  <div id="app"></div>
+  <script type="application/json" id="page">${JSON.stringify(page)}</script>
 </body>
 </html>`,
   }),
@@ -54,7 +55,7 @@ inertia({
     if (ssr) {
       return `<html><head>${ssr.head}</head><body>${ssr.body}</body></html>`
     }
-    return `<html><body><div id="app" data-page='${JSON.stringify(page)}'></div></body></html>`
+    return `<html><body><div id="app"></div><script type="application/json" id="page">${JSON.stringify(page)}</script></body></html>`
   },
 
   // Global shared props — merged into every response
@@ -255,7 +256,7 @@ Access it in your render function:
 render: (page, viewData) => `
   <html>
   <head><title>${viewData.metaTitle}</title></head>
-  <body><div id="app" data-page='${JSON.stringify(page)}'></div></body>
+  <body><div id="app"></div><script type="application/json" id="page">${JSON.stringify(page)}</script></body>
   </html>
 `
 ```
@@ -274,7 +275,7 @@ inertia({
     if (ssr) {
       return `<html><head>${ssr.head}</head><body>${ssr.body}</body></html>`
     }
-    return `<html><body><div id="app" data-page='${JSON.stringify(page)}'></div></body></html>`
+    return `<html><body><div id="app"></div><script type="application/json" id="page">${JSON.stringify(page)}</script></body></html>`
   },
 })
 ```

@@ -40,6 +40,11 @@ export function isPrefetch(c: Context): boolean {
   return c.req.header('Purpose') === 'prefetch'
 }
 
+export function getScrollMergeIntent(c: Context): 'append' | 'prepend' {
+  const header = c.req.header('X-Inertia-Infinite-Scroll-Merge-Intent')
+  return header === 'prepend' ? 'prepend' : 'append'
+}
+
 export function resolveUrl(c: Context): string {
   const url = new URL(c.req.url)
   return url.pathname + url.search

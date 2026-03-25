@@ -9,14 +9,22 @@ export interface PageObject {
   props: Record<string, unknown>
   url: string
   version: string
-  encryptHistory: boolean
-  clearHistory: boolean
+  encryptHistory?: boolean
+  clearHistory?: boolean
+  preserveFragment?: boolean
+  sharedProps?: string[]
   deferredProps?: Record<string, string[]>
   mergeProps?: string[]
   prependProps?: string[]
   deepMergeProps?: string[]
   matchPropsOn?: string[]
   onceProps?: Record<string, { prop: string; expiresAt: number | null }>
+  scrollProps?: Record<string, {
+    pageName: string
+    previousPage: number | null
+    nextPage: number | null
+    currentPage: number
+  }>
 }
 
 // ---------------------------------------------------------------------------
@@ -66,8 +74,10 @@ export interface InertiaContext {
   ): Promise<Response>
   share(data: Record<string, unknown>): void
   location(url: string): Response
+  redirect(url: string): Response
   encryptHistory(encrypt?: boolean): void
   clearHistory(clear?: boolean): void
+  preserveFragment(preserve?: boolean): void
   viewData(data: Record<string, unknown>): void
 }
 
@@ -79,6 +89,17 @@ export interface InertiaEnv {
   Variables: {
     inertia: InertiaContext
   }
+}
+
+// ---------------------------------------------------------------------------
+// Scroll metadata adapter (public — users implement for their paginator)
+// ---------------------------------------------------------------------------
+
+export interface ScrollMetadata {
+  getPageName(): string
+  getCurrentPage(): number
+  getPreviousPage(): number | null
+  getNextPage(): number | null
 }
 
 // ---------------------------------------------------------------------------
@@ -126,9 +147,19 @@ export interface OnceProp {
   expiresAt: number | null
 }
 
+export interface ScrollProp {
+  __hono_inertia_prop_type__: 'scroll'
+  value: unknown | (() => unknown | Promise<unknown>)
+  pageName: string
+  currentPage: number
+  previousPage: number | null
+  nextPage: number | null
+}
+
 export type TaggedProp =
   | OptionalProp
   | AlwaysProp
   | DeferredProp
   | MergeProp
   | OnceProp
+  | ScrollProp

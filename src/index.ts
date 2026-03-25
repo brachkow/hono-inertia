@@ -10,6 +10,7 @@ export {
   prepend,
   deepMerge,
   once,
+  scroll,
   isTaggedProp,
 } from './props.js'
 
@@ -20,6 +21,7 @@ export type {
   InertiaEnv,
   PageObject,
   RenderFunction,
+  ScrollMetadata,
   SsrConfig,
   SsrResult,
 } from './types.js'

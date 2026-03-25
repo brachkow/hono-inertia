@@ -9,7 +9,9 @@ import {
   once,
   optional,
   prepend,
+  scroll,
 } from '../src/props.js'
+import type { ScrollMetadata } from '../src/types.js'
 
 describe('isTaggedProp', () => {
   it('returns false for plain values', () => {
@@ -22,11 +24,18 @@ describe('isTaggedProp', () => {
   })
 
   it('returns true for tagged props', () => {
+    const meta: ScrollMetadata = {
+      getPageName: () => 'page',
+      getCurrentPage: () => 1,
+      getPreviousPage: () => null,
+      getNextPage: () => null,
+    }
     expect(isTaggedProp(optional(() => 1))).toBe(true)
     expect(isTaggedProp(always(1))).toBe(true)
     expect(isTaggedProp(deferred(() => 1))).toBe(true)
     expect(isTaggedProp(merge(1))).toBe(true)
     expect(isTaggedProp(once(() => 1))).toBe(true)
+    expect(isTaggedProp(scroll([1], meta))).toBe(true)
   })
 })
 
@@ -171,5 +180,52 @@ describe('once', () => {
     const prop = once(() => 'data', 'myKey', 7200)
     expect(prop.onceKey).toBe('myKey')
     expect(prop.expiresAt).toBe(7200)
+  })
+})
+
+describe('scroll', () => {
+  const mockMetadata: ScrollMetadata = {
+    getPageName: () => 'page',
+    getCurrentPage: () => 3,
+    getPreviousPage: () => 2,
+    getNextPage: () => 4,
+  }
+
+  it('creates a scroll prop with correct type tag', () => {
+    const prop = scroll([1, 2], mockMetadata)
+    expect(prop[PROP_TYPE]).toBe('scroll')
+  })
+
+  it('stores the value', () => {
+    const data = [{ id: 1 }]
+    const prop = scroll(data, mockMetadata)
+    expect(prop.value).toBe(data)
+  })
+
+  it('supports lazy values', () => {
+    const fn = () => [1, 2, 3]
+    const prop = scroll(fn, mockMetadata)
+    expect(prop.value).toBe(fn)
+  })
+
+  it('extracts pagination metadata from adapter', () => {
+    const prop = scroll([], mockMetadata)
+    expect(prop.pageName).toBe('page')
+    expect(prop.currentPage).toBe(3)
+    expect(prop.previousPage).toBe(2)
+    expect(prop.nextPage).toBe(4)
+  })
+
+  it('handles null previous/next pages', () => {
+    const firstPageMeta: ScrollMetadata = {
+      getPageName: () => 'p',
+      getCurrentPage: () => 1,
+      getPreviousPage: () => null,
+      getNextPage: () => null,
+    }
+    const prop = scroll([], firstPageMeta)
+    expect(prop.previousPage).toBeNull()
+    expect(prop.nextPage).toBeNull()
+    expect(prop.pageName).toBe('p')
   })
 })

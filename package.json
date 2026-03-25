@@ -1,7 +1,7 @@
 {
   "name": "hono-inertia",
   "version": "0.1.0",
-  "description": "Inertia.js v2 server-side adapter for Hono",
+  "description": "Inertia.js v3 server-side adapter for Hono",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

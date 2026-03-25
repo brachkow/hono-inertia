@@ -9,6 +9,7 @@ import type {
   OnceProp,
   OptionalProp,
   PageObject,
+  ScrollProp,
   SsrResult,
   TaggedProp,
 } from './types.js'
@@ -30,6 +31,7 @@ export class InertiaResponse implements InertiaContext {
   private viewDataStore: Record<string, unknown> = {}
   private shouldEncryptHistory = false
   private shouldClearHistory = false
+  private shouldPreserveFragment = false
 
   constructor(
     private c: Context,
@@ -53,6 +55,23 @@ export class InertiaResponse implements InertiaContext {
     this.shouldClearHistory = clear
   }
 
+  preserveFragment(preserve = true): void {
+    this.shouldPreserveFragment = preserve
+  }
+
+  redirect(url: string): Response {
+    if (isInertiaRequest(this.c)) {
+      return new Response(null, {
+        status: 409,
+        headers: {
+          'X-Inertia-Redirect': url,
+          'Vary': 'X-Inertia',
+        },
+      })
+    }
+    return this.c.redirect(url, 302)
+  }
+
   location(url: string): Response {
     if (isInertiaRequest(this.c)) {
       return new Response(null, {
@@ -73,7 +92,10 @@ export class InertiaResponse implements InertiaContext {
   ): Promise<Response> {
     const mergedViewData = { ...this.viewDataStore, ...extraViewData }
 
-    // 1. Merge shared + render props. Render props win. Ensure errors exists.
+    // 1. Capture shared prop keys before merging (for v3 instant visits)
+    const sharedKeys = Object.keys(this.sharedProps)
+
+    // 2. Merge shared + render props. Render props win. Ensure errors exists.
     const allProps: Record<string, unknown> = {
       errors: {},
       ...this.sharedProps,
@@ -91,7 +113,7 @@ export class InertiaResponse implements InertiaContext {
     const errorBag = getErrorBag(this.c)
     const resetProps = getResetProps(this.c)
 
-    // 2. Classify props and determine which to include
+    // 3. Classify props and determine which to include
     const included: Record<string, unknown> = {}
     const deferredGroups: Record<string, string[]> = {}
     const mergeKeys: string[] = []
@@ -102,148 +124,112 @@ export class InertiaResponse implements InertiaContext {
       string,
       { prop: string; expiresAt: number | null }
     > = {}
+    const scrollMetadata: Record<
+      string,
+      { pageName: string; previousPage: number | null; nextPage: number | null; currentPage: number }
+    > = {}
+
+    const isFilteredOut = (key: string): boolean => {
+      if (!isPartialRequest) return false
+      if (key === 'errors') return false
+      if (partialData.length > 0 && !partialData.includes(key)) return true
+      if (partialExcept.length > 0 && partialExcept.includes(key)) return true
+      return false
+    }
+
+    const propHandlers: Record<string, (key: string, tagged: TaggedProp) => void> = {
+      always: (key, tagged) => {
+        included[key] = (tagged as AlwaysProp).value
+      },
+
+      optional: (key, tagged) => {
+        const opt = tagged as OptionalProp
+        if (isPartialRequest && partialData.includes(key)) {
+          if (opt.isOnce && exceptOnceProps.includes(key)) return
+          included[key] = opt.value
+          if (opt.isOnce) {
+            onceMetadata[key] = {
+              prop: opt.onceKey ?? key,
+              expiresAt: opt.expiresAt,
+            }
+          }
+        }
+      },
+
+      deferred: (key, tagged) => {
+        const def = tagged as DeferredProp
+        if (isPartialForThis && partialData.includes(key)) {
+          if (def.isOnce && exceptOnceProps.includes(key)) return
+          included[key] = def.value
+          if (def.isMerge && !resetProps.includes(key)) {
+            collectMergeMetadata(key, def.mergeStrategy, def.matchOn, mergeKeys, prependKeys, deepMergeKeys, matchOnKeys)
+          }
+          if (def.isOnce) {
+            onceMetadata[key] = {
+              prop: def.onceKey ?? key,
+              expiresAt: def.expiresAt,
+            }
+          }
+        } else if (!isPartialRequest) {
+          if (!deferredGroups[def.group]) {
+            deferredGroups[def.group] = []
+          }
+          deferredGroups[def.group].push(key)
+          if (def.isMerge) {
+            collectMergeMetadata(key, def.mergeStrategy, def.matchOn, mergeKeys, prependKeys, deepMergeKeys, matchOnKeys)
+          }
+        }
+      },
+
+      merge: (key, tagged) => {
+        const m = tagged as MergeProp
+        if (isFilteredOut(key)) return
+        included[key] = m.value
+        if (!resetProps.includes(key)) {
+          collectMergeMetadata(key, m.strategy, m.matchOn, mergeKeys, prependKeys, deepMergeKeys, matchOnKeys)
+        }
+      },
+
+      once: (key, tagged) => {
+        const o = tagged as OnceProp
+        if (exceptOnceProps.includes(key)) return
+        if (isFilteredOut(key)) return
+        included[key] = o.value
+        onceMetadata[key] = {
+          prop: o.onceKey ?? key,
+          expiresAt: o.expiresAt,
+        }
+      },
+
+      scroll: (key, tagged) => {
+        const s = tagged as ScrollProp
+        if (isFilteredOut(key)) return
+        included[key] = s.value
+        scrollMetadata[key] = {
+          pageName: s.pageName,
+          currentPage: s.currentPage,
+          previousPage: s.previousPage,
+          nextPage: s.nextPage,
+        }
+        if (!resetProps.includes(key)) {
+          mergeKeys.push(key)
+        }
+      },
+    }
 
     for (const [key, value] of Object.entries(allProps)) {
       if (!isTaggedProp(value)) {
-        // Plain value or lazy function
-        if (isPartialRequest) {
-          if (partialData.length > 0 && !partialData.includes(key) && key !== 'errors') {
-            continue
-          }
-          if (partialExcept.length > 0 && partialExcept.includes(key) && key !== 'errors') {
-            continue
-          }
+        if (!isFilteredOut(key)) {
+          included[key] = value
         }
-        included[key] = value
         continue
       }
 
       const propType = (value as TaggedProp).__hono_inertia_prop_type__
-
-      switch (propType) {
-        case 'always': {
-          // Always included regardless of partial filters
-          included[key] = (value as AlwaysProp).value
-          break
-        }
-
-        case 'optional': {
-          const opt = value as OptionalProp
-          // Only included when explicitly requested in a partial reload
-          if (isPartialRequest && partialData.includes(key)) {
-            if (opt.isOnce && exceptOnceProps.includes(key)) {
-              // Client already has this once-prop, skip
-              continue
-            }
-            included[key] = opt.value
-            if (opt.isOnce) {
-              onceMetadata[key] = {
-                prop: opt.onceKey ?? key,
-                expiresAt: opt.expiresAt,
-              }
-            }
-          }
-          // Excluded on full visits and non-matching partial reloads
-          break
-        }
-
-        case 'deferred': {
-          const def = value as DeferredProp
-          if (isPartialForThis && partialData.includes(key)) {
-            // This is the follow-up request to fetch the deferred prop
-            if (def.isOnce && exceptOnceProps.includes(key)) {
-              continue
-            }
-            included[key] = def.value
-            if (def.isMerge && !resetProps.includes(key)) {
-              collectMergeMetadata(
-                key,
-                def.mergeStrategy,
-                def.matchOn,
-                mergeKeys,
-                prependKeys,
-                deepMergeKeys,
-                matchOnKeys,
-              )
-            }
-            if (def.isOnce) {
-              onceMetadata[key] = {
-                prop: def.onceKey ?? key,
-                expiresAt: def.expiresAt,
-              }
-            }
-          } else if (!isPartialRequest) {
-            // Full visit: register in deferredProps groups, don't include value
-            if (!deferredGroups[def.group]) {
-              deferredGroups[def.group] = []
-            }
-            deferredGroups[def.group].push(key)
-            // Still add merge metadata so client knows how to handle deferred data
-            if (def.isMerge) {
-              collectMergeMetadata(
-                key,
-                def.mergeStrategy,
-                def.matchOn,
-                mergeKeys,
-                prependKeys,
-                deepMergeKeys,
-                matchOnKeys,
-              )
-            }
-          }
-          break
-        }
-
-        case 'merge': {
-          const m = value as MergeProp
-          if (isPartialRequest) {
-            if (partialData.length > 0 && !partialData.includes(key) && key !== 'errors') {
-              continue
-            }
-            if (partialExcept.length > 0 && partialExcept.includes(key) && key !== 'errors') {
-              continue
-            }
-          }
-          included[key] = m.value
-          if (!resetProps.includes(key)) {
-            collectMergeMetadata(
-              key,
-              m.strategy,
-              m.matchOn,
-              mergeKeys,
-              prependKeys,
-              deepMergeKeys,
-              matchOnKeys,
-            )
-          }
-          break
-        }
-
-        case 'once': {
-          const o = value as OnceProp
-          if (exceptOnceProps.includes(key)) {
-            // Client already has this, skip resolving
-            continue
-          }
-          if (isPartialRequest) {
-            if (partialData.length > 0 && !partialData.includes(key) && key !== 'errors') {
-              continue
-            }
-            if (partialExcept.length > 0 && partialExcept.includes(key) && key !== 'errors') {
-              continue
-            }
-          }
-          included[key] = o.value
-          onceMetadata[key] = {
-            prop: o.onceKey ?? key,
-            expiresAt: o.expiresAt,
-          }
-          break
-        }
-      }
+      propHandlers[propType]?.(key, value as TaggedProp)
     }
 
-    // 3. Resolve lazy values (functions and async functions)
+    // 4. Resolve lazy values (functions and async functions)
     const resolved: Record<string, unknown> = {}
     const resolvePromises: Promise<void>[] = []
 
@@ -260,22 +246,32 @@ export class InertiaResponse implements InertiaContext {
 
     await Promise.all(resolvePromises)
 
-    // 4. Handle error bag scoping
+    // 5. Handle error bag scoping
     if (errorBag && resolved.errors && typeof resolved.errors === 'object') {
       const errors = resolved.errors as Record<string, unknown>
       resolved.errors = errors[errorBag] ?? {}
     }
 
-    // 5. Build page object
+    // 6. Build page object
     const page: PageObject = {
       component,
       props: resolved,
       url: resolveUrl(this.c),
       version: this.version,
-      encryptHistory: this.shouldEncryptHistory,
-      clearHistory: this.shouldClearHistory,
     }
 
+    if (this.shouldEncryptHistory) {
+      page.encryptHistory = true
+    }
+    if (this.shouldClearHistory) {
+      page.clearHistory = true
+    }
+    if (this.shouldPreserveFragment) {
+      page.preserveFragment = true
+    }
+    if (sharedKeys.length > 0) {
+      page.sharedProps = sharedKeys
+    }
     if (Object.keys(deferredGroups).length > 0) {
       page.deferredProps = deferredGroups
     }
@@ -294,8 +290,11 @@ export class InertiaResponse implements InertiaContext {
     if (Object.keys(onceMetadata).length > 0) {
       page.onceProps = onceMetadata
     }
+    if (Object.keys(scrollMetadata).length > 0) {
+      page.scrollProps = scrollMetadata
+    }
 
-    // 6. Return response
+    // 7. Return response
     if (isInertia) {
       return new Response(JSON.stringify(page), {
         status: 200,
@@ -330,17 +329,12 @@ function collectMergeMetadata(
   deepMergeKeys: string[],
   matchOnKeys: string[],
 ): void {
-  switch (strategy) {
-    case 'append':
-      mergeKeys.push(key)
-      break
-    case 'prepend':
-      prependKeys.push(key)
-      break
-    case 'deep':
-      deepMergeKeys.push(key)
-      break
+  const strategyCollectors: Record<MergeStrategy, () => void> = {
+    append: () => mergeKeys.push(key),
+    prepend: () => prependKeys.push(key),
+    deep: () => deepMergeKeys.push(key),
   }
+  strategyCollectors[strategy]()
   if (matchOn) {
     matchOnKeys.push(`${key}.${matchOn}`)
   }
