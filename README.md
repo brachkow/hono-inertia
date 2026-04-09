@@ -1,19 +1,19 @@
-# hono-inertia
+# @brachkow/hono-inertia
 
 Inertia.js v3 server-side adapter for [Hono](https://hono.dev).
 
 ## Install
 
 ```bash
-pnpm add github:brachkow/hono-inertia
+pnpm add @brachkow/hono-inertia
 ```
 
 ## Quick start
 
 ```ts
 import { Hono } from 'hono'
-import { inertia } from 'hono-inertia'
-import type { InertiaEnv } from 'hono-inertia'
+import { inertia } from '@brachkow/hono-inertia'
+import type { InertiaEnv } from '@brachkow/hono-inertia'
 
 const app = new Hono<InertiaEnv>()
 
@@ -123,7 +123,7 @@ Render props override shared props. Shared props override config-level props.
 Always included in every response, including partial reloads:
 
 ```ts
-import { always } from 'hono-inertia'
+import { always } from '@brachkow/hono-inertia'
 
 c.var.inertia.render('Dashboard', {
   auth: always({ user: currentUser }),
@@ -135,7 +135,7 @@ c.var.inertia.render('Dashboard', {
 Excluded from initial visits. Only included when explicitly requested in a partial reload:
 
 ```ts
-import { optional } from 'hono-inertia'
+import { optional } from '@brachkow/hono-inertia'
 
 c.var.inertia.render('Users/Index', {
   permissions: optional(() => fetchPermissions()),
@@ -147,7 +147,7 @@ c.var.inertia.render('Users/Index', {
 Excluded from the initial response. The client automatically fetches them after mount:
 
 ```ts
-import { deferred } from 'hono-inertia'
+import { deferred } from '@brachkow/hono-inertia'
 
 c.var.inertia.render('Dashboard', {
   stats: deferred(() => computeStats()),
@@ -161,7 +161,7 @@ c.var.inertia.render('Dashboard', {
 Client appends/prepends/deep-merges new data instead of replacing. Useful for infinite scroll:
 
 ```ts
-import { merge, prepend, deepMerge } from 'hono-inertia'
+import { merge, prepend, deepMerge } from '@brachkow/hono-inertia'
 
 c.var.inertia.render('Feed', {
   posts: merge(() => fetchPosts(page)),
@@ -183,7 +183,7 @@ c.var.inertia.render('Feed', {
 Resolved once, then cached by the client across navigations:
 
 ```ts
-import { once } from 'hono-inertia'
+import { once } from '@brachkow/hono-inertia'
 
 c.var.inertia.render('Pricing', {
   plans: once(() => fetchPlans()),
@@ -287,7 +287,7 @@ Falls back to client-side rendering if the SSR server is unavailable.
 Use `InertiaEnv` for typed `c.var.inertia` access:
 
 ```ts
-import type { InertiaEnv } from 'hono-inertia'
+import type { InertiaEnv } from '@brachkow/hono-inertia'
 
 const app = new Hono<InertiaEnv>()
 ```
