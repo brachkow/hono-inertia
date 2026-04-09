@@ -1,5 +1,5 @@
 {
-  "name": "hono-inertia",
+  "name": "@brachkow/hono-inertia",
   "version": "0.1.0",
   "description": "Inertia.js v3 server-side adapter for Hono",
   "type": "module",
@@ -16,8 +16,17 @@
   "files": [
     "dist"
   ],
+  "author": "brachkow",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/brachkow/hono-inertia.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "prepare": "tsup",
+    "prepublishOnly": "pnpm test && pnpm typecheck && pnpm build",
     "build": "tsup",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -28,6 +37,7 @@
   },
   "devDependencies": {
     "hono": "^4.12.8",
+    "np": "^11.0.3",
     "tsup": "^8.4.0",
     "typescript": "^5.7.0",
     "vitest": "^3.1.0"
