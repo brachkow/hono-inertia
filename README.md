@@ -5,8 +5,7 @@ Inertia.js v3 server-side adapter for [Hono](https://hono.dev).
 ## Install
 
 ```bash
-pnpm add github:brachkow/hono-inertia
-# pnpm add @brachkow/hono-inertia - not published yet
+pnpm add @brachkow/hono-inertia
 ```
 
 ## Quick start
