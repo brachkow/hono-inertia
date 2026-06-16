@@ -269,6 +269,30 @@ render: (page, viewData) => `
 `
 ```
 
+## Flash messages
+
+Send one-shot messages (toasts, alerts) to the client. They're delivered to the `onFlash` callback and the `inertia:flash` event on the next render — including the initial visit — then cleared from history so they don't replay on back/forward:
+
+```ts
+app.post('/users', async (c) => {
+  await createUser(c)
+  c.var.inertia.flash({ success: 'User created' })
+  return c.var.inertia.render('Users/Index', { users })
+})
+```
+
+`flash()` accumulates across calls (later keys win), and flash data is a top-level field — it is never mixed into your props.
+
+Because this adapter is session-less, `flash()` applies to the **current** response only. To show a message *after* a redirect (the POST → redirect → GET pattern), persist it across the redirect yourself (e.g. a short-lived cookie) and re-apply it — for example in middleware:
+
+```ts
+app.use(async (c, next) => {
+  const flash = readFlashCookie(c) // your own helper
+  if (flash) c.var.inertia.flash(flash)
+  await next()
+})
+```
+
 ## SSR
 
 Configure an Inertia SSR server (works with `@inertiajs/vue3/server`, `@inertiajs/react/server`, `@inertiajs/svelte/server`):

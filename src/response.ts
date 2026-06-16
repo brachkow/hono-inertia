@@ -31,6 +31,7 @@ import {
 export class InertiaResponse implements InertiaContext {
   private sharedProps: Record<string, unknown> = {}
   private viewDataStore: Record<string, unknown> = {}
+  private flashStore: Record<string, unknown> = {}
   private shouldEncryptHistory = false
   private shouldClearHistory = false
   private shouldPreserveFragment = false
@@ -47,6 +48,10 @@ export class InertiaResponse implements InertiaContext {
 
   viewData(data: Record<string, unknown>): void {
     Object.assign(this.viewDataStore, data)
+  }
+
+  flash(data: Record<string, unknown>): void {
+    Object.assign(this.flashStore, data)
   }
 
   encryptHistory(encrypt = true): void {
@@ -293,6 +298,9 @@ export class InertiaResponse implements InertiaContext {
     }
     if (sharedKeys.length > 0) {
       page.sharedProps = sharedKeys
+    }
+    if (Object.keys(this.flashStore).length > 0) {
+      page.flash = this.flashStore
     }
     if (Object.keys(deferredGroups).length > 0) {
       page.deferredProps = deferredGroups

@@ -90,6 +90,7 @@ export interface InertiaContext {
   clearHistory(clear?: boolean): void
   preserveFragment(preserve?: boolean): void
   viewData(data: Record<string, unknown>): void
+  flash(data: Record<string, unknown>): void
 }
 
 // ---------------------------------------------------------------------------

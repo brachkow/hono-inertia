@@ -2191,3 +2191,80 @@ describe('Conformance: version mismatch location', () => {
     expect(res.headers.get('X-Inertia-Location')).toBe('/users/42?tab=profile')
   })
 })
+
+// =========================================================================
+// Flash messages
+// =========================================================================
+describe('Flash messages', () => {
+  it('emits flash on Inertia JSON responses', async () => {
+    const app = createApp()
+    app.get('/test', (c) => {
+      c.var.inertia.flash({ success: 'Saved!' })
+      return c.var.inertia.render('Test')
+    })
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.flash).toEqual({ success: 'Saved!' })
+  })
+
+  it('emits flash in the data-page attribute on initial visits', async () => {
+    const app = createApp()
+    app.get('/test', (c) => {
+      c.var.inertia.flash({ toast: 'Hi' })
+      return c.var.inertia.render('Test')
+    })
+
+    const res = await app.request('/test')
+    const page = parsePageFromHtml(await res.text())
+    expect(page.flash).toEqual({ toast: 'Hi' })
+  })
+
+  it('accumulates across multiple flash() calls', async () => {
+    const app = createApp()
+    app.get('/test', (c) => {
+      c.var.inertia.flash({ a: 1 })
+      c.var.inertia.flash({ b: 2 })
+      return c.var.inertia.render('Test')
+    })
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.flash).toEqual({ a: 1, b: 2 })
+  })
+
+  it('later flash() calls override earlier keys', async () => {
+    const app = createApp()
+    app.get('/test', (c) => {
+      c.var.inertia.flash({ msg: 'first' })
+      c.var.inertia.flash({ msg: 'second' })
+      return c.var.inertia.render('Test')
+    })
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.flash).toEqual({ msg: 'second' })
+  })
+
+  it('omits flash when none is set', async () => {
+    const app = createApp()
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.flash).toBeUndefined()
+  })
+
+  it('keeps flash out of props', async () => {
+    const app = createApp()
+    app.get('/test', (c) => {
+      c.var.inertia.flash({ success: 'Saved!' })
+      return c.var.inertia.render('Test', { title: 'Home' })
+    })
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.props.success).toBeUndefined()
+    expect(page.props.title).toBe('Home')
+  })
+})
