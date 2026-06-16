@@ -36,6 +36,11 @@ export function inertia(config: InertiaConfig): MiddlewareHandler<InertiaEnv> {
       response.share(shared)
     }
 
+    // Apply global history encryption (per-request opt-out still possible)
+    if (config.encryptHistory) {
+      response.encryptHistory(true)
+    }
+
     await next()
 
     // Post-handler: convert 302 → 303 for PUT/PATCH/DELETE on Inertia requests

@@ -34,6 +34,10 @@ export interface PageObject {
 export interface SsrConfig {
   url?: string
   enabled?: boolean
+  // Abort the SSR request after this many ms (default 5000), falling back to CSR.
+  timeout?: number
+  // Reject SSR responses larger than this many bytes (default 2_000_000).
+  maxResponseBytes?: number
 }
 
 export interface SsrResult {
@@ -60,6 +64,10 @@ export interface InertiaConfig {
   render: RenderFunction
   ssr?: SsrConfig
   share?: (c: Context) => Record<string, unknown> | Promise<Record<string, unknown>>
+  // Encrypt browser history state for every response (mirrors Inertia's global
+  // `history.encrypt` option). Off by default; pages can opt out per-request via
+  // `c.var.inertia.encryptHistory(false)`. Requires the client to be served over HTTPS.
+  encryptHistory?: boolean
 }
 
 // ---------------------------------------------------------------------------

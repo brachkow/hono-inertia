@@ -108,7 +108,7 @@ export class InertiaResponse implements InertiaContext {
     const partialData = getPartialData(this.c)
     const partialExcept = getPartialExcept(this.c)
     const isPartialRequest =
-      isPartialForThis && (partialData.length > 0 || partialExcept.length > 0)
+      isPartialForThis && (partialData.size > 0 || partialExcept.size > 0)
     const exceptOnceProps = getExceptOnceProps(this.c)
     const errorBag = getErrorBag(this.c)
     const resetProps = getResetProps(this.c)
@@ -132,8 +132,8 @@ export class InertiaResponse implements InertiaContext {
     const isFilteredOut = (key: string): boolean => {
       if (!isPartialRequest) return false
       if (key === 'errors') return false
-      if (partialData.length > 0 && !partialData.includes(key)) return true
-      if (partialExcept.length > 0 && partialExcept.includes(key)) return true
+      if (partialData.size > 0 && !partialData.has(key)) return true
+      if (partialExcept.size > 0 && partialExcept.has(key)) return true
       return false
     }
 
@@ -144,8 +144,8 @@ export class InertiaResponse implements InertiaContext {
 
       optional: (key, tagged) => {
         const opt = tagged as OptionalProp
-        if (isPartialRequest && partialData.includes(key)) {
-          if (opt.isOnce && exceptOnceProps.includes(key)) return
+        if (isPartialRequest && partialData.has(key)) {
+          if (opt.isOnce && exceptOnceProps.has(key)) return
           included[key] = opt.value
           if (opt.isOnce) {
             onceMetadata[key] = {
@@ -158,10 +158,10 @@ export class InertiaResponse implements InertiaContext {
 
       deferred: (key, tagged) => {
         const def = tagged as DeferredProp
-        if (isPartialForThis && partialData.includes(key)) {
-          if (def.isOnce && exceptOnceProps.includes(key)) return
+        if (isPartialForThis && partialData.has(key)) {
+          if (def.isOnce && exceptOnceProps.has(key)) return
           included[key] = def.value
-          if (def.isMerge && !resetProps.includes(key)) {
+          if (def.isMerge && !resetProps.has(key)) {
             collectMergeMetadata(key, def.mergeStrategy, def.matchOn, mergeKeys, prependKeys, deepMergeKeys, matchOnKeys)
           }
           if (def.isOnce) {
@@ -185,14 +185,14 @@ export class InertiaResponse implements InertiaContext {
         const m = tagged as MergeProp
         if (isFilteredOut(key)) return
         included[key] = m.value
-        if (!resetProps.includes(key)) {
+        if (!resetProps.has(key)) {
           collectMergeMetadata(key, m.strategy, m.matchOn, mergeKeys, prependKeys, deepMergeKeys, matchOnKeys)
         }
       },
 
       once: (key, tagged) => {
         const o = tagged as OnceProp
-        if (exceptOnceProps.includes(key)) return
+        if (exceptOnceProps.has(key)) return
         if (isFilteredOut(key)) return
         included[key] = o.value
         onceMetadata[key] = {
@@ -211,7 +211,7 @@ export class InertiaResponse implements InertiaContext {
           previousPage: s.previousPage,
           nextPage: s.nextPage,
         }
-        if (!resetProps.includes(key)) {
+        if (!resetProps.has(key)) {
           mergeKeys.push(key)
         }
       },
