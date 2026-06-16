@@ -8,17 +8,19 @@ export interface PageObject {
   component: string
   props: Record<string, unknown>
   url: string
-  version: string
+  version: string | null
   encryptHistory?: boolean
   clearHistory?: boolean
   preserveFragment?: boolean
   sharedProps?: string[]
+  flash?: Record<string, unknown>
+  rescuedProps?: string[]
   deferredProps?: Record<string, string[]>
   mergeProps?: string[]
   prependProps?: string[]
   deepMergeProps?: string[]
   matchPropsOn?: string[]
-  onceProps?: Record<string, { prop: string; expiresAt: number | null }>
+  onceProps?: Record<string, { prop: string; expiresAt?: number | null }>
   scrollProps?: Record<string, {
     pageName: string
     previousPage: number | null
