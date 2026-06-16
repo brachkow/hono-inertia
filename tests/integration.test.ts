@@ -656,6 +656,21 @@ describe('Once props', () => {
     expect(page.props.plans).toBeUndefined()
     expect(fn).not.toHaveBeenCalled()
   })
+
+  it('skips a once prop when the client echoes its custom key', async () => {
+    const fn = vi.fn(() => ['free', 'pro'])
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', { plans: once(fn, 'plans-cache') }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({ 'X-Inertia-Except-Once-Props': 'plans-cache' }),
+    })
+    const page = await getPage(res)
+    expect(page.props.plans).toBeUndefined()
+    expect(fn).not.toHaveBeenCalled()
+  })
 })
 
 // =========================================================================
@@ -1016,7 +1031,7 @@ describe('Multiple deferred groups', () => {
     expect(page2.props.feed).toEqual([1, 2])
     expect(page2.mergeProps).toEqual(['feed'])
     expect(page2.onceProps).toEqual({
-      feed: { prop: 'feed-key', expiresAt: 3600 },
+      'feed-key': { prop: 'feed', expiresAt: 3600 },
     })
   })
 
@@ -1082,7 +1097,7 @@ describe('Optional + once chaining', () => {
 
     expect(page.props.expensive).toBe('data')
     expect(page.onceProps).toEqual({
-      expensive: { prop: 'exp-key', expiresAt: 7200 },
+      'exp-key': { prop: 'expensive', expiresAt: 7200 },
     })
   })
 
@@ -1371,7 +1386,7 @@ describe('Once props edge cases', () => {
     const page = await getPage(res)
 
     expect(page.onceProps).toEqual({
-      plans: { prop: 'custom-plans-key', expiresAt: 3600 },
+      'custom-plans-key': { prop: 'plans', expiresAt: 3600 },
     })
   })
 
