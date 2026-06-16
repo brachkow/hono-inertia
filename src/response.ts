@@ -22,6 +22,8 @@ import {
   getPartialData,
   getPartialExcept,
   getResetProps,
+  getScrollMergeIntent,
+  hasScrollMergeIntent,
   isInertiaRequest,
   resolveUrl,
 } from './utils.js'
@@ -112,6 +114,10 @@ export class InertiaResponse implements InertiaContext {
     const exceptOnceProps = getExceptOnceProps(this.c)
     const errorBag = getErrorBag(this.c)
     const resetProps = getResetProps(this.c)
+    const scrollMergeIntent = getScrollMergeIntent(this.c)
+    // No merge-intent header => a fresh load, so the client should reset the
+    // accumulated infinite-scroll collection rather than append/prepend.
+    const scrollReset = !hasScrollMergeIntent(this.c)
 
     // 3. Classify props and determine which to include
     const included: Record<string, unknown> = {}
@@ -126,7 +132,7 @@ export class InertiaResponse implements InertiaContext {
     > = {}
     const scrollMetadata: Record<
       string,
-      { pageName: string; previousPage: number | null; nextPage: number | null; currentPage: number }
+      { pageName: string; previousPage: number | null; nextPage: number | null; currentPage: number; reset: boolean }
     > = {}
 
     const isFilteredOut = (key: string): boolean => {
@@ -210,9 +216,14 @@ export class InertiaResponse implements InertiaContext {
           currentPage: s.currentPage,
           previousPage: s.previousPage,
           nextPage: s.nextPage,
+          reset: scrollReset,
         }
         if (!resetProps.has(key)) {
-          mergeKeys.push(key)
+          if (scrollMergeIntent === 'prepend') {
+            prependKeys.push(key)
+          } else {
+            mergeKeys.push(key)
+          }
         }
       },
     }

@@ -24,6 +24,7 @@ export interface PageObject {
     previousPage: number | null
     nextPage: number | null
     currentPage: number
+    reset: boolean
   }>
 }
 

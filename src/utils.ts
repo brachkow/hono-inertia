@@ -49,6 +49,12 @@ export function getScrollMergeIntent(c: Context): 'append' | 'prepend' {
   return header === 'prepend' ? 'prepend' : 'append'
 }
 
+// Present only on incremental infinite-scroll fetches; its absence means a fresh
+// load, which is how the server decides whether to reset the scroll collection.
+export function hasScrollMergeIntent(c: Context): boolean {
+  return c.req.header('X-Inertia-Infinite-Scroll-Merge-Intent') !== undefined
+}
+
 export function resolveUrl(c: Context): string {
   const url = new URL(c.req.url)
   return url.pathname + url.search

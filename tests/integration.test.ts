@@ -2007,6 +2007,7 @@ describe('Scroll props', () => {
         currentPage: 1,
         previousPage: null,
         nextPage: 2,
+        reset: true,
       },
     })
   })
@@ -2022,6 +2023,28 @@ describe('Scroll props', () => {
     const res = await app.request('/test', { headers: inertiaHeaders() })
     const page = await getPage(res)
     expect(page.mergeProps).toEqual(['posts'])
+  })
+
+  it('routes scroll prop to prependProps on prepend merge intent', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        posts: scroll(() => [1, 2], mockMetadata),
+      }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'posts',
+        'X-Inertia-Infinite-Scroll-Merge-Intent': 'prepend',
+      }),
+    })
+    const page = await getPage(res)
+    expect(page.prependProps).toEqual(['posts'])
+    expect(page.mergeProps).toBeUndefined()
+    // Incremental fetch (merge-intent header present) must not reset the collection
+    expect(page.scrollProps?.posts?.reset).toBe(false)
   })
 
   it('respects partial reload filtering', async () => {
