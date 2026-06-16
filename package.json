@@ -30,7 +30,8 @@
     "build": "tsup",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "fetch:inertia": "bash scripts/fetch-inertia.sh"
   },
   "peerDependencies": {
     "hono": ">=4.0.0"

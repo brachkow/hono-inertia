@@ -14,6 +14,7 @@ pnpm test:watch    # vitest in watch mode
 pnpm test -- tests/props.test.ts  # run a single test file
 pnpm typecheck     # tsc --noEmit
 pnpm build         # tsup → dist/
+pnpm fetch:inertia # clone upstream Inertia into .inertia/ (gitignored, for reference)
 ```
 
 ## Architecture
@@ -31,3 +32,11 @@ The library is a Hono middleware + prop helpers. Request flow:
 5. **SSR** (`src/ssr.ts`) — dispatches page object to an external SSR server via HTTP POST.
 
 Key type: `InertiaEnv` (`src/types.ts`) — Hono env binding that types `c.get('inertia')`.
+
+## Reference
+
+Consult the upstream Inertia.js project to match its protocol and client behavior:
+
+- Docs: https://inertiajs.com/
+- Changelog (releases): https://github.com/inertiajs/inertia/releases
+- Local source snapshot: run `pnpm fetch:inertia` to clone the Inertia repo into `.inertia/` (gitignored). `.inertia/packages/core` is the client core this server adapter must mirror (data-page boot, X-Inertia headers, partial reloads, deferred/merge props, history encryption).

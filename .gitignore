@@ -2,3 +2,4 @@ node_modules
 dist
 *.tsbuildinfo
 SECURITY_AUDIT.md
+.inertia/
