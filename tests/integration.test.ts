@@ -2175,3 +2175,19 @@ describe('Conformance: nested partial-reload keys', () => {
     expect(page.props.other).toBeUndefined()
   })
 })
+
+// =========================================================================
+// Conformance: version mismatch location
+// =========================================================================
+describe('Conformance: version mismatch location', () => {
+  it('returns a relative path in X-Inertia-Location', async () => {
+    const app = createApp({ version: '2.0' })
+    app.get('/users/:id', (c) => c.var.inertia.render('Users/Show'))
+
+    const res = await app.request('/users/42?tab=profile', {
+      headers: { 'X-Inertia': 'true', 'X-Inertia-Version': '1.0' },
+    })
+    expect(res.status).toBe(409)
+    expect(res.headers.get('X-Inertia-Location')).toBe('/users/42?tab=profile')
+  })
+})
