@@ -4,23 +4,28 @@ export function isInertiaRequest(c: Context): boolean {
   return c.req.header('X-Inertia') === 'true'
 }
 
-export function getPartialData(c: Context): string[] {
-  const header = c.req.header('X-Inertia-Partial-Data')
-  return header ? header.split(',').map((s) => s.trim()).filter(Boolean) : []
+function parseHeaderList(header: string | undefined): Set<string> {
+  if (!header) return new Set()
+  return new Set(header.split(',').map((s) => s.trim()).filter(Boolean))
 }
 
-export function getPartialExcept(c: Context): string[] {
-  const header = c.req.header('X-Inertia-Partial-Except')
-  return header ? header.split(',').map((s) => s.trim()).filter(Boolean) : []
+// Returned as a Set so membership checks in response.ts are O(1) — an attacker
+// could otherwise send thousands of comma-separated keys and force O(n) scans
+// per prop on every partial reload.
+export function getPartialData(c: Context): Set<string> {
+  return parseHeaderList(c.req.header('X-Inertia-Partial-Data'))
+}
+
+export function getPartialExcept(c: Context): Set<string> {
+  return parseHeaderList(c.req.header('X-Inertia-Partial-Except'))
 }
 
 export function getPartialComponent(c: Context): string | null {
   return c.req.header('X-Inertia-Partial-Component') ?? null
 }
 
-export function getExceptOnceProps(c: Context): string[] {
-  const header = c.req.header('X-Inertia-Except-Once-Props')
-  return header ? header.split(',').map((s) => s.trim()).filter(Boolean) : []
+export function getExceptOnceProps(c: Context): Set<string> {
+  return parseHeaderList(c.req.header('X-Inertia-Except-Once-Props'))
 }
 
 export function getErrorBag(c: Context): string | null {
@@ -31,9 +36,8 @@ export function getRequestVersion(c: Context): string | null {
   return c.req.header('X-Inertia-Version') ?? null
 }
 
-export function getResetProps(c: Context): string[] {
-  const header = c.req.header('X-Inertia-Reset')
-  return header ? header.split(',').map((s) => s.trim()).filter(Boolean) : []
+export function getResetProps(c: Context): Set<string> {
+  return parseHeaderList(c.req.header('X-Inertia-Reset'))
 }
 
 export function isPrefetch(c: Context): boolean {
@@ -43,6 +47,12 @@ export function isPrefetch(c: Context): boolean {
 export function getScrollMergeIntent(c: Context): 'append' | 'prepend' {
   const header = c.req.header('X-Inertia-Infinite-Scroll-Merge-Intent')
   return header === 'prepend' ? 'prepend' : 'append'
+}
+
+// Present only on incremental infinite-scroll fetches; its absence means a fresh
+// load, which is how the server decides whether to reset the scroll collection.
+export function hasScrollMergeIntent(c: Context): boolean {
+  return c.req.header('X-Inertia-Infinite-Scroll-Merge-Intent') !== undefined
 }
 
 export function resolveUrl(c: Context): string {

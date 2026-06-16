@@ -22,6 +22,8 @@ import {
   getPartialData,
   getPartialExcept,
   getResetProps,
+  getScrollMergeIntent,
+  hasScrollMergeIntent,
   isInertiaRequest,
   resolveUrl,
 } from './utils.js'
@@ -29,6 +31,7 @@ import {
 export class InertiaResponse implements InertiaContext {
   private sharedProps: Record<string, unknown> = {}
   private viewDataStore: Record<string, unknown> = {}
+  private flashStore: Record<string, unknown> = {}
   private shouldEncryptHistory = false
   private shouldClearHistory = false
   private shouldPreserveFragment = false
@@ -45,6 +48,10 @@ export class InertiaResponse implements InertiaContext {
 
   viewData(data: Record<string, unknown>): void {
     Object.assign(this.viewDataStore, data)
+  }
+
+  flash(data: Record<string, unknown>): void {
+    Object.assign(this.flashStore, data)
   }
 
   encryptHistory(encrypt = true): void {
@@ -108,10 +115,14 @@ export class InertiaResponse implements InertiaContext {
     const partialData = getPartialData(this.c)
     const partialExcept = getPartialExcept(this.c)
     const isPartialRequest =
-      isPartialForThis && (partialData.length > 0 || partialExcept.length > 0)
+      isPartialForThis && (partialData.size > 0 || partialExcept.size > 0)
     const exceptOnceProps = getExceptOnceProps(this.c)
     const errorBag = getErrorBag(this.c)
     const resetProps = getResetProps(this.c)
+    const scrollMergeIntent = getScrollMergeIntent(this.c)
+    // No merge-intent header => a fresh load, so the client should reset the
+    // accumulated infinite-scroll collection rather than append/prepend.
+    const scrollReset = !hasScrollMergeIntent(this.c)
 
     // 3. Classify props and determine which to include
     const included: Record<string, unknown> = {}
@@ -126,14 +137,25 @@ export class InertiaResponse implements InertiaContext {
     > = {}
     const scrollMetadata: Record<
       string,
-      { pageName: string; previousPage: number | null; nextPage: number | null; currentPage: number }
+      { pageName: string; previousPage: number | null; nextPage: number | null; currentPage: number; reset: boolean }
     > = {}
+
+    // A top-level prop is requested if named directly or via a nested path
+    // (e.g. `only: ['user.name']` requests the `user` prop). The client extracts
+    // the nested slice; the server only resolves whole top-level props.
+    const isRequestedByPartialData = (key: string): boolean => {
+      if (partialData.has(key)) return true
+      for (const entry of partialData) {
+        if (entry.startsWith(`${key}.`)) return true
+      }
+      return false
+    }
 
     const isFilteredOut = (key: string): boolean => {
       if (!isPartialRequest) return false
       if (key === 'errors') return false
-      if (partialData.length > 0 && !partialData.includes(key)) return true
-      if (partialExcept.length > 0 && partialExcept.includes(key)) return true
+      if (partialData.size > 0 && !isRequestedByPartialData(key)) return true
+      if (partialExcept.size > 0 && partialExcept.has(key)) return true
       return false
     }
 
@@ -144,12 +166,12 @@ export class InertiaResponse implements InertiaContext {
 
       optional: (key, tagged) => {
         const opt = tagged as OptionalProp
-        if (isPartialRequest && partialData.includes(key)) {
-          if (opt.isOnce && exceptOnceProps.includes(key)) return
+        if (isPartialRequest && isRequestedByPartialData(key)) {
+          if (opt.isOnce && exceptOnceProps.has(opt.onceKey ?? key)) return
           included[key] = opt.value
           if (opt.isOnce) {
-            onceMetadata[key] = {
-              prop: opt.onceKey ?? key,
+            onceMetadata[opt.onceKey ?? key] = {
+              prop: key,
               expiresAt: opt.expiresAt,
             }
           }
@@ -158,15 +180,15 @@ export class InertiaResponse implements InertiaContext {
 
       deferred: (key, tagged) => {
         const def = tagged as DeferredProp
-        if (isPartialForThis && partialData.includes(key)) {
-          if (def.isOnce && exceptOnceProps.includes(key)) return
+        if (isPartialForThis && isRequestedByPartialData(key)) {
+          if (def.isOnce && exceptOnceProps.has(def.onceKey ?? key)) return
           included[key] = def.value
-          if (def.isMerge && !resetProps.includes(key)) {
+          if (def.isMerge && !resetProps.has(key)) {
             collectMergeMetadata(key, def.mergeStrategy, def.matchOn, mergeKeys, prependKeys, deepMergeKeys, matchOnKeys)
           }
           if (def.isOnce) {
-            onceMetadata[key] = {
-              prop: def.onceKey ?? key,
+            onceMetadata[def.onceKey ?? key] = {
+              prop: key,
               expiresAt: def.expiresAt,
             }
           }
@@ -185,18 +207,18 @@ export class InertiaResponse implements InertiaContext {
         const m = tagged as MergeProp
         if (isFilteredOut(key)) return
         included[key] = m.value
-        if (!resetProps.includes(key)) {
+        if (!resetProps.has(key)) {
           collectMergeMetadata(key, m.strategy, m.matchOn, mergeKeys, prependKeys, deepMergeKeys, matchOnKeys)
         }
       },
 
       once: (key, tagged) => {
         const o = tagged as OnceProp
-        if (exceptOnceProps.includes(key)) return
+        if (exceptOnceProps.has(o.onceKey ?? key)) return
         if (isFilteredOut(key)) return
         included[key] = o.value
-        onceMetadata[key] = {
-          prop: o.onceKey ?? key,
+        onceMetadata[o.onceKey ?? key] = {
+          prop: key,
           expiresAt: o.expiresAt,
         }
       },
@@ -210,9 +232,14 @@ export class InertiaResponse implements InertiaContext {
           currentPage: s.currentPage,
           previousPage: s.previousPage,
           nextPage: s.nextPage,
+          reset: scrollReset,
         }
-        if (!resetProps.includes(key)) {
-          mergeKeys.push(key)
+        if (!resetProps.has(key)) {
+          if (scrollMergeIntent === 'prepend') {
+            prependKeys.push(key)
+          } else {
+            mergeKeys.push(key)
+          }
         }
       },
     }
@@ -271,6 +298,9 @@ export class InertiaResponse implements InertiaContext {
     }
     if (sharedKeys.length > 0) {
       page.sharedProps = sharedKeys
+    }
+    if (Object.keys(this.flashStore).length > 0) {
+      page.flash = this.flashStore
     }
     if (Object.keys(deferredGroups).length > 0) {
       page.deferredProps = deferredGroups

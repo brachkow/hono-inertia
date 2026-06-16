@@ -17,6 +17,7 @@ describe('dispatchToSsr', () => {
   it('sends POST to SSR server and returns result', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
+      headers: new Headers(),
       json: () =>
         Promise.resolve({
           head: ['<title>Test</title>', '<meta name="desc" content="x">'],
@@ -31,6 +32,7 @@ describe('dispatchToSsr', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(mockPage),
+      signal: expect.any(AbortSignal),
     })
     expect(result).toEqual({
       head: '<title>Test</title>\n<meta name="desc" content="x">',
@@ -58,6 +60,7 @@ describe('dispatchToSsr', () => {
   it('uses default URL when none provided', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
+      headers: new Headers(),
       json: () => Promise.resolve({ head: [], body: '' }),
     })
     vi.stubGlobal('fetch', mockFetch)
@@ -67,5 +70,36 @@ describe('dispatchToSsr', () => {
       'http://127.0.0.1:13714/render',
       expect.any(Object),
     )
+  })
+
+  it('returns null when the SSR response shape is invalid', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        headers: new Headers(),
+        json: () => Promise.resolve({ head: 'not-an-array', body: 42 }),
+      }),
+    )
+
+    const result = await dispatchToSsr({ url: 'http://localhost:13714' }, mockPage)
+    expect(result).toBeNull()
+  })
+
+  it('returns null when the response exceeds maxResponseBytes', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        headers: new Headers({ 'Content-Length': '5000000' }),
+        json: () => Promise.resolve({ head: [], body: '' }),
+      }),
+    )
+
+    const result = await dispatchToSsr(
+      { url: 'http://localhost:13714', maxResponseBytes: 1000 },
+      mockPage,
+    )
+    expect(result).toBeNull()
   })
 })

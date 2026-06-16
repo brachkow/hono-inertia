@@ -1,6 +1,9 @@
 // Middleware factory
 export { inertia } from './middleware.js'
 
+// Serialization helpers
+export { serializePage, escapeHtml } from './serialize.js'
+
 // Prop wrappers
 export {
   optional,

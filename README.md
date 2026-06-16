@@ -12,7 +12,7 @@ pnpm add @brachkow/hono-inertia
 
 ```ts
 import { Hono } from 'hono'
-import { inertia } from '@brachkow/hono-inertia'
+import { inertia, serializePage } from '@brachkow/hono-inertia'
 import type { InertiaEnv } from '@brachkow/hono-inertia'
 
 const app = new Hono<InertiaEnv>()
@@ -28,8 +28,7 @@ app.use(
   <script type="module" src="/src/main.ts"></script>
 </head>
 <body>
-  <div id="app"></div>
-  <script type="application/json" id="page">${JSON.stringify(page)}</script>
+  <div id="app" data-page="${serializePage(page)}"></div>
 </body>
 </html>`,
   }),
@@ -50,12 +49,13 @@ inertia({
   version: '1.0',
   version: () => readFileSync('dist/manifest.json', 'utf-8'),
 
-  // HTML render function — receives page object, view data, and optional SSR result
+  // HTML render function — receives page object, view data, and optional SSR result.
+  // Use serializePage(page) — never a bare JSON.stringify — see Security below.
   render: (page, viewData, ssr) => {
     if (ssr) {
       return `<html><head>${ssr.head}</head><body>${ssr.body}</body></html>`
     }
-    return `<html><body><div id="app"></div><script type="application/json" id="page">${JSON.stringify(page)}</script></body></html>`
+    return `<html><body><div id="app" data-page="${serializePage(page)}"></div></body></html>`
   },
 
   // Global shared props — merged into every response
@@ -219,15 +219,23 @@ app.get('/download', (c) => {
 })
 ```
 
+Validate any user-supplied URL before passing it to `location()` or `redirect()` to avoid open redirects (see [Security](#security)).
+
 ## History encryption
 
-Encrypt page state in browser history to prevent back-button data exposure:
+Page state is stored **unencrypted** in browser history by default. Encrypt it on pages that render sensitive data so it isn't exposed via the back button after logout (see [Security](#security)). Per request:
 
 ```ts
 app.get('/dashboard', (c) => {
   c.var.inertia.encryptHistory()
   return c.var.inertia.render('Dashboard', { secret: 'data' })
 })
+```
+
+Or globally for every response (a route can opt out with `encryptHistory(false)`):
+
+```ts
+inertia({ encryptHistory: true })
 ```
 
 Clear encrypted history (e.g., on logout):
@@ -255,10 +263,34 @@ Access it in your render function:
 ```ts
 render: (page, viewData) => `
   <html>
-  <head><title>${viewData.metaTitle}</title></head>
-  <body><div id="app"></div><script type="application/json" id="page">${JSON.stringify(page)}</script></body>
+  <head><title>${escapeHtml(String(viewData.metaTitle))}</title></head>
+  <body><div id="app" data-page="${serializePage(page)}"></div></body>
   </html>
 `
+```
+
+## Flash messages
+
+Send one-shot messages (toasts, alerts) to the client. They're delivered to the `onFlash` callback and the `inertia:flash` event on the next render — including the initial visit — then cleared from history so they don't replay on back/forward:
+
+```ts
+app.post('/users', async (c) => {
+  await createUser(c)
+  c.var.inertia.flash({ success: 'User created' })
+  return c.var.inertia.render('Users/Index', { users })
+})
+```
+
+`flash()` accumulates across calls (later keys win), and flash data is a top-level field — it is never mixed into your props.
+
+Because this adapter is session-less, `flash()` applies to the **current** response only. To show a message *after* a redirect (the POST → redirect → GET pattern), persist it across the redirect yourself (e.g. a short-lived cookie) and re-apply it — for example in middleware:
+
+```ts
+app.use(async (c, next) => {
+  const flash = readFlashCookie(c) // your own helper
+  if (flash) c.var.inertia.flash(flash)
+  await next()
+})
 ```
 
 ## SSR
@@ -270,17 +302,67 @@ inertia({
   ssr: {
     url: 'http://127.0.0.1:13714', // default
     enabled: true,
+    timeout: 5000, // ms before falling back to client-side rendering (default 5000)
   },
   render: (page, viewData, ssr) => {
     if (ssr) {
+      // ssr.head / ssr.body are HTML rendered by your own (trusted) SSR server
       return `<html><head>${ssr.head}</head><body>${ssr.body}</body></html>`
     }
-    return `<html><body><div id="app"></div><script type="application/json" id="page">${JSON.stringify(page)}</script></body></html>`
+    return `<html><body><div id="app" data-page="${serializePage(page)}"></div></body></html>`
   },
 })
 ```
 
 Falls back to client-side rendering if the SSR server is unavailable.
+
+## Security
+
+This adapter follows Inertia's official conventions, but a few responsibilities sit with you. In short: **embed the page object with `serializePage`, escape user-controlled view data with `escapeHtml`, and add CSRF protection.**
+
+### Embedding the page object (XSS)
+
+Always embed the page object with `serializePage(page)`, never a bare `JSON.stringify(page)`. `JSON.stringify` does not escape `<`, so a prop value containing `</script>` (a username, comment, search term, validation message, …) would break out of the surrounding markup and execute as HTML/JavaScript. `serializePage` HTML-escapes the JSON for the `data-page` attribute that the Inertia client reads:
+
+```ts
+import { serializePage } from '@brachkow/hono-inertia'
+
+render: (page) => `<div id="app" data-page="${serializePage(page)}"></div>`
+```
+
+For any other user-influenced value you interpolate into HTML yourself (e.g. view data in a `<title>`), use `escapeHtml`:
+
+```ts
+import { escapeHtml } from '@brachkow/hono-inertia'
+
+render: (page, viewData) =>
+  `<title>${escapeHtml(String(viewData.title))}</title>
+   <div id="app" data-page="${serializePage(page)}"></div>`
+```
+
+### CSRF
+
+This adapter does not provide CSRF protection, and the `X-Inertia` header is not a substitute for it. Add CSRF middleware for state-changing requests — with Hono:
+
+```ts
+import { csrf } from 'hono/csrf'
+
+app.use(csrf())
+```
+
+The Inertia client (axios) automatically echoes the `XSRF-TOKEN` cookie back in an `X-XSRF-TOKEN` header, so a cookie-token + header-verification scheme works out of the box.
+
+### History encryption
+
+Page state is stored unencrypted in browser history by default, so a user who presses Back after logging out can still read the previous page's props. Encrypt history on pages with sensitive data — per request with `c.var.inertia.encryptHistory()` or globally with `inertia({ encryptHistory: true })`. It uses the Web Crypto API and therefore requires HTTPS.
+
+### Redirects
+
+`location()` and `redirect()` send the URL you pass straight to the browser. Never pass unvalidated user input (e.g. a `?next=` parameter) to them — validate against an allowlist or restrict to same-origin paths first — or you create an open redirect.
+
+### SSR
+
+The SSR server is a trust boundary: its `head`/`body` are interpolated into your HTML as-is (they are rendered HTML and cannot be escaped without breaking the page). Only point `ssr.url` at a server you control — loopback or an authenticated internal host over HTTPS — and never source it from untrusted input. Responses are bounded by `ssr.timeout` and `ssr.maxResponseBytes`.
 
 ## TypeScript
 

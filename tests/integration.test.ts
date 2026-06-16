@@ -11,6 +11,7 @@ import {
   prepend,
   scroll,
 } from '../src/props.js'
+import { serializePage } from '../src/serialize.js'
 import type { InertiaEnv, PageObject, ScrollMetadata } from '../src/types.js'
 
 function createApp(config?: Partial<Parameters<typeof inertia>[0]>) {
@@ -19,7 +20,7 @@ function createApp(config?: Partial<Parameters<typeof inertia>[0]>) {
     inertia({
       version: '1.0',
       render: (page) =>
-        `<!DOCTYPE html><html><body><div id="app"></div><script type="application/json" id="page">${JSON.stringify(page)}</script></body></html>`,
+        `<!DOCTYPE html><html><body><div id="app" data-page="${serializePage(page)}"></div></body></html>`,
       ...config,
     }),
   )
@@ -38,6 +39,21 @@ async function getPage(res: Response): Promise<PageObject> {
   return res.json() as Promise<PageObject>
 }
 
+function htmlDecode(value: string): string {
+  return value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+}
+
+function parsePageFromHtml(html: string): PageObject {
+  const match = html.match(/data-page="([^"]*)"/)
+  if (!match) throw new Error('no data-page attribute in HTML')
+  return JSON.parse(htmlDecode(match[1])) as PageObject
+}
+
 // =========================================================================
 // 1. Detect Inertia requests via X-Inertia: true
 // =========================================================================
@@ -50,8 +66,8 @@ describe('Inertia request detection', () => {
     expect(res.status).toBe(200)
     expect(res.headers.get('Content-Type')).toContain('text/html')
     const body = await res.text()
-    expect(body).toContain('application/json')
-    expect(body).toContain('<div id="app">')
+    expect(body).toContain('data-page=')
+    expect(body).toContain('<div id="app"')
   })
 
   it('returns JSON for Inertia requests', async () => {
@@ -69,7 +85,7 @@ describe('Inertia request detection', () => {
 // 2. HTML with page data script tag for initial visits
 // =========================================================================
 describe('Initial HTML visit', () => {
-  it('includes page data in script tag', async () => {
+  it('embeds page data in the data-page attribute', async () => {
     const app = createApp()
     app.get('/users', (c) =>
       c.var.inertia.render('Users/Index', { users: [1, 2, 3] }),
@@ -77,10 +93,8 @@ describe('Initial HTML visit', () => {
 
     const res = await app.request('/users')
     const body = await res.text()
-    expect(body).toContain('<script type="application/json" id="page">')
-    const match = body.match(/<script type="application\/json" id="page">(.+?)<\/script>/)
-    expect(match).not.toBeNull()
-    const page = JSON.parse(match![1]) as PageObject
+    expect(body).toContain('<div id="app" data-page="')
+    const page = parsePageFromHtml(body)
     expect(page.component).toBe('Users/Index')
     expect(page.props.users).toEqual([1, 2, 3])
   })
@@ -642,6 +656,21 @@ describe('Once props', () => {
     expect(page.props.plans).toBeUndefined()
     expect(fn).not.toHaveBeenCalled()
   })
+
+  it('skips a once prop when the client echoes its custom key', async () => {
+    const fn = vi.fn(() => ['free', 'pro'])
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', { plans: once(fn, 'plans-cache') }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({ 'X-Inertia-Except-Once-Props': 'plans-cache' }),
+    })
+    const page = await getPage(res)
+    expect(page.props.plans).toBeUndefined()
+    expect(fn).not.toHaveBeenCalled()
+  })
 })
 
 // =========================================================================
@@ -776,7 +805,7 @@ describe('View data', () => {
         version: '1.0',
         render: (page, viewData) => {
           receivedViewData = viewData
-          return `<div id="app"></div><script type="application/json" id="page">${JSON.stringify(page)}</script>`
+          return `<div id="app" data-page="${serializePage(page)}"></div>`
         },
       }),
     )
@@ -788,7 +817,7 @@ describe('View data', () => {
     const res = await app.request('/test')
     expect(receivedViewData).toEqual({ metaTitle: 'My Page' })
     const body = await res.text()
-    const page = JSON.parse(body.match(/<script type="application\/json" id="page">(.+?)<\/script>/)?.[1] ?? '{}')
+    const page = parsePageFromHtml(body)
     expect(page.props.metaTitle).toBeUndefined()
     expect(page.props.title).toBe('Hello')
   })
@@ -1002,7 +1031,7 @@ describe('Multiple deferred groups', () => {
     expect(page2.props.feed).toEqual([1, 2])
     expect(page2.mergeProps).toEqual(['feed'])
     expect(page2.onceProps).toEqual({
-      feed: { prop: 'feed-key', expiresAt: 3600 },
+      'feed-key': { prop: 'feed', expiresAt: 3600 },
     })
   })
 
@@ -1068,7 +1097,7 @@ describe('Optional + once chaining', () => {
 
     expect(page.props.expensive).toBe('data')
     expect(page.onceProps).toEqual({
-      expensive: { prop: 'exp-key', expiresAt: 7200 },
+      'exp-key': { prop: 'expensive', expiresAt: 7200 },
     })
   })
 
@@ -1357,7 +1386,7 @@ describe('Once props edge cases', () => {
     const page = await getPage(res)
 
     expect(page.onceProps).toEqual({
-      plans: { prop: 'custom-plans-key', expiresAt: 3600 },
+      'custom-plans-key': { prop: 'plans', expiresAt: 3600 },
     })
   })
 
@@ -1468,7 +1497,7 @@ describe('View data edge cases', () => {
         version: '1.0',
         render: (page, viewData) => {
           receivedViewData = viewData
-          return `<div id="app"></div><script type="application/json" id="page">${JSON.stringify(page)}</script>`
+          return `<div id="app" data-page="${serializePage(page)}"></div>`
         },
       }),
     )
@@ -1491,7 +1520,7 @@ describe('View data edge cases', () => {
         version: '1.0',
         render: (page, viewData) => {
           receivedViewData = viewData
-          return `<div id="app"></div><script type="application/json" id="page">${JSON.stringify(page)}</script>`
+          return `<div id="app" data-page="${serializePage(page)}"></div>`
         },
       }),
     )
@@ -1619,6 +1648,7 @@ describe('SSR integration', () => {
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
+      headers: new Headers(),
       json: () =>
         Promise.resolve({
           head: ['<title>SSR</title>'],
@@ -1634,7 +1664,7 @@ describe('SSR integration', () => {
         ssr: { url: 'http://localhost:13714' },
         render: (page, _viewData, ssr) => {
           receivedSsr = ssr
-          return `<html>${ssr?.head ?? ''}<body>${ssr?.body ?? JSON.stringify(page)}</body></html>`
+          return `<html>${ssr?.head ?? ''}<body>${ssr?.body ?? serializePage(page)}</body></html>`
         },
       }),
     )
@@ -1663,7 +1693,7 @@ describe('SSR integration', () => {
         ssr: { url: 'http://localhost:13714' },
         render: (page, _viewData, ssr) => {
           receivedSsr = ssr
-          return `<div id="app"></div><script type="application/json" id="page">${JSON.stringify(page)}</script>`
+          return `<div id="app" data-page="${serializePage(page)}"></div>`
         },
       }),
     )
@@ -1685,7 +1715,7 @@ describe('SSR integration', () => {
       inertia({
         version: '1.0',
         ssr: { url: 'http://localhost:13714' },
-        render: (page) => `<div id="app"></div><script type="application/json" id="page">${JSON.stringify(page)}</script>`,
+        render: (page) => `<div id="app" data-page="${serializePage(page)}"></div>`,
       }),
     )
     app.get('/test', (c) => c.var.inertia.render('Test'))
@@ -1705,7 +1735,7 @@ describe('SSR integration', () => {
       inertia({
         version: '1.0',
         ssr: { url: 'http://localhost:13714', enabled: false },
-        render: (page) => `<div id="app"></div><script type="application/json" id="page">${JSON.stringify(page)}</script>`,
+        render: (page) => `<div id="app" data-page="${serializePage(page)}"></div>`,
       }),
     )
     app.get('/test', (c) => c.var.inertia.render('Test'))
@@ -1797,7 +1827,7 @@ describe('Version defaults', () => {
     const app = new Hono<InertiaEnv>()
     app.use(
       inertia({
-        render: (page) => `<div id="app"></div><script type="application/json" id="page">${JSON.stringify(page)}</script>`,
+        render: (page) => `<div id="app" data-page="${serializePage(page)}"></div>`,
       }),
     )
     app.get('/test', (c) => c.var.inertia.render('Test'))
@@ -1992,6 +2022,7 @@ describe('Scroll props', () => {
         currentPage: 1,
         previousPage: null,
         nextPage: 2,
+        reset: true,
       },
     })
   })
@@ -2007,6 +2038,28 @@ describe('Scroll props', () => {
     const res = await app.request('/test', { headers: inertiaHeaders() })
     const page = await getPage(res)
     expect(page.mergeProps).toEqual(['posts'])
+  })
+
+  it('routes scroll prop to prependProps on prepend merge intent', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        posts: scroll(() => [1, 2], mockMetadata),
+      }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'posts',
+        'X-Inertia-Infinite-Scroll-Merge-Intent': 'prepend',
+      }),
+    })
+    const page = await getPage(res)
+    expect(page.prependProps).toEqual(['posts'])
+    expect(page.mergeProps).toBeUndefined()
+    // Incremental fetch (merge-intent header present) must not reset the collection
+    expect(page.scrollProps?.posts?.reset).toBe(false)
   })
 
   it('respects partial reload filtering', async () => {
@@ -2046,5 +2099,172 @@ describe('Scroll props', () => {
     const page = await getPage(res)
     expect(page.props.posts).toEqual([1])
     expect(page.mergeProps).toBeUndefined()
+  })
+})
+
+// =========================================================================
+// Global history encryption config
+// =========================================================================
+describe('Global history encryption config', () => {
+  it('encrypts history for every response when config.encryptHistory is true', async () => {
+    const app = createApp({ encryptHistory: true })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.encryptHistory).toBe(true)
+  })
+
+  it('allows a route to opt out of global history encryption', async () => {
+    const app = createApp({ encryptHistory: true })
+    app.get('/test', (c) => {
+      c.var.inertia.encryptHistory(false)
+      return c.var.inertia.render('Test')
+    })
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.encryptHistory).toBeUndefined()
+  })
+})
+
+// =========================================================================
+// XSS safety: props are escaped in the data-page attribute
+// =========================================================================
+describe('XSS safety', () => {
+  it('escapes script-breaking sequences from props in the data-page attribute', async () => {
+    const payload = `</script><img src=x onerror="alert(1)">`
+    const app = createApp()
+    app.get('/test', (c) => c.var.inertia.render('Test', { bio: payload }))
+
+    const res = await app.request('/test')
+    const body = await res.text()
+
+    // The raw breakout sequence must not survive into the document...
+    expect(body).not.toContain('</script>')
+    expect(body).not.toContain('onerror="alert(1)"')
+    expect(body).toContain('&lt;/script&gt;')
+
+    // ...but it round-trips back to the exact original value for the client.
+    const page = parsePageFromHtml(body)
+    expect(page.props.bio).toBe(payload)
+  })
+})
+
+// =========================================================================
+// Conformance: nested partial-reload keys
+// =========================================================================
+describe('Conformance: nested partial-reload keys', () => {
+  it('includes the top-level prop when only a nested path is requested', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        user: { name: 'Alice', email: 'a@b.c' },
+        other: 'x',
+      }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'user.name',
+      }),
+    })
+    const page = await getPage(res)
+    expect(page.props.user).toEqual({ name: 'Alice', email: 'a@b.c' })
+    expect(page.props.other).toBeUndefined()
+  })
+})
+
+// =========================================================================
+// Conformance: version mismatch location
+// =========================================================================
+describe('Conformance: version mismatch location', () => {
+  it('returns a relative path in X-Inertia-Location', async () => {
+    const app = createApp({ version: '2.0' })
+    app.get('/users/:id', (c) => c.var.inertia.render('Users/Show'))
+
+    const res = await app.request('/users/42?tab=profile', {
+      headers: { 'X-Inertia': 'true', 'X-Inertia-Version': '1.0' },
+    })
+    expect(res.status).toBe(409)
+    expect(res.headers.get('X-Inertia-Location')).toBe('/users/42?tab=profile')
+  })
+})
+
+// =========================================================================
+// Flash messages
+// =========================================================================
+describe('Flash messages', () => {
+  it('emits flash on Inertia JSON responses', async () => {
+    const app = createApp()
+    app.get('/test', (c) => {
+      c.var.inertia.flash({ success: 'Saved!' })
+      return c.var.inertia.render('Test')
+    })
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.flash).toEqual({ success: 'Saved!' })
+  })
+
+  it('emits flash in the data-page attribute on initial visits', async () => {
+    const app = createApp()
+    app.get('/test', (c) => {
+      c.var.inertia.flash({ toast: 'Hi' })
+      return c.var.inertia.render('Test')
+    })
+
+    const res = await app.request('/test')
+    const page = parsePageFromHtml(await res.text())
+    expect(page.flash).toEqual({ toast: 'Hi' })
+  })
+
+  it('accumulates across multiple flash() calls', async () => {
+    const app = createApp()
+    app.get('/test', (c) => {
+      c.var.inertia.flash({ a: 1 })
+      c.var.inertia.flash({ b: 2 })
+      return c.var.inertia.render('Test')
+    })
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.flash).toEqual({ a: 1, b: 2 })
+  })
+
+  it('later flash() calls override earlier keys', async () => {
+    const app = createApp()
+    app.get('/test', (c) => {
+      c.var.inertia.flash({ msg: 'first' })
+      c.var.inertia.flash({ msg: 'second' })
+      return c.var.inertia.render('Test')
+    })
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.flash).toEqual({ msg: 'second' })
+  })
+
+  it('omits flash when none is set', async () => {
+    const app = createApp()
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.flash).toBeUndefined()
+  })
+
+  it('keeps flash out of props', async () => {
+    const app = createApp()
+    app.get('/test', (c) => {
+      c.var.inertia.flash({ success: 'Saved!' })
+      return c.var.inertia.render('Test', { title: 'Home' })
+    })
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.props.success).toBeUndefined()
+    expect(page.props.title).toBe('Home')
   })
 })

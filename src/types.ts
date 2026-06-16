@@ -8,22 +8,25 @@ export interface PageObject {
   component: string
   props: Record<string, unknown>
   url: string
-  version: string
+  version: string | null
   encryptHistory?: boolean
   clearHistory?: boolean
   preserveFragment?: boolean
   sharedProps?: string[]
+  flash?: Record<string, unknown>
+  rescuedProps?: string[]
   deferredProps?: Record<string, string[]>
   mergeProps?: string[]
   prependProps?: string[]
   deepMergeProps?: string[]
   matchPropsOn?: string[]
-  onceProps?: Record<string, { prop: string; expiresAt: number | null }>
+  onceProps?: Record<string, { prop: string; expiresAt?: number | null }>
   scrollProps?: Record<string, {
     pageName: string
     previousPage: number | null
     nextPage: number | null
     currentPage: number
+    reset: boolean
   }>
 }
 
@@ -34,6 +37,10 @@ export interface PageObject {
 export interface SsrConfig {
   url?: string
   enabled?: boolean
+  // Abort the SSR request after this many ms (default 5000), falling back to CSR.
+  timeout?: number
+  // Reject SSR responses larger than this many bytes (default 2_000_000).
+  maxResponseBytes?: number
 }
 
 export interface SsrResult {
@@ -60,6 +67,10 @@ export interface InertiaConfig {
   render: RenderFunction
   ssr?: SsrConfig
   share?: (c: Context) => Record<string, unknown> | Promise<Record<string, unknown>>
+  // Encrypt browser history state for every response (mirrors Inertia's global
+  // `history.encrypt` option). Off by default; pages can opt out per-request via
+  // `c.var.inertia.encryptHistory(false)`. Requires the client to be served over HTTPS.
+  encryptHistory?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -79,6 +90,7 @@ export interface InertiaContext {
   clearHistory(clear?: boolean): void
   preserveFragment(preserve?: boolean): void
   viewData(data: Record<string, unknown>): void
+  flash(data: Record<string, unknown>): void
 }
 
 // ---------------------------------------------------------------------------
