@@ -2150,3 +2150,28 @@ describe('XSS safety', () => {
     expect(page.props.bio).toBe(payload)
   })
 })
+
+// =========================================================================
+// Conformance: nested partial-reload keys
+// =========================================================================
+describe('Conformance: nested partial-reload keys', () => {
+  it('includes the top-level prop when only a nested path is requested', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        user: { name: 'Alice', email: 'a@b.c' },
+        other: 'x',
+      }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'user.name',
+      }),
+    })
+    const page = await getPage(res)
+    expect(page.props.user).toEqual({ name: 'Alice', email: 'a@b.c' })
+    expect(page.props.other).toBeUndefined()
+  })
+})

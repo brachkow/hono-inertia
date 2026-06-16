@@ -135,10 +135,21 @@ export class InertiaResponse implements InertiaContext {
       { pageName: string; previousPage: number | null; nextPage: number | null; currentPage: number; reset: boolean }
     > = {}
 
+    // A top-level prop is requested if named directly or via a nested path
+    // (e.g. `only: ['user.name']` requests the `user` prop). The client extracts
+    // the nested slice; the server only resolves whole top-level props.
+    const isRequestedByPartialData = (key: string): boolean => {
+      if (partialData.has(key)) return true
+      for (const entry of partialData) {
+        if (entry.startsWith(`${key}.`)) return true
+      }
+      return false
+    }
+
     const isFilteredOut = (key: string): boolean => {
       if (!isPartialRequest) return false
       if (key === 'errors') return false
-      if (partialData.size > 0 && !partialData.has(key)) return true
+      if (partialData.size > 0 && !isRequestedByPartialData(key)) return true
       if (partialExcept.size > 0 && partialExcept.has(key)) return true
       return false
     }
@@ -150,7 +161,7 @@ export class InertiaResponse implements InertiaContext {
 
       optional: (key, tagged) => {
         const opt = tagged as OptionalProp
-        if (isPartialRequest && partialData.has(key)) {
+        if (isPartialRequest && isRequestedByPartialData(key)) {
           if (opt.isOnce && exceptOnceProps.has(opt.onceKey ?? key)) return
           included[key] = opt.value
           if (opt.isOnce) {
@@ -164,7 +175,7 @@ export class InertiaResponse implements InertiaContext {
 
       deferred: (key, tagged) => {
         const def = tagged as DeferredProp
-        if (isPartialForThis && partialData.has(key)) {
+        if (isPartialForThis && isRequestedByPartialData(key)) {
           if (def.isOnce && exceptOnceProps.has(def.onceKey ?? key)) return
           included[key] = def.value
           if (def.isMerge && !resetProps.has(key)) {
