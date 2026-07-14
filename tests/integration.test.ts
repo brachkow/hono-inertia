@@ -1823,7 +1823,7 @@ describe('Lazy evaluation edge cases', () => {
 // Version defaults
 // =========================================================================
 describe('Version defaults', () => {
-  it('defaults to empty string when no version provided', async () => {
+  const createUnversionedApp = () => {
     const app = new Hono<InertiaEnv>()
     app.use(
       inertia({
@@ -1831,13 +1831,191 @@ describe('Version defaults', () => {
       }),
     )
     app.get('/test', (c) => c.var.inertia.render('Test'))
+    return app
+  }
+
+  it('emits version null when no version is configured', async () => {
+    const app = createUnversionedApp()
+
+    const res = await app.request('/test', {
+      headers: { 'X-Inertia': 'true' },
+    })
+
+    expect(res.status).toBe(200)
+    const page = await getPage(res)
+    expect(page.version).toBe(null)
+  })
+
+  it('never 409s when versioning is disabled, even if the client sends a version', async () => {
+    const app = createUnversionedApp()
+
+    const res = await app.request('/test', {
+      headers: { 'X-Inertia': 'true', 'X-Inertia-Version': 'stale-version' },
+    })
+
+    expect(res.status).toBe(200)
+  })
+
+  it('never 409s on a missing X-Inertia-Version header', async () => {
+    const app = createApp({ version: '2.0' })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', { headers: { 'X-Inertia': 'true' } })
+
+    expect(res.status).toBe(200)
+  })
+
+  it('never 409s on an empty X-Inertia-Version header', async () => {
+    const app = createApp({ version: '2.0' })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
 
     const res = await app.request('/test', {
       headers: { 'X-Inertia': 'true', 'X-Inertia-Version': '' },
     })
+
     expect(res.status).toBe(200)
-    const page = await getPage(res)
-    expect(page.version).toBe('')
+  })
+})
+
+describe('Cache-Control', () => {
+  const DEFAULT = 'private, no-cache, must-revalidate'
+
+  it('sets the default header on Inertia JSON responses', async () => {
+    const app = createApp()
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+
+    expect(res.headers.get('Cache-Control')).toBe(DEFAULT)
+  })
+
+  it('sets the default header on initial HTML responses', async () => {
+    const app = createApp()
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test')
+
+    expect(res.headers.get('Cache-Control')).toBe(DEFAULT)
+  })
+
+  it('sets the default header on 409 version mismatches', async () => {
+    const app = createApp({ version: '2.0' })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', {
+      headers: { 'X-Inertia': 'true', 'X-Inertia-Version': '1.0' },
+    })
+
+    expect(res.status).toBe(409)
+    expect(res.headers.get('Cache-Control')).toBe(DEFAULT)
+  })
+
+  it('sets the default header on location() 409 responses', async () => {
+    const app = createApp()
+    app.get('/away', (c) => c.var.inertia.location('https://example.com'))
+
+    const res = await app.request('/away', { headers: inertiaHeaders() })
+
+    expect(res.status).toBe(409)
+    expect(res.headers.get('Cache-Control')).toBe(DEFAULT)
+  })
+
+  it('sets the default header on redirect() 409 responses', async () => {
+    const app = createApp()
+    app.get('/away', (c) => c.var.inertia.redirect('/other#section'))
+
+    const res = await app.request('/away', { headers: inertiaHeaders() })
+
+    expect(res.status).toBe(409)
+    expect(res.headers.get('Cache-Control')).toBe(DEFAULT)
+  })
+
+  it('uses a custom cacheControl value', async () => {
+    const app = createApp({ cacheControl: 'no-store' })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+
+    expect(res.headers.get('Cache-Control')).toBe('no-store')
+  })
+
+  it('omits the header when cacheControl is false', async () => {
+    const app = createApp({ cacheControl: false })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+
+    expect(res.headers.get('Cache-Control')).toBe(null)
+  })
+
+  it('preserves a handler-set Cache-Control on HTML responses', async () => {
+    const app = createApp()
+    app.get('/test', (c) => {
+      c.header('Cache-Control', 'public, max-age=60')
+      return c.var.inertia.render('Test')
+    })
+
+    const res = await app.request('/test')
+
+    expect(res.headers.get('Cache-Control')).toBe('public, max-age=60')
+  })
+
+  it('does not stamp passthrough responses', async () => {
+    const app = createApp()
+    app.get('/api', (c) => c.json({ ok: true }))
+
+    const res = await app.request('/api')
+
+    expect(res.headers.get('Cache-Control')).toBe(null)
+  })
+})
+
+describe('Lazy version resolution', () => {
+  const createCountingApp = () => {
+    let calls = 0
+    const app = new Hono<InertiaEnv>()
+    app.use(
+      inertia({
+        version: () => {
+          calls++
+          return '1.0'
+        },
+        render: (page) => `<div id="app" data-page="${serializePage(page)}"></div>`,
+      }),
+    )
+    app.get('/page', (c) => c.var.inertia.render('Test'))
+    app.get('/passthrough', (c) => c.json({ ok: true }))
+    app.post('/action', (c) => c.redirect('/page'))
+    return { app, calls: () => calls }
+  }
+
+  it('does not resolve the version on passthrough routes', async () => {
+    const { app, calls } = createCountingApp()
+
+    await app.request('/passthrough')
+
+    expect(calls()).toBe(0)
+  })
+
+  it('does not resolve the version on POST requests that never render', async () => {
+    const { app, calls } = createCountingApp()
+
+    await app.request('/action', {
+      method: 'POST',
+      headers: { 'X-Inertia': 'true', 'X-Inertia-Version': '0.9' },
+    })
+
+    expect(calls()).toBe(0)
+  })
+
+  it('resolves the version at most once per rendering request', async () => {
+    const { app, calls } = createCountingApp()
+
+    await app.request('/page', {
+      headers: { 'X-Inertia': 'true', 'X-Inertia-Version': '1.0' },
+    })
+
+    expect(calls()).toBe(1)
   })
 })
 

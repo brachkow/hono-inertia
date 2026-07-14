@@ -1,4 +1,17 @@
 import type { Context } from 'hono'
+import type { InertiaConfig } from './types.js'
+
+// Without Cache-Control, browsers apply heuristic freshness to the HTML
+// document — after a 409-triggered full reload they may serve the same stale
+// document again, defeating asset versioning. `no-cache` (not `no-store`,
+// which disables bfcache) forces revalidation; `private` because the HTML
+// embeds per-user state in data-page.
+const DEFAULT_CACHE_CONTROL = 'private, no-cache, must-revalidate'
+
+export function cacheControlValue(config: InertiaConfig): string | undefined {
+  if (config.cacheControl === false) return undefined
+  return config.cacheControl ?? DEFAULT_CACHE_CONTROL
+}
 
 export function isInertiaRequest(c: Context): boolean {
   return c.req.header('X-Inertia') === 'true'

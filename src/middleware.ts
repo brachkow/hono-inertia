@@ -2,29 +2,46 @@ import { createMiddleware } from 'hono/factory'
 import type { MiddlewareHandler } from 'hono'
 import type { InertiaConfig, InertiaEnv } from './types.js'
 import { InertiaResponse } from './response.js'
-import { getRequestVersion, isInertiaRequest, resolveUrl } from './utils.js'
+import { cacheControlValue, getRequestVersion, isInertiaRequest, resolveUrl } from './utils.js'
 
 export function inertia(config: InertiaConfig): MiddlewareHandler<InertiaEnv> {
   return createMiddleware<InertiaEnv>(async (c, next) => {
-    // Resolve current asset version
-    const currentVersion =
-      typeof config.version === 'function'
-        ? await config.version()
-        : config.version ?? ''
+    // Current asset version, resolved lazily and at most once per request —
+    // a version thunk must not run on passthrough routes or POSTs that never
+    // need it. Not cached across requests: a thunk may intentionally be live.
+    let resolved: Promise<string | null> | undefined
+    const currentVersion = (): Promise<string | null> => {
+      resolved ??=
+        config.version === undefined
+          ? Promise.resolve(null)
+          : Promise.resolve(
+              typeof config.version === 'function'
+                ? config.version()
+                : config.version,
+            )
+      return resolved
+    }
 
-    // Version conflict check (before handler, GET only)
+    // Version conflict check (before handler, GET only). A missing or empty
+    // X-Inertia-Version never 409s, and a null server version means
+    // versioning is disabled — both per Inertia protocol (matches Laravel).
     if (
       isInertiaRequest(c) &&
       c.req.method === 'GET'
     ) {
       const clientVersion = getRequestVersion(c)
-      if (clientVersion && clientVersion !== currentVersion) {
-        return c.body(null, 409, {
-          // Relative path (not c.req.url): an absolute URL would send the client
-          // to the internal origin behind a proxy. Matches page.url's format.
-          'X-Inertia-Location': resolveUrl(c),
-          'Vary': 'X-Inertia',
-        })
+      if (clientVersion) {
+        const version = await currentVersion()
+        if (version !== null && clientVersion !== version) {
+          const cacheControl = cacheControlValue(config)
+          return c.body(null, 409, {
+            // Relative path (not c.req.url): an absolute URL would send the client
+            // to the internal origin behind a proxy. Matches page.url's format.
+            'X-Inertia-Location': resolveUrl(c),
+            'Vary': 'X-Inertia',
+            ...(cacheControl !== undefined && { 'Cache-Control': cacheControl }),
+          })
+        }
       }
     }
 
