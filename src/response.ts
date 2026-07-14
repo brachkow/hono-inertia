@@ -16,6 +16,7 @@ import type {
 import { isTaggedProp } from './props.js'
 import { dispatchToSsr } from './ssr.js'
 import {
+  cacheControlValue,
   getErrorBag,
   getExceptOnceProps,
   getPartialComponent,
@@ -73,6 +74,7 @@ export class InertiaResponse implements InertiaContext {
         headers: {
           'X-Inertia-Redirect': url,
           'Vary': 'X-Inertia',
+          ...this.cacheControlHeader(),
         },
       })
     }
@@ -86,10 +88,16 @@ export class InertiaResponse implements InertiaContext {
         headers: {
           'X-Inertia-Location': url,
           'Vary': 'X-Inertia',
+          ...this.cacheControlHeader(),
         },
       })
     }
     return this.c.redirect(url, 302)
+  }
+
+  private cacheControlHeader(): Record<string, string> {
+    const cacheControl = cacheControlValue(this.config)
+    return cacheControl !== undefined ? { 'Cache-Control': cacheControl } : {}
   }
 
   async render(
@@ -332,6 +340,7 @@ export class InertiaResponse implements InertiaContext {
           'Content-Type': 'application/json',
           'X-Inertia': 'true',
           'Vary': 'X-Inertia',
+          ...this.cacheControlHeader(),
         },
       })
     }
@@ -346,7 +355,13 @@ export class InertiaResponse implements InertiaContext {
     }
 
     const htmlContent = await this.config.render(page, mergedViewData, ssrResult)
-    return this.c.html(htmlContent)
+    const res = await this.c.html(htmlContent)
+    // Only when absent: a Cache-Control set by the handler (via c.header) wins.
+    const cacheControl = cacheControlValue(this.config)
+    if (cacheControl !== undefined && !res.headers.has('Cache-Control')) {
+      res.headers.set('Cache-Control', cacheControl)
+    }
+    return res
   }
 }
 

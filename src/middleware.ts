@@ -2,7 +2,7 @@ import { createMiddleware } from 'hono/factory'
 import type { MiddlewareHandler } from 'hono'
 import type { InertiaConfig, InertiaEnv } from './types.js'
 import { InertiaResponse } from './response.js'
-import { getRequestVersion, isInertiaRequest, resolveUrl } from './utils.js'
+import { cacheControlValue, getRequestVersion, isInertiaRequest, resolveUrl } from './utils.js'
 
 export function inertia(config: InertiaConfig): MiddlewareHandler<InertiaEnv> {
   return createMiddleware<InertiaEnv>(async (c, next) => {
@@ -33,11 +33,13 @@ export function inertia(config: InertiaConfig): MiddlewareHandler<InertiaEnv> {
       if (clientVersion) {
         const version = await currentVersion()
         if (version !== null && clientVersion !== version) {
+          const cacheControl = cacheControlValue(config)
           return c.body(null, 409, {
             // Relative path (not c.req.url): an absolute URL would send the client
             // to the internal origin behind a proxy. Matches page.url's format.
             'X-Inertia-Location': resolveUrl(c),
             'Vary': 'X-Inertia',
+            ...(cacheControl !== undefined && { 'Cache-Control': cacheControl }),
           })
         }
       }

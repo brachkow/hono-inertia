@@ -1877,6 +1877,99 @@ describe('Version defaults', () => {
   })
 })
 
+describe('Cache-Control', () => {
+  const DEFAULT = 'private, no-cache, must-revalidate'
+
+  it('sets the default header on Inertia JSON responses', async () => {
+    const app = createApp()
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+
+    expect(res.headers.get('Cache-Control')).toBe(DEFAULT)
+  })
+
+  it('sets the default header on initial HTML responses', async () => {
+    const app = createApp()
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test')
+
+    expect(res.headers.get('Cache-Control')).toBe(DEFAULT)
+  })
+
+  it('sets the default header on 409 version mismatches', async () => {
+    const app = createApp({ version: '2.0' })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', {
+      headers: { 'X-Inertia': 'true', 'X-Inertia-Version': '1.0' },
+    })
+
+    expect(res.status).toBe(409)
+    expect(res.headers.get('Cache-Control')).toBe(DEFAULT)
+  })
+
+  it('sets the default header on location() 409 responses', async () => {
+    const app = createApp()
+    app.get('/away', (c) => c.var.inertia.location('https://example.com'))
+
+    const res = await app.request('/away', { headers: inertiaHeaders() })
+
+    expect(res.status).toBe(409)
+    expect(res.headers.get('Cache-Control')).toBe(DEFAULT)
+  })
+
+  it('sets the default header on redirect() 409 responses', async () => {
+    const app = createApp()
+    app.get('/away', (c) => c.var.inertia.redirect('/other#section'))
+
+    const res = await app.request('/away', { headers: inertiaHeaders() })
+
+    expect(res.status).toBe(409)
+    expect(res.headers.get('Cache-Control')).toBe(DEFAULT)
+  })
+
+  it('uses a custom cacheControl value', async () => {
+    const app = createApp({ cacheControl: 'no-store' })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+
+    expect(res.headers.get('Cache-Control')).toBe('no-store')
+  })
+
+  it('omits the header when cacheControl is false', async () => {
+    const app = createApp({ cacheControl: false })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+
+    expect(res.headers.get('Cache-Control')).toBe(null)
+  })
+
+  it('preserves a handler-set Cache-Control on HTML responses', async () => {
+    const app = createApp()
+    app.get('/test', (c) => {
+      c.header('Cache-Control', 'public, max-age=60')
+      return c.var.inertia.render('Test')
+    })
+
+    const res = await app.request('/test')
+
+    expect(res.headers.get('Cache-Control')).toBe('public, max-age=60')
+  })
+
+  it('does not stamp passthrough responses', async () => {
+    const app = createApp()
+    app.get('/api', (c) => c.json({ ok: true }))
+
+    const res = await app.request('/api')
+
+    expect(res.headers.get('Cache-Control')).toBe(null)
+  })
+})
+
 describe('Lazy version resolution', () => {
   const createCountingApp = () => {
     let calls = 0

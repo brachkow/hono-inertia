@@ -73,6 +73,9 @@ export interface InertiaConfig {
   // `history.encrypt` option). Off by default; pages can opt out per-request via
   // `c.var.inertia.encryptHistory(false)`. Requires the client to be served over HTTPS.
   encryptHistory?: boolean
+  // Cache-Control for adapter-emitted responses (JSON, HTML, 409s). Defaults to
+  // 'private, no-cache, must-revalidate'; set false to omit the header.
+  cacheControl?: string | false
 }
 
 // ---------------------------------------------------------------------------
