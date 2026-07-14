@@ -437,7 +437,17 @@ Adapter-emitted responses (Inertia JSON, initial HTML, 409s) carry `Cache-Contro
 - `private`: the rendered HTML embeds per-user props (session, auth) in `data-page`; a shared cache or CDN must never store it.
 - `no-cache` (store but revalidate) rather than `no-store`, which would disable the back/forward cache and turn every back-navigation into a full load.
 
-Override the value with `cacheControl: '…'`, or opt out with `cacheControl: false`. A `Cache-Control` set in a handler (via `c.header()`) before `render()` takes precedence. Responses the adapter doesn't emit (your own routes) are never touched.
+Override the value with `cacheControl: '…'`, or opt out with `cacheControl: false`. On initial HTML responses, a `Cache-Control` set in the handler (via `c.header()`) before `render()` takes precedence. Inertia JSON and 409 responses are constructed fresh and always use the config value — for a per-route override, set the header on the returned response:
+
+```ts
+app.get('/pricing', async (c) => {
+  const res = await c.var.inertia.render('Pricing', { plans })
+  res.headers.set('Cache-Control', 'public, max-age=300')
+  return res
+})
+```
+
+Responses the adapter doesn't emit (your own routes) are never touched.
 
 ### SSR
 
