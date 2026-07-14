@@ -63,6 +63,8 @@ export type RenderFunction = (
 // ---------------------------------------------------------------------------
 
 export interface InertiaConfig {
+  // Asset version. Omitting it disables version checks (page.version: null).
+  // Keep the value short — the client echoes it back as a request header.
   version?: string | (() => string | Promise<string>)
   render: RenderFunction
   ssr?: SsrConfig

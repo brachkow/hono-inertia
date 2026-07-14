@@ -39,7 +39,7 @@ export class InertiaResponse implements InertiaContext {
   constructor(
     private c: Context,
     private config: InertiaConfig,
-    private version: string,
+    private version: () => Promise<string | null>,
   ) {}
 
   share(data: Record<string, unknown>): void {
@@ -284,7 +284,7 @@ export class InertiaResponse implements InertiaContext {
       component,
       props: resolved,
       url: resolveUrl(this.c),
-      version: this.version,
+      version: await this.version(),
     }
 
     if (this.shouldEncryptHistory) {
