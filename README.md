@@ -316,6 +316,8 @@ app.post('/logout', (c) => {
 })
 ```
 
+`clearHistory()` survives redirects. The flag itself can only travel on a rendered page object, and logout handlers redirect — so when a handler calls `clearHistory()` and then redirects (plain `c.redirect()`, the 302→303 conversion, `c.var.inertia.redirect()`, or `location()`), the middleware flashes it in a short-lived first-party cookie (`inertia_clear_history`: `HttpOnly`, `SameSite=Lax`, `Path=/`, `Max-Age=60`) and the redirect target's response carries `clearHistory: true` automatically. This mirrors Laravel's session-flashed `clearHistory`. Two caveats: the redirect target must be handled by this middleware (otherwise the cookie just expires), and `Path=/` means multiple apps on one origin share the flag.
+
 ## View data
 
 Pass data to the render function without exposing it to the client-side JavaScript:
@@ -425,6 +427,20 @@ The Inertia client (axios) automatically echoes the `XSRF-TOKEN` cookie back in 
 
 Page state is stored unencrypted in browser history by default, so a user who presses Back after logging out can still read the previous page's props. Encrypt history on pages with sensitive data — per request with `c.var.inertia.encryptHistory()` or globally with `inertia({ encryptHistory: true })`. It uses the Web Crypto API and therefore requires HTTPS.
 
+That requirement fails **silently**: `window.crypto.subtle` is undefined in non-secure contexts (e.g. testing over a plain-http LAN IP from a phone), and the Inertia client then logs "Encryption is not supported in this environment. SSL is required." and stores history **in plaintext**. `localhost` counts as a secure context, so this only bites on non-localhost HTTP.
+
+Encryption alone doesn't cover the back button either — see the back/forward cache note under [Caching](#caching). A complete logout looks like:
+
+```ts
+app.post('/logout', (c) => {
+  deleteCookie(c, 'session')        // 1. end the session
+  c.var.inertia.clearHistory()      // 2. rotate the history encryption key
+  return c.redirect('/login')       //    (flashed across the redirect)
+})
+```
+
+with `encryptHistory` enabled on authenticated pages, plus `Cache-Control: no-store` and a `pageshow` guard on those pages if bfcache restoration matters to you (below).
+
 ### Redirects
 
 `location()` and `redirect()` send the URL you pass straight to the browser. Never pass unvalidated user input (e.g. a `?next=` parameter) to them — validate against an allowlist or restrict to same-origin paths first — or you create an open redirect.
@@ -448,6 +464,16 @@ app.get('/pricing', async (c) => {
 ```
 
 Responses the adapter doesn't emit (your own routes) are never touched.
+
+**Back/forward cache.** The `no-cache` default does *not* keep pages out of the browser's back/forward cache — bfcache snapshots the fully rendered page, so Safari and Firefox can restore an authenticated page on Back after logout regardless of history encryption (encryption protects the stored history *state*, not the rendered snapshot). `no-store` disqualifies the page from bfcache in Firefox and Chromium, but Safari may bfcache even `no-store` pages, so pair a per-route `no-store` on authenticated pages with a client-side guard:
+
+```js
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted) window.location.reload()
+})
+```
+
+Note for testing: Chromium automation (`page.goBack()` in Playwright) exercises `popstate`, not bfcache — a passing Chromium test proves nothing about the Safari/Firefox Back behavior.
 
 ### SSR
 
