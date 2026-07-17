@@ -1,8 +1,21 @@
 import { createMiddleware } from 'hono/factory'
+import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import type { MiddlewareHandler } from 'hono'
 import type { InertiaConfig, InertiaEnv } from './types.js'
 import { InertiaResponse } from './response.js'
-import { cacheControlValue, getRequestVersion, isInertiaRequest, resolveUrl } from './utils.js'
+import { cacheControlValue, getRequestVersion, isInertiaRequest, isPrefetch, resolveUrl } from './utils.js'
+
+export const CLEAR_HISTORY_COOKIE = 'inertia_clear_history'
+
+const REDIRECT_STATUSES = [301, 302, 303, 307, 308]
+
+// clearHistory only lands on a rendered page object, but logout handlers
+// redirect. Laravel flashes the flag via session; this adapter is stateless,
+// so the redirect target inherits it through a short-lived cookie instead.
+const isRedirectShaped = (res: Response): boolean =>
+  REDIRECT_STATUSES.includes(res.status) ||
+  (res.status === 409 &&
+    (res.headers.has('X-Inertia-Redirect') || res.headers.has('X-Inertia-Location')))
 
 export function inertia(config: InertiaConfig): MiddlewareHandler<InertiaEnv> {
   return createMiddleware<InertiaEnv>(async (c, next) => {
@@ -60,6 +73,15 @@ export function inertia(config: InertiaConfig): MiddlewareHandler<InertiaEnv> {
       response.encryptHistory(true)
     }
 
+    // Consume a flashed clearHistory cookie from a preceding redirect.
+    // Prefetches are skipped: a prefetched page may be discarded client-side,
+    // which would swallow the flag without ever clearing history.
+    const hadClearHistoryCookie =
+      !isPrefetch(c) && getCookie(c, CLEAR_HISTORY_COOKIE) !== undefined
+    if (hadClearHistoryCookie) {
+      response.clearHistory()
+    }
+
     await next()
 
     // Post-handler: convert 302 → 303 for PUT/PATCH/DELETE on Inertia requests
@@ -69,13 +91,33 @@ export function inertia(config: InertiaConfig): MiddlewareHandler<InertiaEnv> {
       ['PUT', 'PATCH', 'DELETE'].includes(c.req.method)
     ) {
       const location = c.res.headers.get('Location') || '/'
+      const headers = new Headers(c.res.headers)
+      headers.set('Location', location)
+      headers.set('Vary', 'X-Inertia')
       c.res = new Response(null, {
         status: 303,
-        headers: {
-          Location: location,
-          'Vary': 'X-Inertia',
-        },
+        headers,
       })
+    }
+
+    // Flash clearHistory across redirects: set the cookie when the flag would
+    // otherwise be lost, delete it once render() put it on the page (or the
+    // handler cancelled it), and leave it untouched on unrelated responses —
+    // a parallel non-page request must not eat the flag before the redirect
+    // target renders. Max-Age bounds stray cookies.
+    if (response.clearHistoryPending && isRedirectShaped(c.res)) {
+      setCookie(c, CLEAR_HISTORY_COOKIE, '1', {
+        path: '/',
+        httpOnly: true,
+        sameSite: 'Lax',
+        maxAge: 60,
+        secure: new URL(c.req.url).protocol === 'https:',
+      })
+    } else if (
+      hadClearHistoryCookie &&
+      (response.clearHistoryConsumed || !response.clearHistoryPending)
+    ) {
+      deleteCookie(c, CLEAR_HISTORY_COOKIE, { path: '/' })
     }
 
     // Ensure Vary: X-Inertia on all responses

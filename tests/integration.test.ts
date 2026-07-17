@@ -147,6 +147,26 @@ describe('302→303 redirect conversion', () => {
     const res = await app.request('/submit', { method: 'PUT' })
     expect(res.status).toBe(302)
   })
+
+  it('preserves handler headers, including multiple Set-Cookie', async () => {
+    const app = createApp()
+    app.put('/logout', (c) => {
+      c.header('Set-Cookie', 'session=; Max-Age=0; Path=/', { append: true })
+      c.header('Set-Cookie', 'refresh=; Max-Age=0; Path=/', { append: true })
+      c.header('X-Custom', 'kept')
+      return c.redirect('/', 302)
+    })
+
+    const res = await app.request('/logout', {
+      method: 'PUT',
+      headers: inertiaHeaders(),
+    })
+    expect(res.status).toBe(303)
+    expect(res.headers.get('X-Custom')).toBe('kept')
+    const cookies = res.headers.getSetCookie()
+    expect(cookies).toContain('session=; Max-Age=0; Path=/')
+    expect(cookies).toContain('refresh=; Max-Age=0; Path=/')
+  })
 })
 
 // =========================================================================
@@ -709,6 +729,166 @@ describe('History encryption', () => {
     const res = await app.request('/test', { headers: inertiaHeaders() })
     const page = await getPage(res)
     expect(page.clearHistory).toBe(true)
+  })
+})
+
+// =========================================================================
+// 18b. clearHistory flash across redirects
+// =========================================================================
+describe('clearHistory across redirects', () => {
+  const COOKIE = 'inertia_clear_history'
+
+  const flashedCookie = (res: Response) =>
+    res.headers.getSetCookie().find((cookie) => cookie.startsWith(`${COOKIE}=`))
+
+  it('flashes a cookie on a plain 302 redirect', async () => {
+    const app = createApp()
+    app.post('/logout', (c) => {
+      c.var.inertia.clearHistory()
+      return c.redirect('/', 302)
+    })
+
+    const res = await app.request('/logout', { method: 'POST' })
+    expect(res.status).toBe(302)
+    const cookie = flashedCookie(res)
+    expect(cookie).toContain(`${COOKIE}=1`)
+    expect(cookie).toContain('Path=/')
+    expect(cookie).toContain('HttpOnly')
+    expect(cookie).toContain('SameSite=Lax')
+    expect(cookie).toContain('Max-Age=60')
+  })
+
+  it('flashes a cookie on a 302→303 converted redirect', async () => {
+    const app = createApp()
+    app.delete('/session', (c) => {
+      c.var.inertia.clearHistory()
+      return c.redirect('/', 302)
+    })
+
+    const res = await app.request('/session', {
+      method: 'DELETE',
+      headers: inertiaHeaders(),
+    })
+    expect(res.status).toBe(303)
+    expect(flashedCookie(res)).toContain(`${COOKIE}=1`)
+  })
+
+  it('flashes a cookie on a 409 X-Inertia-Redirect', async () => {
+    const app = createApp()
+    app.post('/logout', (c) => {
+      c.var.inertia.clearHistory()
+      return c.var.inertia.redirect('/')
+    })
+
+    const res = await app.request('/logout', {
+      method: 'POST',
+      headers: inertiaHeaders(),
+    })
+    expect(res.status).toBe(409)
+    expect(res.headers.get('X-Inertia-Redirect')).toBe('/')
+    expect(flashedCookie(res)).toContain(`${COOKIE}=1`)
+  })
+
+  it('flashes a cookie on a 409 X-Inertia-Location', async () => {
+    const app = createApp()
+    app.post('/logout', (c) => {
+      c.var.inertia.clearHistory()
+      return c.var.inertia.location('https://sso.example.com/logout')
+    })
+
+    const res = await app.request('/logout', {
+      method: 'POST',
+      headers: inertiaHeaders(),
+    })
+    expect(res.status).toBe(409)
+    expect(flashedCookie(res)).toContain(`${COOKIE}=1`)
+  })
+
+  it('does not set a cookie when clearHistory lands on a render', async () => {
+    const app = createApp()
+    app.get('/test', (c) => {
+      c.var.inertia.clearHistory()
+      return c.var.inertia.render('Test')
+    })
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    expect(flashedCookie(res)).toBeUndefined()
+  })
+
+  it('applies the flashed flag to the next JSON page and deletes the cookie', async () => {
+    const app = createApp()
+    app.get('/', (c) => c.var.inertia.render('Home'))
+
+    const res = await app.request('/', {
+      headers: inertiaHeaders({ Cookie: `${COOKIE}=1` }),
+    })
+    const page = await getPage(res)
+    expect(page.clearHistory).toBe(true)
+    const cookie = flashedCookie(res)
+    expect(cookie).toContain(`${COOKIE}=`)
+    expect(cookie).toContain('Max-Age=0')
+  })
+
+  it('applies the flashed flag to the next initial HTML visit', async () => {
+    const app = createApp()
+    app.get('/', (c) => c.var.inertia.render('Home'))
+
+    const res = await app.request('/', {
+      headers: { Cookie: `${COOKIE}=1` },
+    })
+    const page = parsePageFromHtml(await res.text())
+    expect(page.clearHistory).toBe(true)
+    expect(flashedCookie(res)).toContain('Max-Age=0')
+  })
+
+  it('re-flashes the cookie across a redirect chain', async () => {
+    const app = createApp()
+    app.get('/', (c) => c.redirect('/landing', 302))
+
+    const res = await app.request('/', {
+      headers: { Cookie: `${COOKIE}=1` },
+    })
+    const cookie = flashedCookie(res)
+    expect(cookie).toContain(`${COOKIE}=1`)
+    expect(cookie).toContain('Max-Age=60')
+  })
+
+  it('deletes the cookie when the handler cancels via clearHistory(false)', async () => {
+    const app = createApp()
+    app.get('/', (c) => {
+      c.var.inertia.clearHistory(false)
+      return c.redirect('/landing', 302)
+    })
+
+    const res = await app.request('/', {
+      headers: { Cookie: `${COOKIE}=1` },
+    })
+    const cookie = flashedCookie(res)
+    expect(cookie).toContain(`${COOKIE}=`)
+    expect(cookie).toContain('Max-Age=0')
+  })
+
+  it('leaves the cookie alone on non-page responses', async () => {
+    const app = createApp()
+    app.get('/api/poll', (c) => c.json({ ok: true }))
+
+    const res = await app.request('/api/poll', {
+      headers: { Cookie: `${COOKIE}=1` },
+    })
+    expect(res.status).toBe(200)
+    expect(flashedCookie(res)).toBeUndefined()
+  })
+
+  it('does not consume the flag on prefetch requests', async () => {
+    const app = createApp()
+    app.get('/', (c) => c.var.inertia.render('Home'))
+
+    const res = await app.request('/', {
+      headers: inertiaHeaders({ Cookie: `${COOKIE}=1`, Purpose: 'prefetch' }),
+    })
+    const page = await getPage(res)
+    expect(page.clearHistory).toBeUndefined()
+    expect(flashedCookie(res)).toBeUndefined()
   })
 })
 
