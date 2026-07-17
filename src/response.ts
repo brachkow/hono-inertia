@@ -35,6 +35,7 @@ export class InertiaResponse implements InertiaContext {
   private flashStore: Record<string, unknown> = {}
   private shouldEncryptHistory = false
   private shouldClearHistory = false
+  private clearHistoryWasConsumed = false
   private shouldPreserveFragment = false
 
   constructor(
@@ -61,6 +62,16 @@ export class InertiaResponse implements InertiaContext {
 
   clearHistory(clear = true): void {
     this.shouldClearHistory = clear
+  }
+
+  // Read by the middleware to flash clearHistory across redirects via a
+  // cookie. Not part of the public InertiaContext interface.
+  get clearHistoryPending(): boolean {
+    return this.shouldClearHistory
+  }
+
+  get clearHistoryConsumed(): boolean {
+    return this.clearHistoryWasConsumed
   }
 
   preserveFragment(preserve = true): void {
@@ -300,6 +311,7 @@ export class InertiaResponse implements InertiaContext {
     }
     if (this.shouldClearHistory) {
       page.clearHistory = true
+      this.clearHistoryWasConsumed = true
     }
     if (this.shouldPreserveFragment) {
       page.preserveFragment = true
