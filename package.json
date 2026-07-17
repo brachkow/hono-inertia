@@ -1,6 +1,6 @@
 {
   "name": "@brachkow/hono-inertia",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Inertia.js v3 server-side adapter for Hono",
   "type": "module",
   "main": "./dist/index.js",
