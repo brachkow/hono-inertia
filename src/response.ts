@@ -254,11 +254,15 @@ export class InertiaResponse implements InertiaContext {
           reset: scrollReset,
         }
         if (!resetProps.has(key)) {
-          if (scrollMergeIntent === 'prepend') {
-            prependKeys.push(key)
-          } else {
-            mergeKeys.push(key)
-          }
+          collectMergeMetadata(
+            key,
+            scrollMergeIntent === 'prepend' ? 'prepend' : 'append',
+            s.matchOn,
+            mergeKeys,
+            prependKeys,
+            deepMergeKeys,
+            matchOnKeys,
+          )
         }
       },
     }

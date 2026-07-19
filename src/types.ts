@@ -171,6 +171,7 @@ export interface ScrollProp {
   currentPage: number
   previousPage: number | null
   nextPage: number | null
+  matchOn: string | null
 }
 
 export type TaggedProp =
