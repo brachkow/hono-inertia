@@ -2458,6 +2458,70 @@ describe('Scroll props', () => {
     expect(page.props.posts).toEqual([1])
     expect(page.mergeProps).toBeUndefined()
   })
+
+  it('sets matchPropsOn for scroll with matchOn', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        posts: scroll(() => [{ id: 1 }], mockMetadata).setMatchOn('id'),
+      }),
+    )
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.mergeProps).toEqual(['posts'])
+    expect(page.matchPropsOn).toEqual(['posts.id'])
+  })
+
+  it('sets matchPropsOn alongside prependProps on prepend merge intent', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        posts: scroll(() => [{ id: 1 }], mockMetadata).setMatchOn('id'),
+      }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'posts',
+        'X-Inertia-Infinite-Scroll-Merge-Intent': 'prepend',
+      }),
+    })
+    const page = await getPage(res)
+    expect(page.prependProps).toEqual(['posts'])
+    expect(page.matchPropsOn).toEqual(['posts.id'])
+  })
+
+  it('omits matchPropsOn when setMatchOn is not used', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        posts: scroll(() => [{ id: 1 }], mockMetadata),
+      }),
+    )
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+    expect(page.matchPropsOn).toBeUndefined()
+  })
+
+  it('strips matchPropsOn when reset', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        posts: scroll(() => [{ id: 1 }], mockMetadata).setMatchOn('id'),
+      }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Reset': 'posts',
+      }),
+    })
+    const page = await getPage(res)
+    expect(page.matchPropsOn).toBeUndefined()
+  })
 })
 
 // =========================================================================

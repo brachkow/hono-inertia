@@ -228,4 +228,20 @@ describe('scroll', () => {
     expect(prop.nextPage).toBeNull()
     expect(prop.pageName).toBe('p')
   })
+
+  it('defaults matchOn to null', () => {
+    const prop = scroll([], mockMetadata)
+    expect(prop.matchOn).toBeNull()
+  })
+
+  it('supports .setMatchOn() chaining', () => {
+    const prop = scroll([], mockMetadata).setMatchOn('id')
+    expect(prop.matchOn).toBe('id')
+  })
+
+  it('preserves pagination metadata through .setMatchOn()', () => {
+    const prop = scroll([], mockMetadata).setMatchOn('id')
+    expect(prop.currentPage).toBe(3)
+    expect(prop.nextPage).toBe(4)
+  })
 })

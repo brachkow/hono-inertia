@@ -45,6 +45,10 @@ export type MergeChain = MergeProp & {
   setMatchOn(field: string): MergeChain
 }
 
+export type ScrollChain = ScrollProp & {
+  setMatchOn(field: string): ScrollChain
+}
+
 // ---------------------------------------------------------------------------
 // optional(fn) — excluded from first visit, included on partial reload
 // ---------------------------------------------------------------------------
@@ -207,13 +211,24 @@ export function once(
 export function scroll(
   value: unknown | (() => unknown | Promise<unknown>),
   metadata: ScrollMetadata,
-): ScrollProp {
-  return {
+): ScrollChain {
+  const prop: ScrollProp = {
     [PROP_TYPE]: 'scroll',
     value,
     pageName: metadata.getPageName(),
     currentPage: metadata.getCurrentPage(),
     previousPage: metadata.getPreviousPage(),
     nextPage: metadata.getNextPage(),
+    matchOn: null,
   }
+
+  const chain = {
+    setMatchOn(field: string): ScrollChain {
+      prop.matchOn = field
+      return result
+    },
+  }
+
+  const result: ScrollChain = Object.assign(prop, chain)
+  return result
 }
