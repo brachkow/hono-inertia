@@ -183,6 +183,50 @@ c.var.inertia.render('Feed', {
 })
 ```
 
+### `scroll(value, metadata)`
+
+Backs the client's `<InfiniteScroll>` component. `value` is the array of rows for the
+current page; pagination state is supplied separately via a `ScrollMetadata` adapter:
+
+```ts
+import { scroll } from '@brachkow/hono-inertia'
+import type { ScrollMetadata } from '@brachkow/hono-inertia'
+
+app.get('/feed', async (c) => {
+  const page = Number(c.req.query('page') ?? 1)
+  const { rows, lastPage } = await fetchPosts(page)
+
+  const metadata: ScrollMetadata = {
+    getPageName: () => 'page',
+    getCurrentPage: () => page,
+    getPreviousPage: () => (page > 1 ? page - 1 : null),
+    getNextPage: () => (page < lastPage ? page + 1 : null),
+  }
+
+  return c.var.inertia.render('Feed', { posts: scroll(rows, metadata) })
+})
+```
+
+`<InfiniteScroll>` requires this prop — it throws at mount if the page object has no
+`scrollProps` entry matching its `data` name, so `merge()` is not a substitute.
+
+The prop is registered for merging automatically, using the direction the client asks for
+via `X-Inertia-Infinite-Scroll-Merge-Intent` (append when scrolling down, prepend when
+scrolling up). A request without that header is treated as a fresh load and flags the
+client to reset the accumulated collection.
+
+Use `.setMatchOn(field)` so refetched pages reconcile by identity instead of duplicating:
+
+```ts
+c.var.inertia.render('Feed', {
+  posts: scroll(rows, metadata).setMatchOn('id'),
+})
+```
+
+Without it, a partial reload that returns a page the client already holds appends a second
+copy of those rows. With it, matching rows are updated in place. Pass the field name on its
+own — the prop key is prefixed for you (`posts` + `id` → `posts.id`).
+
 ### `once(fn, key?, expiresAt?)`
 
 Resolved once, then cached by the client across navigations:
@@ -212,6 +256,9 @@ optional(() => fetchExpensiveData()).once('cache-key', 3600)
 
 // Deep merge with match key
 deepMerge(() => fetchItems()).setMatchOn('id')
+
+// Infinite scroll reconciling rows by id
+scroll(rows, metadata).setMatchOn('id')
 ```
 
 ## External redirects
