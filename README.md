@@ -28,7 +28,8 @@ app.use(
   <script type="module" src="/src/main.ts"></script>
 </head>
 <body>
-  <div id="app" data-page="${serializePage(page)}"></div>
+  <script data-page="app" type="application/json">${serializePage(page)}</script>
+  <div id="app"></div>
 </body>
 </html>`,
   }),
@@ -51,12 +52,13 @@ inertia({
   version: manifestVersion(manifest),
 
   // HTML render function — receives page object, view data, and optional SSR result.
-  // Use serializePage(page) — never a bare JSON.stringify — see Security below.
+  // Embed the page in a <script data-page="app" type="application/json"> tag with
+  // serializePage(page) — never a bare JSON.stringify — see Security below.
   render: (page, viewData, ssr) => {
     if (ssr) {
       return `<html><head>${ssr.head}</head><body>${ssr.body}</body></html>`
     }
-    return `<html><body><div id="app" data-page="${serializePage(page)}"></div></body></html>`
+    return `<html><body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body></html>`
   },
 
   // Global shared props — merged into every response
@@ -382,7 +384,7 @@ Access it in your render function:
 render: (page, viewData) => `
   <html>
   <head><title>${escapeHtml(String(viewData.metaTitle))}</title></head>
-  <body><div id="app" data-page="${serializePage(page)}"></div></body>
+  <body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body>
   </html>
 `
 ```
@@ -427,7 +429,7 @@ inertia({
       // ssr.head / ssr.body are HTML rendered by your own (trusted) SSR server
       return `<html><head>${ssr.head}</head><body>${ssr.body}</body></html>`
     }
-    return `<html><body><div id="app" data-page="${serializePage(page)}"></div></body></html>`
+    return `<html><body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body></html>`
   },
 })
 ```
@@ -440,12 +442,14 @@ This adapter follows Inertia's official conventions, but a few responsibilities 
 
 ### Embedding the page object (XSS)
 
-Always embed the page object with `serializePage(page)`, never a bare `JSON.stringify(page)`. `JSON.stringify` does not escape `<`, so a prop value containing `</script>` (a username, comment, search term, validation message, …) would break out of the surrounding markup and execute as HTML/JavaScript. `serializePage` HTML-escapes the JSON for the `data-page` attribute that the Inertia client reads:
+The Inertia client boots from a `<script data-page="app" type="application/json">` tag. Always fill it with `serializePage(page)`, never a bare `JSON.stringify(page)`: `JSON.stringify` does not escape `<`, so a prop value containing `</script>` or `<!--` (a username, comment, search term, validation message, …) would end the script element early and execute as HTML/JavaScript. `serializePage` escapes `<` and `>` as JSON unicode escapes, which the client parses back unchanged.
+
+Do not HTML-escape the output and do not put it in an attribute. Script content is raw text, so entities like `&quot;` would corrupt the JSON, and the client does not read a `data-page` attribute.
 
 ```ts
 import { serializePage } from '@brachkow/hono-inertia'
 
-render: (page) => `<div id="app" data-page="${serializePage(page)}"></div>`
+render: (page) => `<script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div>`
 ```
 
 For any other user-influenced value you interpolate into HTML yourself (e.g. view data in a `<title>`), use `escapeHtml`:
@@ -455,7 +459,8 @@ import { escapeHtml } from '@brachkow/hono-inertia'
 
 render: (page, viewData) =>
   `<title>${escapeHtml(String(viewData.title))}</title>
-   <div id="app" data-page="${serializePage(page)}"></div>`
+   <script data-page="app" type="application/json">${serializePage(page)}</script>
+   <div id="app"></div>`
 ```
 
 ### CSRF
@@ -497,7 +502,7 @@ with `encryptHistory` enabled on authenticated pages, plus `Cache-Control: no-st
 Adapter-emitted responses (Inertia JSON, initial HTML, 409s) carry `Cache-Control: private, no-cache, must-revalidate` by default:
 
 - Without a `Cache-Control` header, browsers apply heuristic freshness to the HTML document. After a deploy, the full-page reload triggered by a 409 version mismatch could then be served the *same stale document* from cache — silently defeating asset versioning. The header is a prerequisite for the 409 mechanism to work.
-- `private`: the rendered HTML embeds per-user props (session, auth) in `data-page`; a shared cache or CDN must never store it.
+- `private`: the rendered HTML embeds per-user props (session, auth) in the page data script; a shared cache or CDN must never store it.
 - `no-cache` (store but revalidate) rather than `no-store`, which would disable the back/forward cache and turn every back-navigation into a full load.
 
 Override the value with `cacheControl: '…'`, or opt out with `cacheControl: false`. On initial HTML responses, a `Cache-Control` set in the handler (via `c.header()`) before `render()` takes precedence. Inertia JSON and 409 responses are constructed fresh and always use the config value — for a per-route override, set the header on the returned response:

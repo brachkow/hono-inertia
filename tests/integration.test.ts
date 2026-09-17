@@ -20,7 +20,7 @@ function createApp(config?: Partial<Parameters<typeof inertia>[0]>) {
     inertia({
       version: '1.0',
       render: (page) =>
-        `<!DOCTYPE html><html><body><div id="app" data-page="${serializePage(page)}"></div></body></html>`,
+        `<!DOCTYPE html><html><body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body></html>`,
       ...config,
     }),
   )
@@ -39,19 +39,12 @@ async function getPage(res: Response): Promise<PageObject> {
   return res.json() as Promise<PageObject>
 }
 
-function htmlDecode(value: string): string {
-  return value
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, '&')
-}
-
 function parsePageFromHtml(html: string): PageObject {
-  const match = html.match(/data-page="([^"]*)"/)
-  if (!match) throw new Error('no data-page attribute in HTML')
-  return JSON.parse(htmlDecode(match[1])) as PageObject
+  const match = html.match(
+    /<script data-page="app" type="application\/json">(.*?)<\/script>/s,
+  )
+  if (!match) throw new Error('no data-page script tag in HTML')
+  return JSON.parse(match[1]) as PageObject
 }
 
 // =========================================================================
@@ -66,7 +59,7 @@ describe('Inertia request detection', () => {
     expect(res.status).toBe(200)
     expect(res.headers.get('Content-Type')).toContain('text/html')
     const body = await res.text()
-    expect(body).toContain('data-page=')
+    expect(body).toContain('<script data-page="app" type="application/json">')
     expect(body).toContain('<div id="app"')
   })
 
@@ -85,7 +78,7 @@ describe('Inertia request detection', () => {
 // 2. HTML with page data script tag for initial visits
 // =========================================================================
 describe('Initial HTML visit', () => {
-  it('embeds page data in the data-page attribute', async () => {
+  it('embeds page data in the data-page script tag', async () => {
     const app = createApp()
     app.get('/users', (c) =>
       c.var.inertia.render('Users/Index', { users: [1, 2, 3] }),
@@ -93,7 +86,7 @@ describe('Initial HTML visit', () => {
 
     const res = await app.request('/users')
     const body = await res.text()
-    expect(body).toContain('<div id="app" data-page="')
+    expect(body).toContain('<script data-page="app" type="application/json">')
     const page = parsePageFromHtml(body)
     expect(page.component).toBe('Users/Index')
     expect(page.props.users).toEqual([1, 2, 3])
@@ -985,7 +978,7 @@ describe('View data', () => {
         version: '1.0',
         render: (page, viewData) => {
           receivedViewData = viewData
-          return `<div id="app" data-page="${serializePage(page)}"></div>`
+          return `<script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div>`
         },
       }),
     )
@@ -1677,7 +1670,7 @@ describe('View data edge cases', () => {
         version: '1.0',
         render: (page, viewData) => {
           receivedViewData = viewData
-          return `<div id="app" data-page="${serializePage(page)}"></div>`
+          return `<script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div>`
         },
       }),
     )
@@ -1700,7 +1693,7 @@ describe('View data edge cases', () => {
         version: '1.0',
         render: (page, viewData) => {
           receivedViewData = viewData
-          return `<div id="app" data-page="${serializePage(page)}"></div>`
+          return `<script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div>`
         },
       }),
     )
@@ -1873,7 +1866,7 @@ describe('SSR integration', () => {
         ssr: { url: 'http://localhost:13714' },
         render: (page, _viewData, ssr) => {
           receivedSsr = ssr
-          return `<div id="app" data-page="${serializePage(page)}"></div>`
+          return `<script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div>`
         },
       }),
     )
@@ -1895,7 +1888,7 @@ describe('SSR integration', () => {
       inertia({
         version: '1.0',
         ssr: { url: 'http://localhost:13714' },
-        render: (page) => `<div id="app" data-page="${serializePage(page)}"></div>`,
+        render: (page) => `<script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div>`,
       }),
     )
     app.get('/test', (c) => c.var.inertia.render('Test'))
@@ -1915,7 +1908,7 @@ describe('SSR integration', () => {
       inertia({
         version: '1.0',
         ssr: { url: 'http://localhost:13714', enabled: false },
-        render: (page) => `<div id="app" data-page="${serializePage(page)}"></div>`,
+        render: (page) => `<script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div>`,
       }),
     )
     app.get('/test', (c) => c.var.inertia.render('Test'))
@@ -2007,7 +2000,7 @@ describe('Version defaults', () => {
     const app = new Hono<InertiaEnv>()
     app.use(
       inertia({
-        render: (page) => `<div id="app" data-page="${serializePage(page)}"></div>`,
+        render: (page) => `<script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div>`,
       }),
     )
     app.get('/test', (c) => c.var.inertia.render('Test'))
@@ -2160,7 +2153,7 @@ describe('Lazy version resolution', () => {
           calls++
           return '1.0'
         },
-        render: (page) => `<div id="app" data-page="${serializePage(page)}"></div>`,
+        render: (page) => `<script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div>`,
       }),
     )
     app.get('/page', (c) => c.var.inertia.render('Test'))
@@ -2551,10 +2544,10 @@ describe('Global history encryption config', () => {
 })
 
 // =========================================================================
-// XSS safety: props are escaped in the data-page attribute
+// XSS safety: props are escaped in the data-page script tag
 // =========================================================================
 describe('XSS safety', () => {
-  it('escapes script-breaking sequences from props in the data-page attribute', async () => {
+  it('escapes script-breaking sequences from props in the data-page script tag', async () => {
     const payload = `</script><img src=x onerror="alert(1)">`
     const app = createApp()
     app.get('/test', (c) => c.var.inertia.render('Test', { bio: payload }))
@@ -2562,14 +2555,23 @@ describe('XSS safety', () => {
     const res = await app.request('/test')
     const body = await res.text()
 
-    // The raw breakout sequence must not survive into the document...
-    expect(body).not.toContain('</script>')
-    expect(body).not.toContain('onerror="alert(1)"')
-    expect(body).toContain('&lt;/script&gt;')
+    // Only the adapter's own closing tag may appear in the document...
+    expect(body.match(/<\/script>/g)).toHaveLength(1)
+    expect(body).not.toContain('<img')
+    expect(body).toContain('\\u003c/script\\u003e')
 
     // ...but it round-trips back to the exact original value for the client.
     const page = parsePageFromHtml(body)
     expect(page.props.bio).toBe(payload)
+  })
+
+  it('escapes an HTML comment opener from props', async () => {
+    const app = createApp()
+    app.get('/test', (c) => c.var.inertia.render('Test', { bio: '<!-- x' }))
+
+    const body = await (await app.request('/test')).text()
+    expect(body).not.toContain('<!--')
+    expect(parsePageFromHtml(body).props.bio).toBe('<!-- x')
   })
 })
 
@@ -2630,7 +2632,7 @@ describe('Flash messages', () => {
     expect(page.flash).toEqual({ success: 'Saved!' })
   })
 
-  it('emits flash in the data-page attribute on initial visits', async () => {
+  it('emits flash in the data-page script tag on initial visits', async () => {
     const app = createApp()
     app.get('/test', (c) => {
       c.var.inertia.flash({ toast: 'Hi' })

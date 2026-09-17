@@ -9,17 +9,16 @@ const HTML_ENTITIES: Record<string, string> = {
 }
 
 // HTML-escape a string so it is safe to interpolate into HTML text or an
-// attribute value (used for the `data-page` attribute and for view data).
+// attribute value (used for view data such as a <title>).
 export function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => HTML_ENTITIES[char])
 }
 
-// Serialize the page object for the root template's `data-page` attribute — the
-// pattern the official Inertia client reads (`el.dataset.page`). Plain
-// JSON.stringify is unsafe here because it does not escape "<", so a prop value
-// containing "</script>" (or a stray '"') could break out of the attribute or a
-// surrounding <script> tag. HTML-escaping the JSON neutralizes that; the browser
-// decodes the entities back to valid JSON before the client parses it.
+// Serialize the page object for the `<script data-page="app" type="application/json">`
+// tag the Inertia client boots from. Plain JSON.stringify is unsafe there: a prop
+// value containing "</script>" or "<!--" would end the script element early and
+// run as markup. Script content is raw text, so HTML entities would corrupt the
+// JSON instead; JSON unicode escapes keep it valid JSON while inert as HTML.
 export function serializePage(page: PageObject): string {
-  return escapeHtml(JSON.stringify(page))
+  return JSON.stringify(page).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
 }
