@@ -427,6 +427,32 @@ app.use(async (c, next) => {
 })
 ```
 
+## Server-provided head elements
+
+The client can take `<head>` elements from a prop (client 3.5+). Pass an array of raw HTML strings as `head`, and enable it on the client with `serverHead: true`:
+
+```ts
+app.get('/users/:id', async (c) => {
+  const user = await db.users.find(c.req.param('id'))
+  return c.var.inertia.render('Users/Show', {
+    user,
+    head: [
+      `<title>${escapeHtml(user.name)}</title>`,
+      `<meta name="description" content="${escapeHtml(user.bio)}">`,
+      `<link data-inertia="canonical" rel="canonical" href="https://example.com/users/${user.id}">`,
+    ],
+  })
+})
+```
+
+```ts
+createInertiaApp({
+  serverHead: true, // or a prop name, or (page) => string[]
+})
+```
+
+`head` is an ordinary prop: it is sent on every visit, re-synced on navigation, rendered by SSR, and can be shared via `share`. The strings are inserted as-is, so escape every interpolated value with `escapeHtml`. Elements are keyed by array position; set your own `data-inertia` key for stable identity (a script that must not re-run on every visit) or to let a page-level `<Head>` override a server default with the same key.
+
 ## SSR
 
 Configure an Inertia SSR server (works with `@inertiajs/vue3/server`, `@inertiajs/react/server`, `@inertiajs/svelte/server`):
