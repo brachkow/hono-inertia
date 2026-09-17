@@ -32,6 +32,7 @@ export type OptionalChain = OptionalProp & {
 }
 
 export type DeferredChain = DeferredProp & {
+  rescue(): DeferredChain
   merge(): DeferredChain
   prepend(): DeferredChain
   deepMerge(): DeferredChain
@@ -94,6 +95,7 @@ export function deferred(
     [PROP_TYPE]: 'deferred',
     value: fn,
     group,
+    shouldRescue: false,
     isMerge: false,
     mergeStrategy: 'append' as MergeStrategy,
     matchOn: null,
@@ -103,6 +105,10 @@ export function deferred(
   }
 
   const chain = {
+    rescue(): DeferredChain {
+      prop.shouldRescue = true
+      return result
+    },
     merge(): DeferredChain {
       prop.isMerge = true
       prop.mergeStrategy = 'append'

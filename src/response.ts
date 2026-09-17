@@ -150,6 +150,7 @@ export class InertiaResponse implements InertiaContext {
     const prependKeys: string[] = []
     const deepMergeKeys: string[] = []
     const matchOnKeys: string[] = []
+    const rescuableKeys = new Set<string>()
     const onceMetadata: Record<
       string,
       { prop: string; expiresAt: number | null }
@@ -202,6 +203,9 @@ export class InertiaResponse implements InertiaContext {
         if (isPartialForThis && isRequestedByPartialData(key)) {
           if (def.isOnce && exceptOnceProps.has(def.onceKey ?? key)) return
           included[key] = def.value
+          if (def.shouldRescue) {
+            rescuableKeys.add(key)
+          }
           if (def.isMerge && !resetProps.has(key)) {
             collectMergeMetadata(key, def.mergeStrategy, def.matchOn, mergeKeys, prependKeys, deepMergeKeys, matchOnKeys)
           }
@@ -279,22 +283,36 @@ export class InertiaResponse implements InertiaContext {
       propHandlers[propType]?.(key, value as TaggedProp)
     }
 
-    // 4. Resolve lazy values (functions and async functions)
+    // 4. Resolve lazy values (functions and async functions). A rescuable
+    // deferred prop that throws is sent as null and reported instead of
+    // failing the whole response (mirrors Laravel's `defer(..., rescue: true)`).
     const resolved: Record<string, unknown> = {}
+    const rescued = new Set<string>()
     const resolvePromises: Promise<void>[] = []
 
     for (const [key, value] of Object.entries(included)) {
-      if (typeof value === 'function') {
-        const promise = Promise.resolve(value()).then((result) => {
-          resolved[key] = result
-        })
-        resolvePromises.push(promise)
-      } else {
+      if (typeof value !== 'function') {
         resolved[key] = value
+        continue
       }
+      const promise = Promise.resolve()
+        .then(() => value())
+        .then(
+          (result) => {
+            resolved[key] = result
+          },
+          (error: unknown) => {
+            if (!rescuableKeys.has(key)) throw error
+            ;(this.config.onRescue ?? defaultOnRescue)(error, key)
+            resolved[key] = null
+            rescued.add(key)
+          },
+        )
+      resolvePromises.push(promise)
     }
 
     await Promise.all(resolvePromises)
+    const rescuedProps = Object.keys(included).filter((key) => rescued.has(key))
 
     // 5. Handle error bag scoping
     if (errorBag && resolved.errors && typeof resolved.errors === 'object') {
@@ -347,6 +365,9 @@ export class InertiaResponse implements InertiaContext {
     if (Object.keys(scrollMetadata).length > 0) {
       page.scrollProps = scrollMetadata
     }
+    if (rescuedProps.length > 0) {
+      page.rescuedProps = rescuedProps
+    }
 
     // 7. Return response
     if (isInertia) {
@@ -379,6 +400,10 @@ export class InertiaResponse implements InertiaContext {
     }
     return res
   }
+}
+
+function defaultOnRescue(error: unknown, prop: string): void {
+  console.error(`[hono-inertia] rescued deferred prop "${prop}"`, error)
 }
 
 function collectMergeMetadata(

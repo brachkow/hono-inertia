@@ -75,6 +75,10 @@ inertia({
   // Cache-Control for adapter-emitted responses (see Security → Caching).
   // Defaults to 'private, no-cache, must-revalidate'; set false to omit.
   cacheControl: 'private, no-cache, must-revalidate',
+
+  // Called when a deferred(fn).rescue() prop throws (see Prop types → deferred).
+  // Defaults to console.error.
+  onRescue: (error, prop) => logger.error({ error, prop }),
 })
 ```
 
@@ -160,6 +164,14 @@ c.var.inertia.render('Dashboard', {
   stats: deferred(() => computeStats()),
   comments: deferred(() => fetchComments(), 'sidebar'),
   likes: deferred(() => fetchLikes(), 'sidebar'),
+})
+```
+
+Chain `.rescue()` so one failing deferred prop does not fail the whole response. If the function throws, the error goes to the `onRescue` config callback (default `console.error`), the prop is sent as `null`, and its key is listed in `page.rescuedProps`. The client's `<Deferred>` component then renders its `rescue` slot (or the fallback) instead of the default content:
+
+```ts
+c.var.inertia.render('Dashboard', {
+  stats: deferred(() => computeStats()).rescue(),
 })
 ```
 

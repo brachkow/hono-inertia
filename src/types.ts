@@ -76,6 +76,9 @@ export interface InertiaConfig {
   // Cache-Control for adapter-emitted responses (JSON, HTML, 409s). Defaults to
   // 'private, no-cache, must-revalidate'; set false to omit the header.
   cacheControl?: string | false
+  // Called when a `deferred(fn).rescue()` prop throws while resolving. The prop
+  // is sent as null and listed in `page.rescuedProps`. Defaults to console.error.
+  onRescue?: (error: unknown, prop: string) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +145,7 @@ export interface DeferredProp {
   __hono_inertia_prop_type__: 'deferred'
   value: () => unknown | Promise<unknown>
   group: string
+  shouldRescue: boolean
   isMerge: boolean
   mergeStrategy: MergeStrategy
   matchOn: string | null

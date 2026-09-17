@@ -570,6 +570,99 @@ describe('Deferred props', () => {
     expect(page.props.comments).toEqual(['comment1'])
     expect(page.deferredProps).toBeUndefined()
   })
+
+  it('does not list rescuedProps when nothing was rescued', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', { comments: deferred(() => [], 'x').rescue() }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'comments',
+      }),
+    })
+    const page = await getPage(res)
+    expect(page.props.comments).toEqual([])
+    expect(page.rescuedProps).toBeUndefined()
+  })
+
+  it('sends a throwing rescued deferred prop as null and lists it in rescuedProps', async () => {
+    const onRescue = vi.fn()
+    const app = createApp({ onRescue })
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        comments: deferred(() => {
+          throw new Error('boom')
+        }).rescue(),
+        likes: deferred(async () => {
+          throw new Error('async boom')
+        }).rescue(),
+        stats: deferred(() => 42),
+      }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'comments,likes,stats',
+      }),
+    })
+    expect(res.status).toBe(200)
+    const page = await getPage(res)
+    expect(page.props.comments).toBeNull()
+    expect(page.props.likes).toBeNull()
+    expect(page.props.stats).toBe(42)
+    expect(page.rescuedProps).toEqual(['comments', 'likes'])
+    expect(onRescue).toHaveBeenCalledTimes(2)
+    expect(onRescue).toHaveBeenCalledWith(expect.any(Error), 'comments')
+    expect(onRescue).toHaveBeenCalledWith(expect.any(Error), 'likes')
+  })
+
+  it('reports a rescued prop via console.error when onRescue is not configured', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        comments: deferred(() => {
+          throw new Error('boom')
+        }).rescue(),
+      }),
+    )
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'comments',
+      }),
+    })
+    expect(res.status).toBe(200)
+    expect(consoleError).toHaveBeenCalledTimes(1)
+    expect(consoleError.mock.calls[0][0]).toContain('comments')
+    consoleError.mockRestore()
+  })
+
+  it('still fails the response when a non-rescued deferred prop throws', async () => {
+    const app = createApp()
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        comments: deferred(() => {
+          throw new Error('boom')
+        }),
+      }),
+    )
+    app.onError((err, c) => c.text(err.message, 500))
+
+    const res = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'comments',
+      }),
+    })
+    expect(res.status).toBe(500)
+    expect(await res.text()).toBe('boom')
+  })
 })
 
 // =========================================================================

@@ -72,8 +72,14 @@ describe('deferred', () => {
     expect(prop[PROP_TYPE]).toBe('deferred')
     expect(prop.value).toBe(fn)
     expect(prop.group).toBe('default')
+    expect(prop.shouldRescue).toBe(false)
     expect(prop.isMerge).toBe(false)
     expect(prop.isOnce).toBe(false)
+  })
+
+  it('supports .rescue() chaining', () => {
+    const prop = deferred(() => []).rescue()
+    expect(prop.shouldRescue).toBe(true)
   })
 
   it('accepts a custom group', () => {
@@ -111,7 +117,8 @@ describe('deferred', () => {
   })
 
   it('supports multiple chaining', () => {
-    const prop = deferred(() => [], 'sidebar').merge().once('k').setMatchOn('id')
+    const prop = deferred(() => [], 'sidebar').merge().once('k').setMatchOn('id').rescue()
+    expect(prop.shouldRescue).toBe(true)
     expect(prop.isMerge).toBe(true)
     expect(prop.isOnce).toBe(true)
     expect(prop.matchOn).toBe('id')
