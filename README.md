@@ -1,5 +1,7 @@
 # @brachkow/hono-inertia
 
+> How stable it is? It powers [Things To Have](https://thingstohave.app) in production since early 2026 with 0 issues
+
 Inertia.js v3 server-side adapter for [Hono](https://hono.dev).
 
 ## Install
