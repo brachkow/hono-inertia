@@ -279,6 +279,8 @@ Validate any user-supplied URL before passing it to `location()` or `redirect()`
 
 Every Inertia response carries `page.version`. When a client's `X-Inertia-Version` header no longer matches the server's version, the adapter answers a GET with `409` + `X-Inertia-Location`, and the client performs a full page visit — picking up the new HTML and the new asset URLs. This is what stops a tab that was open across a deploy from requesting content-hashed chunks that no longer exist.
 
+The 409 also carries the new version in `X-Inertia-Version`. That is how the client tells a deploy-driven reload from a plain `location()` redirect: it fires a cancelable `inertia:location` event with `versionChange: true`, and skips the forced reload for background `async` visits (polling, prefetching, deferred props) so the next user-initiated visit picks up the new assets instead of interrupting the user.
+
 Derive the version from your Vite manifest with `manifestVersion`:
 
 ```ts

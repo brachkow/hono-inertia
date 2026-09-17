@@ -51,6 +51,10 @@ export function inertia(config: InertiaConfig): MiddlewareHandler<InertiaEnv> {
             // Relative path (not c.req.url): an absolute URL would send the client
             // to the internal origin behind a proxy. Matches page.url's format.
             'X-Inertia-Location': resolveUrl(c),
+            // Lets the client tell a deploy-driven reload apart from a plain
+            // location redirect: background async visits skip the forced reload
+            // and `inertia:location` reports versionChange.
+            'X-Inertia-Version': version,
             'Vary': 'X-Inertia',
             ...(cacheControl !== undefined && { 'Cache-Control': cacheControl }),
           })

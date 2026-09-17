@@ -177,6 +177,16 @@ describe('Asset versioning', () => {
     expect(res.headers.get('X-Inertia-Location')).toContain('/test')
   })
 
+  it('sends the current version on a version-mismatch 409', async () => {
+    const app = createApp({ version: '2.0' })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', {
+      headers: { 'X-Inertia': 'true', 'X-Inertia-Version': '1.0' },
+    })
+    expect(res.headers.get('X-Inertia-Version')).toBe('2.0')
+  })
+
   it('does not check version on POST', async () => {
     const app = createApp({ version: '2.0' })
     app.post('/submit', (c) => c.var.inertia.render('Result'))
