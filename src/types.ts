@@ -79,6 +79,90 @@ export interface InertiaConfig {
   // Called when a `deferred(fn).rescue()` prop throws while resolving. The prop
   // is sent as null and listed in `page.rescuedProps`. Defaults to console.error.
   onRescue?: (error: unknown, prop: string) => void
+  // Record requests for the Inertia DevTools browser extension. Off by default;
+  // enable in development only. See README → DevTools.
+  devtools?: boolean | DevtoolsConfig
+}
+
+// ---------------------------------------------------------------------------
+// DevTools (https://inertiajs.com/docs/devtools-protocol)
+// ---------------------------------------------------------------------------
+
+export interface DevtoolsConfig {
+  // Gate for the read endpoints. Every request is allowed when omitted, since
+  // enabling devtools is already an explicit development switch.
+  authorize?: (c: Context) => boolean | Promise<boolean>
+  // Path the app is served from when it is not the origin root, e.g. '/portal'.
+  basePath?: string
+  // Prop/body keys and header names replaced with '[REDACTED]' in entries.
+  // Each list replaces the default one.
+  redact?: { keys?: string[]; headers?: string[] }
+  // Where entries live. Defaults to an in-memory store per inertia() instance.
+  store?: DevtoolsStore
+  // Resolve a page component name to its source path for editor links.
+  componentPath?: (component: string) => string | null
+}
+
+export interface DevtoolsStore {
+  set(entry: DevtoolsEntry): void | Promise<void>
+  get(id: string): DevtoolsEntry | undefined | Promise<DevtoolsEntry | undefined>
+  // Newest first.
+  all(): DevtoolsEntry[] | Promise<DevtoolsEntry[]>
+}
+
+export type DevtoolsRequestType =
+  | 'navigate'
+  | 'partial'
+  | 'deferred'
+  | 'poll'
+  | 'prefetch'
+  | 'initial'
+  | 'http'
+  | 'precognition'
+
+export type DevtoolsBodyCapture =
+  | { status: 'empty' }
+  | { status: 'present'; value: unknown }
+  | { status: 'omitted'; reason: string }
+
+export interface DevtoolsPropMeta {
+  shared: boolean
+  inertiaType: 'always' | 'defer' | 'optional' | 'merge' | 'scroll' | 'once' | null
+  deferGroup?: string
+  reset?: boolean
+  once?: boolean
+  mergeDirection?: 'append' | 'prepend'
+  deepMerge?: boolean
+  rescued?: boolean
+}
+
+export interface DevtoolsEntry {
+  __meta: {
+    id: string
+    tabUuid: string | null
+    batchId: string | null
+    timestamp: string
+    utime: number
+    method: string
+    url: string
+    component: string | null
+    requestType: DevtoolsRequestType
+    status: number
+    redirectLocation: string | null
+    serverTimingMs: number
+    visitId: string | null
+  }
+  http: {
+    requestHeaders: Record<string, string>
+    responseHeaders: Record<string, string>
+    requestBody: DevtoolsBodyCapture
+    responseBody: DevtoolsBodyCapture
+  }
+  props: Record<string, DevtoolsPropMeta>
+  propValues: Record<string, unknown>
+  route: { name: string | null; uri: string; action: string | null }
+  renderSource: null
+  componentPath: string | null
 }
 
 // ---------------------------------------------------------------------------

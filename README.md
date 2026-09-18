@@ -427,6 +427,45 @@ app.use(async (c, next) => {
 })
 ```
 
+## DevTools
+
+The [Inertia DevTools](https://inertiajs.com/docs/devtools) browser extension records every request in a dedicated panel: which props were returned and how they were wrapped, request and response bodies, and timing. The adapter implements the server side of the [DevTools protocol](https://inertiajs.com/docs/devtools-protocol). Enable it in development only:
+
+```ts
+inertia({
+  devtools: process.env.NODE_ENV !== 'production',
+})
+```
+
+With it on, every response carries an `X-Inertia-Devtools-Id` header, the initial HTML gets a `<script data-inertia-devtools-id>` tag injected before `</body>`, and the entries are served from `GET /_inertia/devtools/entries/:id` (and `/_inertia/devtools/entries` with `component`, `type`, `exclude`, `offset` and `limit` filters). The client side needs `dev: true` in `createInertiaApp()` for visit grouping.
+
+Entries record the page object, the resolved prop values, the matched Hono route path, and request/response headers and bodies. Sensitive keys (`password`, `token`, `secret`, …) and headers (`cookie`, `authorization`, …) are replaced with `[REDACTED]` before an entry is stored. Uploads are summarized as `{ name, size, mimeType }`. Recording is passive: if anything in it fails, the entry is dropped and your response is untouched.
+
+Options, all optional:
+
+```ts
+import { createMemoryDevtoolsStore } from '@brachkow/hono-inertia'
+
+inertia({
+  devtools: {
+    // Gate the read endpoints. Every request is allowed when omitted.
+    authorize: (c) => c.req.header('X-Dev-Token') === process.env.DEV_TOKEN,
+    // Path the app is served from when it is not the origin root.
+    basePath: '/portal',
+    // Each list replaces the default one.
+    redact: { keys: ['password', 'ssn'], headers: ['cookie', 'authorization'] },
+    // Entries kept per browser tab (default 100) and lifetime in ms (default 24h).
+    store: createMemoryDevtoolsStore({ limit: 50, ttl: 60 * 60 * 1000 }),
+    // Source path for the "open in editor" link of a page component.
+    componentPath: (name) => `resources/js/Pages/${name}.vue`,
+  },
+})
+```
+
+The default store is in memory, per `inertia()` instance. That is what a local `node`, `bun` or `wrangler dev` server needs. A multi-isolate or multi-process setup that must share entries can pass a `DevtoolsStore` (`set`, `get`, `all` newest first, sync or async) backed by whatever it has, such as KV or a Durable Object.
+
+The initial-load tag is injected by rewriting the HTML response, so it needs a `</body>` in your template and a non-streamed body. Route names and handler source locations are not available from Hono, so the panel's Route tab shows the matched path only.
+
 ## Server-provided head elements
 
 The client can take `<head>` elements from a prop (client 3.5+). Pass an array of raw HTML strings as `head`, and enable it on the client with `serverHead: true`:

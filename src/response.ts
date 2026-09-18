@@ -15,6 +15,7 @@ import type {
 } from './types.js'
 import { isTaggedProp } from './props.js'
 import { dispatchToSsr } from './ssr.js'
+import type { DevtoolsPayload } from './devtools.js'
 import {
   cacheControlValue,
   getErrorBag,
@@ -37,6 +38,7 @@ export class InertiaResponse implements InertiaContext {
   private shouldClearHistory = false
   private clearHistoryWasConsumed = false
   private shouldPreserveFragment = false
+  private devtoolsPayloadStore: DevtoolsPayload | null = null
 
   constructor(
     private c: Context,
@@ -72,6 +74,11 @@ export class InertiaResponse implements InertiaContext {
 
   get clearHistoryConsumed(): boolean {
     return this.clearHistoryWasConsumed
+  }
+
+  // Read by the middleware's DevTools recorder after the handler ran.
+  get devtoolsPayload(): DevtoolsPayload | null {
+    return this.devtoolsPayloadStore
   }
 
   preserveFragment(preserve = true): void {
@@ -367,6 +374,19 @@ export class InertiaResponse implements InertiaContext {
     }
     if (rescuedProps.length > 0) {
       page.rescuedProps = rescuedProps
+    }
+
+    this.devtoolsPayloadStore = {
+      component,
+      page,
+      propTags: Object.fromEntries(
+        Object.keys(included).map((key) => [
+          key,
+          isTaggedProp(allProps[key]) ? (allProps[key] as TaggedProp) : undefined,
+        ]),
+      ),
+      rescuedProps,
+      sharedKeys,
     }
 
     // 7. Return response
