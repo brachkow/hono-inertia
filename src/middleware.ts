@@ -16,8 +16,8 @@ export const CLEAR_HISTORY_COOKIE = 'inertia_clear_history'
 const REDIRECT_STATUSES = [301, 302, 303, 307, 308]
 
 // clearHistory only lands on a rendered page object, but logout handlers
-// redirect. Laravel flashes the flag via session; this adapter is stateless,
-// so the redirect target inherits it through a short-lived cookie instead.
+// redirect or answer 204. Laravel keeps the flag in the session until the next
+// page render; this adapter is stateless, so it uses a short-lived cookie.
 const isRedirectShaped = (res: Response): boolean =>
   REDIRECT_STATUSES.includes(res.status) ||
   (res.status === 409 &&
@@ -134,12 +134,17 @@ async function handle(
     })
   }
 
-  // Flash clearHistory across redirects: set the cookie when the flag would
-  // otherwise be lost, delete it once render() put it on the page (or the
-  // handler cancelled it), and leave it untouched on unrelated responses —
-  // a parallel non-page request must not eat the flag before the redirect
-  // target renders. Max-Age bounds stray cookies.
-  if (response.clearHistoryPending && isRedirectShaped(c.res)) {
+  // Flash clearHistory to the next page render: set the cookie when the
+  // handler asked for it on a response that is not a page, re-flash it across
+  // redirect chains, delete it once render() put it on the page (or the
+  // handler cancelled it), and otherwise leave an inherited cookie untouched,
+  // so a parallel non-page request neither eats nor resurrects the flag.
+  // Max-Age bounds stray cookies.
+  if (
+    response.clearHistoryPending &&
+    !response.clearHistoryConsumed &&
+    (!hadClearHistoryCookie || isRedirectShaped(c.res))
+  ) {
     setCookie(c, CLEAR_HISTORY_COOKIE, '1', {
       path: '/',
       httpOnly: true,

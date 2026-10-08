@@ -964,6 +964,31 @@ describe('clearHistory across redirects', () => {
     expect(cookie).toContain('Max-Age=0')
   })
 
+  it('flashes a cookie on a 204 response', async () => {
+    const app = createApp()
+    app.delete('/account', (c) => {
+      c.var.inertia.clearHistory()
+      return c.body(null, 204)
+    })
+
+    const res = await app.request('/account', { method: 'DELETE' })
+    expect(res.status).toBe(204)
+    const cookie = flashedCookie(res)
+    expect(cookie).toContain(`${COOKIE}=1`)
+    expect(cookie).toContain('Max-Age=60')
+  })
+
+  it('flashes a cookie on a JSON API response', async () => {
+    const app = createApp()
+    app.post('/api/logout', (c) => {
+      c.var.inertia.clearHistory()
+      return c.json({ ok: true })
+    })
+
+    const res = await app.request('/api/logout', { method: 'POST' })
+    expect(flashedCookie(res)).toContain(`${COOKIE}=1`)
+  })
+
   it('leaves the cookie alone on non-page responses', async () => {
     const app = createApp()
     app.get('/api/poll', (c) => c.json({ ok: true }))
