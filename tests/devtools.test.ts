@@ -294,6 +294,22 @@ describe('DevTools request types', () => {
 // =========================================================================
 // Lineage and meta
 // =========================================================================
+describe('DevTools BigInt props', () => {
+  it('records BigInt props as they went over the wire', async () => {
+    const { app, store } = createApp()
+    app.get('/orders', (c) => c.var.inertia.render('Orders', { id: 7n }))
+
+    await app.request('/orders', { headers: inertiaHeaders() })
+    const entry = await lastEntry(store)
+
+    expect(entry.propValues).toMatchObject({ id: { $bigint: '7' } })
+    expect(entry.http.responseBody).toMatchObject({
+      status: 'present',
+      value: { preserveBigIntegers: true },
+    })
+  })
+})
+
 describe('DevTools lineage', () => {
   it('records the incoming parent as batchId and echoes it as parent-out', async () => {
     const { app, store } = createApp()

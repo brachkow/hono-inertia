@@ -964,6 +964,31 @@ describe('clearHistory across redirects', () => {
     expect(cookie).toContain('Max-Age=0')
   })
 
+  it('flashes a cookie on a 204 response', async () => {
+    const app = createApp()
+    app.delete('/account', (c) => {
+      c.var.inertia.clearHistory()
+      return c.body(null, 204)
+    })
+
+    const res = await app.request('/account', { method: 'DELETE' })
+    expect(res.status).toBe(204)
+    const cookie = flashedCookie(res)
+    expect(cookie).toContain(`${COOKIE}=1`)
+    expect(cookie).toContain('Max-Age=60')
+  })
+
+  it('flashes a cookie on a JSON API response', async () => {
+    const app = createApp()
+    app.post('/api/logout', (c) => {
+      c.var.inertia.clearHistory()
+      return c.json({ ok: true })
+    })
+
+    const res = await app.request('/api/logout', { method: 'POST' })
+    expect(flashedCookie(res)).toContain(`${COOKIE}=1`)
+  })
+
   it('leaves the cookie alone on non-page responses', async () => {
     const app = createApp()
     app.get('/api/poll', (c) => c.json({ ok: true }))
@@ -2021,6 +2046,154 @@ describe('SSR integration', () => {
 
     vi.restoreAllMocks()
   })
+
+  it('posts to the default URL when ssr has no url', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers(),
+      json: () => Promise.resolve({ head: [], body: '<div id="app"></div>' }),
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    const app = createApp({ ssr: {} })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    await app.request('/test')
+    expect(mockFetch).toHaveBeenCalledWith('http://127.0.0.1:13714/render', expect.any(Object))
+
+    vi.unstubAllGlobals()
+  })
+})
+
+describe('In-process SSR', () => {
+  const renderShell = (page: PageObject, ssr: { head: string; body: string } | undefined) =>
+    ssr
+      ? `<html><head>${ssr.head}</head><body>${ssr.body}</body></html>`
+      : `<html><body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body></html>`
+
+  it('passes the page to ssr.render and its result to the render function', async () => {
+    const ssrRender = vi.fn().mockResolvedValue({
+      head: ['<title>SSR</title>'],
+      body: '<div data-server-rendered="true" id="app"><h1>Hi</h1></div>',
+    })
+    const app = createApp({
+      ssr: { render: ssrRender },
+      render: (page, _viewData, ssr) => renderShell(page, ssr),
+    })
+    app.get('/test', (c) => c.var.inertia.render('Test', { name: 'Hi' }))
+
+    const res = await app.request('/test')
+
+    expect(ssrRender).toHaveBeenCalledWith(
+      expect.objectContaining({ component: 'Test', props: { errors: {}, name: 'Hi' } }),
+    )
+    expect(await res.text()).toBe(
+      '<html><head><title>SSR</title></head><body><div data-server-rendered="true" id="app"><h1>Hi</h1></div></body></html>',
+    )
+  })
+
+  it('skips ssr.render for Inertia JSON requests', async () => {
+    const ssrRender = vi.fn()
+    const app = createApp({ ssr: { render: ssrRender } })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    await app.request('/test', { headers: inertiaHeaders() })
+
+    expect(ssrRender).not.toHaveBeenCalled()
+  })
+
+  it('skips ssr.render when ssr.enabled is false', async () => {
+    const ssrRender = vi.fn()
+    const app = createApp({ ssr: { render: ssrRender, enabled: false } })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    await app.request('/test')
+
+    expect(ssrRender).not.toHaveBeenCalled()
+  })
+
+  it('renders client-side and reports the error when ssr.render throws', async () => {
+    const error = new Error('Page not found: Test')
+    const onSsrError = vi.fn()
+    let receivedSsr: unknown = 'not called'
+    const app = createApp({
+      ssr: { render: () => Promise.reject(error) },
+      onSsrError,
+      render: (page, _viewData, ssr) => {
+        receivedSsr = ssr
+        return renderShell(page, ssr)
+      },
+    })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test')
+
+    expect(res.status).toBe(200)
+    expect(receivedSsr).toBeUndefined()
+    expect(parsePageFromHtml(await res.text()).component).toBe('Test')
+    expect(onSsrError).toHaveBeenCalledWith(error, expect.objectContaining({ component: 'Test' }))
+  })
+
+  it('reports an invalid ssr.render result as an error', async () => {
+    const onSsrError = vi.fn()
+    const app = createApp({
+      ssr: { render: () => ({ head: '<title>x</title>', body: '' }) as unknown as { head: string[]; body: string } },
+      onSsrError,
+    })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    await app.request('/test')
+
+    expect(onSsrError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'SSR render must return { head: string[], body: string }' }),
+      expect.any(Object),
+    )
+  })
+
+  it('logs SSR failures with console.error by default', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const error = new Error('boom')
+    const app = createApp({ ssr: { render: () => Promise.reject(error) } })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    await app.request('/test')
+
+    expect(consoleError).toHaveBeenCalledWith(
+      '[hono-inertia] SSR failed for "Test", rendering client-side',
+      error,
+    )
+    consoleError.mockRestore()
+  })
+
+  it('fails the request when onSsrError throws', async () => {
+    const app = createApp({
+      ssr: { render: () => Promise.reject(new Error('boom')) },
+      onSsrError: (error) => {
+        throw error
+      },
+    })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test')
+
+    expect(res.status).toBe(500)
+  })
+
+  it('reports HTTP SSR failures through onSsrError', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')))
+    const onSsrError = vi.fn()
+    const app = createApp({ ssr: { url: 'http://localhost:13714' }, onSsrError })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test')
+
+    expect(res.status).toBe(200)
+    expect(onSsrError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'ECONNREFUSED' }),
+      expect.objectContaining({ component: 'Test' }),
+    )
+    vi.unstubAllGlobals()
+  })
 })
 
 // =========================================================================
@@ -2236,6 +2409,18 @@ describe('Cache-Control', () => {
     expect(res.headers.get('Cache-Control')).toBe('public, max-age=60')
   })
 
+  it('preserves a handler-set Cache-Control on Inertia JSON responses', async () => {
+    const app = createApp()
+    app.get('/test', (c) => {
+      c.header('Cache-Control', 'public, max-age=60')
+      return c.var.inertia.render('Test')
+    })
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+
+    expect(res.headers.get('Cache-Control')).toBe('public, max-age=60')
+  })
+
   it('does not stamp passthrough responses', async () => {
     const app = createApp()
     app.get('/api', (c) => c.json({ ok: true }))
@@ -2243,6 +2428,163 @@ describe('Cache-Control', () => {
     const res = await app.request('/api')
 
     expect(res.headers.get('Cache-Control')).toBe(null)
+  })
+})
+
+describe('Response status', () => {
+  it('returns 200 by default', async () => {
+    const app = createApp()
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+
+    expect(res.status).toBe(200)
+  })
+
+  it('uses c.status() on Inertia JSON responses', async () => {
+    const app = createApp()
+    app.get('/missing', (c) => {
+      c.status(404)
+      return c.var.inertia.render('Error', { status: 404 })
+    })
+
+    const res = await app.request('/missing', { headers: inertiaHeaders() })
+
+    expect(res.status).toBe(404)
+    expect(res.headers.get('X-Inertia')).toBe('true')
+    expect((await getPage(res)).component).toBe('Error')
+  })
+
+  it('uses c.status() on initial HTML responses', async () => {
+    const app = createApp()
+    app.get('/missing', (c) => {
+      c.status(404)
+      return c.var.inertia.render('Error', { status: 404 })
+    })
+
+    const res = await app.request('/missing')
+
+    expect(res.status).toBe(404)
+    expect(parsePageFromHtml(await res.text()).component).toBe('Error')
+  })
+
+  it('uses c.status() in a notFound handler', async () => {
+    const app = createApp()
+    app.notFound((c) => {
+      c.status(404)
+      return c.var.inertia.render('Error', { status: 404 })
+    })
+
+    const res = await app.request('/nowhere', { headers: inertiaHeaders() })
+
+    expect(res.status).toBe(404)
+    expect((await getPage(res)).component).toBe('Error')
+  })
+
+  it('keeps handler-set headers on Inertia JSON responses', async () => {
+    const app = createApp()
+    app.get('/test', (c) => {
+      c.header('X-Custom', 'kept')
+      return c.var.inertia.render('Test')
+    })
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+
+    expect(res.headers.get('X-Custom')).toBe('kept')
+    expect(res.headers.get('Content-Type')).toContain('application/json')
+  })
+})
+
+describe('Render function context', () => {
+  it('passes the Hono context to the render function', async () => {
+    const app = new Hono<InertiaEnv & { Variables: { nonce: string } }>()
+    app.use(async (c, next) => {
+      c.set('nonce', 'abc123')
+      await next()
+    })
+    app.use(
+      inertia({
+        render: (page, viewData, ssr, c) =>
+          `<script nonce="${c.get('nonce')}"></script><script data-page="app" type="application/json">${serializePage(page)}</script>`,
+      }),
+    )
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test')
+
+    expect(await res.text()).toContain('<script nonce="abc123">')
+  })
+})
+
+describe('BigInt props', () => {
+  it('sends BigInt props as $bigint markers on Inertia responses', async () => {
+    const app = createApp()
+    app.get('/orders', (c) => c.var.inertia.render('Orders', { id: 900719925474099988n, total: 12 }))
+
+    const res = await app.request('/orders', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toContain('application/json')
+    expect(page.props.id).toEqual({ $bigint: '900719925474099988' })
+    expect(page.props.total).toBe(12)
+    expect(page.preserveBigIntegers).toBe(true)
+  })
+
+  it('resolves lazy props that return a BigInt', async () => {
+    const app = createApp()
+    app.get('/orders', (c) => c.var.inertia.render('Orders', { id: async () => 5n }))
+
+    const page = await getPage(await app.request('/orders', { headers: inertiaHeaders() }))
+
+    expect(page.props.id).toEqual({ $bigint: '5' })
+  })
+
+  it('embeds BigInt markers in the initial HTML page', async () => {
+    const app = createApp()
+    app.get('/orders', (c) => c.var.inertia.render('Orders', { id: 7n }))
+
+    const page = parsePageFromHtml(await (await app.request('/orders')).text())
+
+    expect(page.props.id).toEqual({ $bigint: '7' })
+    expect(page.preserveBigIntegers).toBe(true)
+  })
+
+  it('does not flag pages without BigInt props', async () => {
+    const app = createApp()
+    app.get('/orders', (c) => c.var.inertia.render('Orders', { id: 7 }))
+
+    const page = await getPage(await app.request('/orders', { headers: inertiaHeaders() }))
+
+    expect(page.preserveBigIntegers).toBeUndefined()
+  })
+
+  it('posts BigInt markers to the SSR server', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers(),
+      json: () => Promise.resolve({ head: [], body: '<div id="app"></div>' }),
+    })
+    vi.stubGlobal('fetch', mockFetch)
+    const app = createApp({ ssr: { url: 'http://localhost:13714' } })
+    app.get('/orders', (c) => c.var.inertia.render('Orders', { id: 7n }))
+
+    await app.request('/orders')
+
+    const sent = JSON.parse(mockFetch.mock.calls[0][1].body)
+    expect(sent.props.id).toEqual({ $bigint: '7' })
+    expect(sent.preserveBigIntegers).toBe(true)
+    vi.unstubAllGlobals()
+  })
+
+  it('passes native BigInt values to an in-process ssr.render', async () => {
+    const ssrRender = vi.fn().mockResolvedValue({ head: [], body: '<div id="app"></div>' })
+    const app = createApp({ ssr: { render: ssrRender } })
+    app.get('/orders', (c) => c.var.inertia.render('Orders', { id: 7n }))
+
+    await app.request('/orders')
+
+    expect(ssrRender.mock.calls[0][0].props.id).toBe(7n)
   })
 })
 

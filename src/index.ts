@@ -35,5 +35,8 @@ export type {
   RenderFunction,
   ScrollMetadata,
   SsrConfig,
+  SsrHttpConfig,
+  SsrRenderConfig,
+  SsrRenderResult,
   SsrResult,
 } from './types.js'

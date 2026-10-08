@@ -37,13 +37,17 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "size": "pnpm build && size-limit",
     "fetch:inertia": "bash scripts/fetch-inertia.sh"
   },
   "peerDependencies": {
     "hono": ">=4.0.0"
   },
   "devDependencies": {
+    "@size-limit/preset-small-lib": "^14.1.0",
     "hono": "^4.12.8",
+    "hono-4.0.0": "npm:hono@4.0.0",
+    "size-limit": "^14.1.0",
     "tsup": "^8.4.0",
     "typescript": "^5.7.0",
     "vitest": "^3.1.0"

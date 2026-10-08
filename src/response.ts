@@ -14,7 +14,8 @@ import type {
   TaggedProp,
 } from './types.js'
 import { isTaggedProp } from './props.js'
-import { dispatchToSsr } from './ssr.js'
+import { renderSsr } from './ssr.js'
+import { stringifyPage } from './serialize.js'
 import type { DevtoolsPayload } from './devtools.js'
 import {
   cacheControlValue,
@@ -389,31 +390,35 @@ export class InertiaResponse implements InertiaContext {
       sharedKeys,
     }
 
-    // 7. Return response
+    // 7. Return response. Built through the Hono context so c.status() and
+    // c.header() set by the handler apply to both JSON and HTML responses.
+    // newResponse, not body/json: in early Hono 4 releases (4.0.0) those drop
+    // the headers argument unless the status argument is a number.
     if (isInertia) {
-      return new Response(JSON.stringify(page), {
-        status: 200,
-        headers: {
+      return this.withDefaultCacheControl(
+        this.c.newResponse(stringifyPage(page), undefined, {
           'Content-Type': 'application/json',
           'X-Inertia': 'true',
-          'Vary': 'X-Inertia',
-          ...this.cacheControlHeader(),
-        },
-      })
+        }),
+      )
     }
 
     // Initial visit: optionally SSR, then render HTML
     let ssrResult: SsrResult | undefined
-    if (this.config.ssr?.enabled !== false && this.config.ssr?.url) {
-      const result = await dispatchToSsr(this.config.ssr, page)
-      if (result) {
-        ssrResult = result
+    if (this.config.ssr && this.config.ssr.enabled !== false) {
+      try {
+        ssrResult = await renderSsr(this.config.ssr, page)
+      } catch (error) {
+        ;(this.config.onSsrError ?? defaultOnSsrError)(error, page)
       }
     }
 
-    const htmlContent = await this.config.render(page, mergedViewData, ssrResult)
-    const res = await this.c.html(htmlContent)
-    // Only when absent: a Cache-Control set by the handler (via c.header) wins.
+    const htmlContent = await this.config.render(page, mergedViewData, ssrResult, this.c)
+    return this.withDefaultCacheControl(await this.c.html(htmlContent))
+  }
+
+  // Only when absent: a Cache-Control set by the handler (via c.header) wins.
+  private withDefaultCacheControl(res: Response): Response {
     const cacheControl = cacheControlValue(this.config)
     if (cacheControl !== undefined && !res.headers.has('Cache-Control')) {
       res.headers.set('Cache-Control', cacheControl)
@@ -424,6 +429,10 @@ export class InertiaResponse implements InertiaContext {
 
 function defaultOnRescue(error: unknown, prop: string): void {
   console.error(`[hono-inertia] rescued deferred prop "${prop}"`, error)
+}
+
+function defaultOnSsrError(error: unknown, page: PageObject): void {
+  console.error(`[hono-inertia] SSR failed for "${page.component}", rendering client-side`, error)
 }
 
 function collectMergeMetadata(

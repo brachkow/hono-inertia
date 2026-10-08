@@ -20,5 +20,25 @@ export function escapeHtml(value: string): string {
 // run as markup. Script content is raw text, so HTML entities would corrupt the
 // JSON instead; JSON unicode escapes keep it valid JSON while inert as HTML.
 export function serializePage(page: PageObject): string {
-  return JSON.stringify(page).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
+  return stringifyPage(page).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
 }
+
+// JSON has no BigInt, so a page holding one is sent with each BigInt as a
+// { "$bigint": "<digits>" } marker and flagged with preserveBigIntegers, which
+// tells the client (3.8+) to revive the markers. Mirrors stringifyPage in
+// @inertiajs/core: the replacer only runs after a plain stringify fails, and
+// the original error is rethrown if the retry fails too (e.g. a cycle).
+export function stringifyPage(page: PageObject): string {
+  try {
+    return JSON.stringify(page)
+  } catch (error) {
+    try {
+      return JSON.stringify({ ...page, preserveBigIntegers: true }, replaceBigInt)
+    } catch {
+      throw error
+    }
+  }
+}
+
+const replaceBigInt = (_key: string, value: unknown): unknown =>
+  typeof value === 'bigint' ? { $bigint: value.toString() } : value

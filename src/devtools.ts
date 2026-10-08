@@ -16,7 +16,7 @@ import type {
   ScrollProp,
   TaggedProp,
 } from './types.js'
-import { escapeHtml } from './serialize.js'
+import { escapeHtml, stringifyPage } from './serialize.js'
 import {
   getPartialComponent,
   getResetProps,
@@ -278,8 +278,8 @@ async function buildEntry(
 ): Promise<DevtoolsEntry> {
   const now = Date.now()
   // The page as the client received it: a JSON round trip drops undefined
-  // values and applies toJSON, matching the wire.
-  const page: PageObject | null = payload ? JSON.parse(JSON.stringify(payload.page)) : null
+  // values, applies toJSON and writes BigInt markers, matching the wire.
+  const page: PageObject | null = payload ? JSON.parse(stringifyPage(payload.page)) : null
 
   return {
     __meta: {
