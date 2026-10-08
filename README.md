@@ -69,11 +69,16 @@ inertia({
     auth: { user: getUser(c) },
   }),
 
-  // Optional. Posts the page object to an Inertia SSR server
+  // Optional. Posts the page object to an Inertia SSR server, or pass
+  // { render } to render in the same process (see SSR below)
   ssr: {
     url: 'http://127.0.0.1:13714',
     enabled: true,
   },
+
+  // Called when SSR fails and the page falls back to client-side rendering.
+  // Defaults to console.error. Throw from it to fail the request instead.
+  onSsrError: (error, page) => logger.error({ error, component: page.component }),
 
   // Cache-Control for responses the adapter emits (see Caching under Security).
   // Defaults to 'private, no-cache, must-revalidate'. Set false to omit it.
@@ -519,26 +524,155 @@ createInertiaApp({
 
 ## SSR
 
-Configure an Inertia SSR server. It works with `@inertiajs/vue3/server`, `@inertiajs/react/server` and `@inertiajs/svelte/server`:
+The adapter server-renders initial visits in one of two ways. It posts the page object to an Inertia SSR server, or it calls an SSR render function in the same process. Inertia requests (in-app navigation) are never server-rendered. Either way, your `render` function receives the result as `ssr`, with `ssr.head` already joined into one string. When SSR fails, `ssr` is `undefined` and the page renders client-side:
+
+```ts
+render: (page, viewData, ssr) => {
+  if (ssr) {
+    return `<html><head>${ssr.head}</head><body>${ssr.body}</body></html>`
+  }
+  return `<html><body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body></html>`
+},
+```
+
+### With an Inertia SSR server
+
+This works with the Node server that `@inertiajs/vite` builds from your SSR entry (`createServer` from `@inertiajs/vue3/server`, `@inertiajs/react/server` or `@inertiajs/svelte/server`):
 
 ```ts
 inertia({
   ssr: {
     url: 'http://127.0.0.1:13714', // default
-    enabled: true,
     timeout: 5000, // ms before falling back to client-side rendering (default 5000)
+    maxResponseBytes: 2_000_000, // default
   },
-  render: (page, viewData, ssr) => {
-    if (ssr) {
-      // ssr.head / ssr.body are HTML rendered by your own (trusted) SSR server
-      return `<html><head>${ssr.head}</head><body>${ssr.body}</body></html>`
-    }
-    return `<html><body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body></html>`
+  render,
+})
+```
+
+### In the same process (Cloudflare Workers)
+
+Workers can't run Inertia's Node SSR server, so the Worker imports the SSR entry and the adapter calls it directly. `ssr.render` receives the page object and returns `{ head: string[], body: string }`, which is what an Inertia SSR entry returns. The setup below uses Vue and `@cloudflare/vite-plugin`, which runs the Worker in workerd during `vite dev` and builds it with Vite, so the Worker can import `.vue` files.
+
+```bash
+pnpm add vue @inertiajs/vue3 @inertiajs/core
+pnpm add -D vite @vitejs/plugin-vue @inertiajs/vite @cloudflare/vite-plugin wrangler
+```
+
+`vite.config.ts`. The Worker environment is named after the `name` in your Wrangler config, with dashes replaced by underscores (`my-app` becomes `my_app`):
+
+```ts
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
+import inertia from '@inertiajs/vite'
+import { cloudflare } from '@cloudflare/vite-plugin'
+
+export default defineConfig({
+  // ssr: false stops @inertiajs/vite from bundling its Node SSR server into the Worker
+  plugins: [vue(), inertia({ ssr: false }), cloudflare()],
+  builder: {
+    // The Worker reads the client manifest, so the client has to build first
+    async buildApp(builder) {
+      await builder.build(builder.environments.client)
+      await builder.build(builder.environments.my_app)
+    },
+  },
+  environments: {
+    client: {
+      build: {
+        manifest: true,
+        rollupOptions: { input: 'src/client.ts' },
+      },
+    },
   },
 })
 ```
 
-If the SSR server is unavailable, the adapter falls back to client-side rendering.
+`src/ssr.ts`. Resolve pages with `import.meta.glob` here, not with the `pages` shorthand. When the Worker transforms an entry that uses `pages`, `@inertiajs/vite` warms the page files up for the browser before Vite has pre-bundled the client's dependencies, and the browser then loads two copies of `@inertiajs/vue3` in dev. The `pages` shorthand is fine in `src/client.ts`.
+
+```ts
+import { createInertiaApp } from '@inertiajs/vue3'
+import type { Page } from '@inertiajs/core'
+import type { PageObject } from '@brachkow/hono-inertia'
+import { createSSRApp, h } from 'vue'
+import type { DefineComponent } from 'vue'
+import { renderToString } from 'vue/server-renderer'
+
+const pages = import.meta.glob<DefineComponent>('./pages/*.vue', { import: 'default' })
+
+export default (page: PageObject) =>
+  createInertiaApp({
+    // Inertia's Page type also requires client-only state (rememberedState) that no server sends
+    page: page as Page,
+    render: renderToString,
+    resolve: (name) => pages[`./pages/${name}.vue`](),
+    setup: ({ App, props, plugin }) => createSSRApp({ render: () => h(App, props) }).use(plugin),
+  })
+```
+
+`src/worker.ts`. In production the Worker inlines the client manifest for the asset tags and the asset version. In dev it loads the client from the Vite dev server:
+
+```ts
+import { Hono } from 'hono'
+import { inertia, serializePage } from '@brachkow/hono-inertia'
+import { manifestVersion } from '@brachkow/hono-inertia/vite'
+import type { InertiaEnv } from '@brachkow/hono-inertia'
+import renderPage from './ssr'
+
+type Manifest = Record<string, { file: string; css?: string[] }>
+
+const manifest = import.meta.env.PROD
+  ? Object.values(
+      import.meta.glob<Manifest>('../dist/client/.vite/manifest.json', { eager: true, import: 'default' }),
+    )[0]
+  : undefined
+
+const assetTags = manifest
+  ? [
+      `<script type="module" src="/${manifest['src/client.ts'].file}"></script>`,
+      ...(manifest['src/client.ts'].css ?? []).map((file) => `<link rel="stylesheet" href="/${file}">`),
+    ].join('')
+  : '<script type="module" src="/@vite/client"></script><script type="module" src="/src/client.ts"></script>'
+
+const app = new Hono<InertiaEnv>()
+
+app.use(
+  inertia({
+    version: manifest ? manifestVersion(manifest) : 'dev',
+    ssr: { render: renderPage },
+    render: (page, viewData, ssr) =>
+      ssr
+        ? `<!DOCTYPE html><html><head>${ssr.head}${assetTags}</head><body>${ssr.body}</body></html>`
+        : `<!DOCTYPE html><html><head>${assetTags}</head><body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body></html>`,
+  }),
+)
+
+app.get('/', (c) => c.var.inertia.render('Home', { name: 'Workers' }))
+
+export default app
+```
+
+`wrangler.jsonc` points `main` at `src/worker.ts`. `vite dev` runs the app, `vite build` builds both environments, and `wrangler deploy` deploys the output.
+
+### When SSR fails
+
+If the SSR server is unreachable, times out, or returns an error or an invalid result, or if `ssr.render` throws, the adapter calls `onSsrError(error, page)` and renders the page client-side. For an Inertia SSR server, the error keeps the server's error details (`error`, `type`, `hint`, `stack`) as `error.cause`. The default handler logs with `console.error`. Throw from `onSsrError` to fail the request instead, which is useful in E2E tests:
+
+```ts
+inertia({
+  ssr: { render: renderPage },
+  onSsrError: (error) => {
+    throw error
+  },
+  render,
+})
+```
+
+The fallback looks the same to people, because the client renders the page after load. Crawlers get an empty `<div id="app"></div>`. Add a test that requests a page and checks the HTML for `data-server-rendered="true"`, so a broken SSR build fails CI instead of shipping.
+
+### Module state is shared between requests
+
+An in-process SSR entry stays loaded across requests in the same isolate. Module-level state in client code, such as a store created at import time, carries over from one request to the next. Create request-scoped state inside components or `setup`, not at module level.
 
 ## Security
 
@@ -632,7 +766,7 @@ A note for testing: Chromium automation (`page.goBack()` in Playwright) triggers
 
 ### SSR
 
-The SSR server is a trust boundary. The adapter inserts its `head` and `body` into your HTML as-is, because they are rendered HTML and escaping them would break the page. Only point `ssr.url` at a server you control, such as loopback or an authenticated internal host over HTTPS, and never take it from untrusted input. `ssr.timeout` and `ssr.maxResponseBytes` limit the responses.
+The SSR server is a trust boundary. Your `render` function inserts its `head` and `body` into the HTML as-is, because they are rendered HTML and escaping them would break the page. Only point `ssr.url` at a server you control, such as loopback or an authenticated internal host over HTTPS, and never take it from untrusted input. `ssr.timeout` and `ssr.maxResponseBytes` limit the responses. With `ssr.render`, the HTML comes from your own SSR entry, and the adapter checks only its shape.
 
 ## TypeScript
 
