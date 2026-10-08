@@ -392,9 +392,11 @@ export class InertiaResponse implements InertiaContext {
 
     // 7. Return response. Built through the Hono context so c.status() and
     // c.header() set by the handler apply to both JSON and HTML responses.
+    // newResponse, not body/json: in early Hono 4 releases (4.0.0) those drop
+    // the headers argument unless the status argument is a number.
     if (isInertia) {
       return this.withDefaultCacheControl(
-        this.c.body(stringifyPage(page), undefined, {
+        this.c.newResponse(stringifyPage(page), undefined, {
           'Content-Type': 'application/json',
           'X-Inertia': 'true',
         }),

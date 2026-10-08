@@ -14,6 +14,9 @@ importers:
       hono:
         specifier: ^4.12.8
         version: 4.12.9
+      hono-4.0.0:
+        specifier: npm:hono@4.0.0
+        version: hono@4.0.0
       size-limit:
         specifier: ^14.1.0
         version: 14.1.0
@@ -582,6 +585,10 @@ packages:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
+
+  hono@4.0.0:
+    resolution: {integrity: sha512-8dKhuBBpRZEodUttQhrSFJ6PQqHRjXHyeeegfxOf132pvgbf0tOb9qqb7q7eYwAWpOcYrsUOsWdJ0sQIIovhZg==}
+    engines: {node: '>=16.0.0'}
 
   hono@4.12.9:
     resolution: {integrity: sha512-wy3T8Zm2bsEvxKZM5w21VdHDDcwVS1yUFFY6i8UobSsKfFceT7TOwhbhfKsDyx7tYQlmRM5FLpIuYvNFyjctiA==}
@@ -1236,6 +1243,8 @@ snapshots:
 
   fsevents@2.3.3:
     optional: true
+
+  hono@4.0.0: {}
 
   hono@4.12.9: {}
 
