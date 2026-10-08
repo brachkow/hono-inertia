@@ -389,17 +389,12 @@ export class InertiaResponse implements InertiaContext {
       sharedKeys,
     }
 
-    // 7. Return response
+    // 7. Return response. Built through the Hono context so c.status() and
+    // c.header() set by the handler apply to both JSON and HTML responses.
     if (isInertia) {
-      return new Response(JSON.stringify(page), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Inertia': 'true',
-          'Vary': 'X-Inertia',
-          ...this.cacheControlHeader(),
-        },
-      })
+      return this.withDefaultCacheControl(
+        this.c.json(page, undefined, { 'X-Inertia': 'true' }),
+      )
     }
 
     // Initial visit: optionally SSR, then render HTML
@@ -411,9 +406,12 @@ export class InertiaResponse implements InertiaContext {
       }
     }
 
-    const htmlContent = await this.config.render(page, mergedViewData, ssrResult)
-    const res = await this.c.html(htmlContent)
-    // Only when absent: a Cache-Control set by the handler (via c.header) wins.
+    const htmlContent = await this.config.render(page, mergedViewData, ssrResult, this.c)
+    return this.withDefaultCacheControl(await this.c.html(htmlContent))
+  }
+
+  // Only when absent: a Cache-Control set by the handler (via c.header) wins.
+  private withDefaultCacheControl(res: Response): Response {
     const cacheControl = cacheControlValue(this.config)
     if (cacheControl !== undefined && !res.headers.has('Cache-Control')) {
       res.headers.set('Cache-Control', cacheControl)

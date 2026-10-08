@@ -2236,6 +2236,18 @@ describe('Cache-Control', () => {
     expect(res.headers.get('Cache-Control')).toBe('public, max-age=60')
   })
 
+  it('preserves a handler-set Cache-Control on Inertia JSON responses', async () => {
+    const app = createApp()
+    app.get('/test', (c) => {
+      c.header('Cache-Control', 'public, max-age=60')
+      return c.var.inertia.render('Test')
+    })
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+
+    expect(res.headers.get('Cache-Control')).toBe('public, max-age=60')
+  })
+
   it('does not stamp passthrough responses', async () => {
     const app = createApp()
     app.get('/api', (c) => c.json({ ok: true }))
@@ -2243,6 +2255,91 @@ describe('Cache-Control', () => {
     const res = await app.request('/api')
 
     expect(res.headers.get('Cache-Control')).toBe(null)
+  })
+})
+
+describe('Response status', () => {
+  it('returns 200 by default', async () => {
+    const app = createApp()
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+
+    expect(res.status).toBe(200)
+  })
+
+  it('uses c.status() on Inertia JSON responses', async () => {
+    const app = createApp()
+    app.get('/missing', (c) => {
+      c.status(404)
+      return c.var.inertia.render('Error', { status: 404 })
+    })
+
+    const res = await app.request('/missing', { headers: inertiaHeaders() })
+
+    expect(res.status).toBe(404)
+    expect(res.headers.get('X-Inertia')).toBe('true')
+    expect((await getPage(res)).component).toBe('Error')
+  })
+
+  it('uses c.status() on initial HTML responses', async () => {
+    const app = createApp()
+    app.get('/missing', (c) => {
+      c.status(404)
+      return c.var.inertia.render('Error', { status: 404 })
+    })
+
+    const res = await app.request('/missing')
+
+    expect(res.status).toBe(404)
+    expect(parsePageFromHtml(await res.text()).component).toBe('Error')
+  })
+
+  it('uses c.status() in a notFound handler', async () => {
+    const app = createApp()
+    app.notFound((c) => {
+      c.status(404)
+      return c.var.inertia.render('Error', { status: 404 })
+    })
+
+    const res = await app.request('/nowhere', { headers: inertiaHeaders() })
+
+    expect(res.status).toBe(404)
+    expect((await getPage(res)).component).toBe('Error')
+  })
+
+  it('keeps handler-set headers on Inertia JSON responses', async () => {
+    const app = createApp()
+    app.get('/test', (c) => {
+      c.header('X-Custom', 'kept')
+      return c.var.inertia.render('Test')
+    })
+
+    const res = await app.request('/test', { headers: inertiaHeaders() })
+
+    expect(res.headers.get('X-Custom')).toBe('kept')
+    expect(res.headers.get('Content-Type')).toContain('application/json')
+  })
+})
+
+describe('Render function context', () => {
+  it('passes the Hono context to the render function', async () => {
+    const app = new Hono<InertiaEnv & { Variables: { nonce: string } }>()
+    app.use(async (c, next) => {
+      c.set('nonce', 'abc123')
+      await next()
+    })
+    app.use(
+      inertia({
+        render: (page, viewData, ssr, c) =>
+          `<script nonce="${c.get('nonce')}"></script><script data-page="app" type="application/json">${serializePage(page)}</script>`,
+      }),
+    )
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test')
+
+    expect(await res.text()).toContain('<script nonce="abc123">')
   })
 })
 

@@ -55,7 +55,8 @@ export interface SsrResult {
 export type RenderFunction = (
   page: PageObject,
   viewData: Record<string, unknown>,
-  ssr?: SsrResult,
+  ssr: SsrResult | undefined,
+  c: Context,
 ) => string | Promise<string>
 
 // ---------------------------------------------------------------------------
