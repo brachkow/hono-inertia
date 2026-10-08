@@ -111,6 +111,20 @@ app.get('/dashboard', (c) => {
 })
 ```
 
+### BigInt props
+
+Props and flash data can hold `BigInt` values, such as 64-bit IDs from a `bigint` column. JSON has no BigInt, so the adapter sends each one as a `{ "$bigint": "<digits>" }` marker and sets `preserveBigIntegers: true` on the page. The Inertia client (3.8+) turns the markers back into `BigInt` values, on initial visits, Inertia requests, SSR and history restores. Pages without a `BigInt` are sent unchanged:
+
+```ts
+app.get('/orders/:id', async (c) => {
+  return c.var.inertia.render('Orders/Show', {
+    id: 900719925474099988n, // arrives in the component as a BigInt
+  })
+})
+```
+
+Older clients receive the markers as plain objects. A `BigInt` the client sends back (router, forms) arrives as a numeric string.
+
 ## Shared data
 
 Global shared props via config:
@@ -667,6 +681,8 @@ inertia({
   render,
 })
 ```
+
+A common cause is a component that touches a browser API (`window`, `document`, `localStorage`) during render. Wrap it in Inertia's `<WhenMounted>` (client 3.8+), which renders its `fallback` on the server and its children only after mounting in the browser.
 
 The fallback looks the same to people, because the client renders the page after load. Crawlers get an empty `<div id="app"></div>`. Add a test that requests a page and checks the HTML for `data-server-rendered="true"`, so a broken SSR build fails CI instead of shipping.
 
