@@ -2046,6 +2046,154 @@ describe('SSR integration', () => {
 
     vi.restoreAllMocks()
   })
+
+  it('posts to the default URL when ssr has no url', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers(),
+      json: () => Promise.resolve({ head: [], body: '<div id="app"></div>' }),
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    const app = createApp({ ssr: {} })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    await app.request('/test')
+    expect(mockFetch).toHaveBeenCalledWith('http://127.0.0.1:13714/render', expect.any(Object))
+
+    vi.unstubAllGlobals()
+  })
+})
+
+describe('In-process SSR', () => {
+  const renderShell = (page: PageObject, ssr: { head: string; body: string } | undefined) =>
+    ssr
+      ? `<html><head>${ssr.head}</head><body>${ssr.body}</body></html>`
+      : `<html><body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body></html>`
+
+  it('passes the page to ssr.render and its result to the render function', async () => {
+    const ssrRender = vi.fn().mockResolvedValue({
+      head: ['<title>SSR</title>'],
+      body: '<div data-server-rendered="true" id="app"><h1>Hi</h1></div>',
+    })
+    const app = createApp({
+      ssr: { render: ssrRender },
+      render: (page, _viewData, ssr) => renderShell(page, ssr),
+    })
+    app.get('/test', (c) => c.var.inertia.render('Test', { name: 'Hi' }))
+
+    const res = await app.request('/test')
+
+    expect(ssrRender).toHaveBeenCalledWith(
+      expect.objectContaining({ component: 'Test', props: { errors: {}, name: 'Hi' } }),
+    )
+    expect(await res.text()).toBe(
+      '<html><head><title>SSR</title></head><body><div data-server-rendered="true" id="app"><h1>Hi</h1></div></body></html>',
+    )
+  })
+
+  it('skips ssr.render for Inertia JSON requests', async () => {
+    const ssrRender = vi.fn()
+    const app = createApp({ ssr: { render: ssrRender } })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    await app.request('/test', { headers: inertiaHeaders() })
+
+    expect(ssrRender).not.toHaveBeenCalled()
+  })
+
+  it('skips ssr.render when ssr.enabled is false', async () => {
+    const ssrRender = vi.fn()
+    const app = createApp({ ssr: { render: ssrRender, enabled: false } })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    await app.request('/test')
+
+    expect(ssrRender).not.toHaveBeenCalled()
+  })
+
+  it('renders client-side and reports the error when ssr.render throws', async () => {
+    const error = new Error('Page not found: Test')
+    const onSsrError = vi.fn()
+    let receivedSsr: unknown = 'not called'
+    const app = createApp({
+      ssr: { render: () => Promise.reject(error) },
+      onSsrError,
+      render: (page, _viewData, ssr) => {
+        receivedSsr = ssr
+        return renderShell(page, ssr)
+      },
+    })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test')
+
+    expect(res.status).toBe(200)
+    expect(receivedSsr).toBeUndefined()
+    expect(parsePageFromHtml(await res.text()).component).toBe('Test')
+    expect(onSsrError).toHaveBeenCalledWith(error, expect.objectContaining({ component: 'Test' }))
+  })
+
+  it('reports an invalid ssr.render result as an error', async () => {
+    const onSsrError = vi.fn()
+    const app = createApp({
+      ssr: { render: () => ({ head: '<title>x</title>', body: '' }) as unknown as { head: string[]; body: string } },
+      onSsrError,
+    })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    await app.request('/test')
+
+    expect(onSsrError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'SSR render must return { head: string[], body: string }' }),
+      expect.any(Object),
+    )
+  })
+
+  it('logs SSR failures with console.error by default', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const error = new Error('boom')
+    const app = createApp({ ssr: { render: () => Promise.reject(error) } })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    await app.request('/test')
+
+    expect(consoleError).toHaveBeenCalledWith(
+      '[hono-inertia] SSR failed for "Test", rendering client-side',
+      error,
+    )
+    consoleError.mockRestore()
+  })
+
+  it('fails the request when onSsrError throws', async () => {
+    const app = createApp({
+      ssr: { render: () => Promise.reject(new Error('boom')) },
+      onSsrError: (error) => {
+        throw error
+      },
+    })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test')
+
+    expect(res.status).toBe(500)
+  })
+
+  it('reports HTTP SSR failures through onSsrError', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')))
+    const onSsrError = vi.fn()
+    const app = createApp({ ssr: { url: 'http://localhost:13714' }, onSsrError })
+    app.get('/test', (c) => c.var.inertia.render('Test'))
+
+    const res = await app.request('/test')
+
+    expect(res.status).toBe(200)
+    expect(onSsrError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'ECONNREFUSED' }),
+      expect.objectContaining({ component: 'Test' }),
+    )
+    vi.unstubAllGlobals()
+  })
 })
 
 // =========================================================================

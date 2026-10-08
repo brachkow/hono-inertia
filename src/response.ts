@@ -14,7 +14,7 @@ import type {
   TaggedProp,
 } from './types.js'
 import { isTaggedProp } from './props.js'
-import { dispatchToSsr } from './ssr.js'
+import { renderSsr } from './ssr.js'
 import type { DevtoolsPayload } from './devtools.js'
 import {
   cacheControlValue,
@@ -399,10 +399,11 @@ export class InertiaResponse implements InertiaContext {
 
     // Initial visit: optionally SSR, then render HTML
     let ssrResult: SsrResult | undefined
-    if (this.config.ssr?.enabled !== false && this.config.ssr?.url) {
-      const result = await dispatchToSsr(this.config.ssr, page)
-      if (result) {
-        ssrResult = result
+    if (this.config.ssr && this.config.ssr.enabled !== false) {
+      try {
+        ssrResult = await renderSsr(this.config.ssr, page)
+      } catch (error) {
+        ;(this.config.onSsrError ?? defaultOnSsrError)(error, page)
       }
     }
 
@@ -422,6 +423,10 @@ export class InertiaResponse implements InertiaContext {
 
 function defaultOnRescue(error: unknown, prop: string): void {
   console.error(`[hono-inertia] rescued deferred prop "${prop}"`, error)
+}
+
+function defaultOnSsrError(error: unknown, page: PageObject): void {
+  console.error(`[hono-inertia] SSR failed for "${page.component}", rendering client-side`, error)
 }
 
 function collectMergeMetadata(

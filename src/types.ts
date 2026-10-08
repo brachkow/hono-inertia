@@ -34,14 +34,33 @@ export interface PageObject {
 // SSR
 // ---------------------------------------------------------------------------
 
-export interface SsrConfig {
-  url?: string
+// What an Inertia SSR entry's default export returns
+export interface SsrRenderResult {
+  head: string[]
+  body: string
+}
+
+// Posts the page to `${url}/render` on an Inertia SSR server (`createServer`)
+export interface SsrHttpConfig {
   enabled?: boolean
+  url?: string
   // Abort the SSR request after this many ms (default 5000), falling back to CSR.
   timeout?: number
   // Reject SSR responses larger than this many bytes (default 2_000_000).
   maxResponseBytes?: number
+  render?: never
 }
+
+// Renders in the same process, e.g. a Worker that imports the SSR entry
+export interface SsrRenderConfig {
+  enabled?: boolean
+  render: (page: PageObject) => SsrRenderResult | Promise<SsrRenderResult>
+  url?: never
+  timeout?: never
+  maxResponseBytes?: never
+}
+
+export type SsrConfig = SsrHttpConfig | SsrRenderConfig
 
 export interface SsrResult {
   head: string
@@ -80,6 +99,9 @@ export interface InertiaConfig {
   // Called when a `deferred(fn).rescue()` prop throws while resolving. The prop
   // is sent as null and listed in `page.rescuedProps`. Defaults to console.error.
   onRescue?: (error: unknown, prop: string) => void
+  // Called when SSR fails. The page then renders client-side (ssr is undefined
+  // in render). Throw from it to fail the request instead. Defaults to console.error.
+  onSsrError?: (error: unknown, page: PageObject) => void
   // Record requests for the Inertia DevTools browser extension. Off by default;
   // enable in development only. See README → DevTools.
   devtools?: boolean | DevtoolsConfig
