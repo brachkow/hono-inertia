@@ -2516,6 +2516,78 @@ describe('Render function context', () => {
   })
 })
 
+describe('BigInt props', () => {
+  it('sends BigInt props as $bigint markers on Inertia responses', async () => {
+    const app = createApp()
+    app.get('/orders', (c) => c.var.inertia.render('Orders', { id: 900719925474099988n, total: 12 }))
+
+    const res = await app.request('/orders', { headers: inertiaHeaders() })
+    const page = await getPage(res)
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toContain('application/json')
+    expect(page.props.id).toEqual({ $bigint: '900719925474099988' })
+    expect(page.props.total).toBe(12)
+    expect(page.preserveBigIntegers).toBe(true)
+  })
+
+  it('resolves lazy props that return a BigInt', async () => {
+    const app = createApp()
+    app.get('/orders', (c) => c.var.inertia.render('Orders', { id: async () => 5n }))
+
+    const page = await getPage(await app.request('/orders', { headers: inertiaHeaders() }))
+
+    expect(page.props.id).toEqual({ $bigint: '5' })
+  })
+
+  it('embeds BigInt markers in the initial HTML page', async () => {
+    const app = createApp()
+    app.get('/orders', (c) => c.var.inertia.render('Orders', { id: 7n }))
+
+    const page = parsePageFromHtml(await (await app.request('/orders')).text())
+
+    expect(page.props.id).toEqual({ $bigint: '7' })
+    expect(page.preserveBigIntegers).toBe(true)
+  })
+
+  it('does not flag pages without BigInt props', async () => {
+    const app = createApp()
+    app.get('/orders', (c) => c.var.inertia.render('Orders', { id: 7 }))
+
+    const page = await getPage(await app.request('/orders', { headers: inertiaHeaders() }))
+
+    expect(page.preserveBigIntegers).toBeUndefined()
+  })
+
+  it('posts BigInt markers to the SSR server', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers(),
+      json: () => Promise.resolve({ head: [], body: '<div id="app"></div>' }),
+    })
+    vi.stubGlobal('fetch', mockFetch)
+    const app = createApp({ ssr: { url: 'http://localhost:13714' } })
+    app.get('/orders', (c) => c.var.inertia.render('Orders', { id: 7n }))
+
+    await app.request('/orders')
+
+    const sent = JSON.parse(mockFetch.mock.calls[0][1].body)
+    expect(sent.props.id).toEqual({ $bigint: '7' })
+    expect(sent.preserveBigIntegers).toBe(true)
+    vi.unstubAllGlobals()
+  })
+
+  it('passes native BigInt values to an in-process ssr.render', async () => {
+    const ssrRender = vi.fn().mockResolvedValue({ head: [], body: '<div id="app"></div>' })
+    const app = createApp({ ssr: { render: ssrRender } })
+    app.get('/orders', (c) => c.var.inertia.render('Orders', { id: 7n }))
+
+    await app.request('/orders')
+
+    expect(ssrRender.mock.calls[0][0].props.id).toBe(7n)
+  })
+})
+
 describe('Lazy version resolution', () => {
   const createCountingApp = () => {
     let calls = 0

@@ -1,4 +1,5 @@
 import type { PageObject, SsrConfig, SsrHttpConfig, SsrResult } from './types.js'
+import { stringifyPage } from './serialize.js'
 
 const DEFAULT_SSR_URL = 'http://127.0.0.1:13714'
 const DEFAULT_SSR_TIMEOUT = 5000
@@ -18,7 +19,8 @@ async function dispatchToSsr(config: SsrHttpConfig, page: PageObject): Promise<S
   const response = await fetch(`${url}/render`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(page),
+    // Inertia's SSR server parses with parsePage, which revives BigInt markers
+    body: stringifyPage(page),
     // Without a timeout a hung SSR server holds the request open indefinitely.
     signal: AbortSignal.timeout(config.timeout ?? DEFAULT_SSR_TIMEOUT),
   })

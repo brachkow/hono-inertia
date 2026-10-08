@@ -12,6 +12,8 @@ export interface PageObject {
   encryptHistory?: boolean
   clearHistory?: boolean
   preserveFragment?: boolean
+  // Set while serializing when props hold a BigInt (see stringifyPage)
+  preserveBigIntegers?: boolean
   sharedProps?: string[]
   flash?: Record<string, unknown>
   rescuedProps?: string[]

@@ -15,6 +15,7 @@ import type {
 } from './types.js'
 import { isTaggedProp } from './props.js'
 import { renderSsr } from './ssr.js'
+import { stringifyPage } from './serialize.js'
 import type { DevtoolsPayload } from './devtools.js'
 import {
   cacheControlValue,
@@ -393,7 +394,10 @@ export class InertiaResponse implements InertiaContext {
     // c.header() set by the handler apply to both JSON and HTML responses.
     if (isInertia) {
       return this.withDefaultCacheControl(
-        this.c.json(page, undefined, { 'X-Inertia': 'true' }),
+        this.c.body(stringifyPage(page), undefined, {
+          'Content-Type': 'application/json',
+          'X-Inertia': 'true',
+        }),
       )
     }
 
