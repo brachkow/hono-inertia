@@ -25,6 +25,13 @@ async function dispatchToSsr(config: SsrHttpConfig, page: PageObject): Promise<S
     signal: AbortSignal.timeout(config.timeout ?? DEFAULT_SSR_TIMEOUT),
   })
 
+  // Reject oversized bodies before buffering them into the heap, error
+  // responses included.
+  const maxBytes = config.maxResponseBytes ?? DEFAULT_SSR_MAX_RESPONSE_BYTES
+  if (Number(response.headers.get('Content-Length')) > maxBytes) {
+    throw new Error(`SSR response exceeds maxResponseBytes (${maxBytes})`)
+  }
+
   if (!response.ok) {
     // Inertia's SSR server answers failures with a classified error
     // ({ error, type, hint, stack, ... }); keep it as the cause.
@@ -34,12 +41,6 @@ async function dispatchToSsr(config: SsrHttpConfig, page: PageObject): Promise<S
       `SSR server responded with ${response.status}${typeof message === 'string' ? `: ${message}` : ''}`,
       { cause: details },
     )
-  }
-
-  // Reject oversized bodies before buffering them into the heap.
-  const maxBytes = config.maxResponseBytes ?? DEFAULT_SSR_MAX_RESPONSE_BYTES
-  if (Number(response.headers.get('Content-Length')) > maxBytes) {
-    throw new Error(`SSR response exceeds maxResponseBytes (${maxBytes})`)
   }
 
   return toSsrResult(await response.json())

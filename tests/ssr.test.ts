@@ -45,7 +45,7 @@ describe('renderSsr over HTTP', () => {
     const details = { error: 'window is not defined', type: 'browser-api', hint: 'Use onMounted' }
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({ ok: false, status: 500, json: () => Promise.resolve(details) }),
+      vi.fn().mockResolvedValue({ ok: false, status: 500, headers: new Headers(), json: () => Promise.resolve(details) }),
     )
 
     const result = renderSsr({ url: 'http://localhost:13714' }, mockPage)
@@ -57,7 +57,7 @@ describe('renderSsr over HTTP', () => {
   it('rejects on HTTP error without a JSON body', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({ ok: false, status: 502, json: () => Promise.reject(new SyntaxError()) }),
+      vi.fn().mockResolvedValue({ ok: false, status: 502, headers: new Headers(), json: () => Promise.reject(new SyntaxError()) }),
     )
 
     await expect(renderSsr({ url: 'http://localhost:13714' }, mockPage)).rejects.toThrow(
@@ -112,6 +112,26 @@ describe('renderSsr over HTTP', () => {
     await expect(
       renderSsr({ url: 'http://localhost:13714', maxResponseBytes: 1000 }, mockPage),
     ).rejects.toThrow('SSR response exceeds maxResponseBytes (1000)')
+  })
+})
+
+describe('renderSsr over HTTP with an oversized error response', () => {
+  it('rejects without reading the body', async () => {
+    const json = vi.fn().mockResolvedValue({ error: 'x'.repeat(10) })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        headers: new Headers({ 'Content-Length': '5000000' }),
+        json,
+      }),
+    )
+
+    await expect(
+      renderSsr({ url: 'http://localhost:13714', maxResponseBytes: 1000 }, mockPage),
+    ).rejects.toThrow('SSR response exceeds maxResponseBytes (1000)')
+    expect(json).not.toHaveBeenCalled()
   })
 })
 
