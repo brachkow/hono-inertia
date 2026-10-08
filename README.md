@@ -113,7 +113,7 @@ app.get('/dashboard', (c) => {
 
 ### BigInt props
 
-Props and flash data can hold `BigInt` values, such as 64-bit IDs from a `bigint` column. JSON has no BigInt, so the adapter sends each one as a `{ "$bigint": "<digits>" }` marker and sets `preserveBigIntegers: true` on the page. The Inertia client (3.8+) turns the markers back into `BigInt` values, on initial visits, Inertia requests, SSR and history restores. Pages without a `BigInt` are sent unchanged:
+Props and flash data can hold `BigInt` values, such as 64-bit IDs from a `bigint` column. JSON has no BigInt, so the adapter sends each one as a `{ "$bigint": "<digits>" }` marker and sets `preserveBigIntegers: true` on the page. The Inertia client (3.8+) turns the markers back into `BigInt` values on initial visits, Inertia requests, SSR and history restores. Pages without a `BigInt` are sent unchanged:
 
 ```ts
 app.get('/orders/:id', async (c) => {
@@ -123,7 +123,7 @@ app.get('/orders/:id', async (c) => {
 })
 ```
 
-Older clients receive the markers as plain objects. A `BigInt` the client sends back (router, forms) arrives as a numeric string.
+Older clients receive the markers as plain objects. A `BigInt` that the client sends back through the router or a form arrives as a numeric string.
 
 ## Shared data
 
@@ -221,7 +221,7 @@ c.var.inertia.render('Feed', {
 
 ### `scroll(value, metadata)`
 
-Provides the data for the client's `<InfiniteScroll>` component. `value` is the array of rows for the
+`scroll()` provides the data for the client's `<InfiniteScroll>` component. `value` is the array of rows for the
 current page. You pass the pagination state separately as a `ScrollMetadata` adapter:
 
 ```ts
@@ -473,7 +473,7 @@ app.use(async (c, next) => {
 
 ## DevTools
 
-The [Inertia DevTools](https://inertiajs.com/docs/devtools) browser extension records every request in a dedicated panel: which props the server returned and how they were wrapped, request and response bodies, and timing. The adapter implements the server side of the [DevTools protocol](https://inertiajs.com/docs/devtools-protocol). Enable it in development only:
+The [Inertia DevTools](https://inertiajs.com/docs/devtools) browser extension records every request in its own panel: which props the server returned and how they were wrapped, request and response bodies, and timing. The adapter implements the server side of the [DevTools protocol](https://inertiajs.com/docs/devtools-protocol). Enable it in development only:
 
 ```ts
 inertia({
@@ -538,7 +538,7 @@ createInertiaApp({
 
 ## SSR
 
-The adapter server-renders initial visits in one of two ways. It posts the page object to an Inertia SSR server, or it calls an SSR render function in the same process. Inertia requests (in-app navigation) are never server-rendered. Either way, your `render` function receives the result as `ssr`, with `ssr.head` already joined into one string. When SSR fails, `ssr` is `undefined` and the page renders client-side:
+The adapter server-renders initial visits in one of two ways. It posts the page object to an Inertia SSR server, or it calls an SSR render function in the same process. It never server-renders Inertia requests, which are in-app navigations. Either way, your `render` function receives the result as `ssr`, with `ssr.head` already joined into one string. When SSR fails, `ssr` is `undefined` and the page renders client-side:
 
 ```ts
 render: (page, viewData, ssr) => {
@@ -566,14 +566,14 @@ inertia({
 
 ### In the same process (Cloudflare Workers)
 
-Workers can't run Inertia's Node SSR server, so the Worker imports the SSR entry and the adapter calls it directly. `ssr.render` receives the page object and returns `{ head: string[], body: string }`, which is what an Inertia SSR entry returns. The setup below uses Vue and `@cloudflare/vite-plugin`, which runs the Worker in workerd during `vite dev` and builds it with Vite, so the Worker can import `.vue` files.
+Workers can't run Inertia's Node SSR server, so the Worker imports the SSR entry and the adapter calls it directly. `ssr.render` receives the page object and returns `{ head: string[], body: string }`, the same result an Inertia SSR entry returns. The setup below uses Vue and `@cloudflare/vite-plugin`. The plugin runs the Worker in workerd during `vite dev` and builds it with Vite, so the Worker can import `.vue` files.
 
 ```bash
 pnpm add vue @inertiajs/vue3 @inertiajs/core
 pnpm add -D vite @vitejs/plugin-vue @inertiajs/vite @cloudflare/vite-plugin wrangler
 ```
 
-`vite.config.ts`. The Worker environment is named after the `name` in your Wrangler config, with dashes replaced by underscores (`my-app` becomes `my_app`):
+Configure Vite in `vite.config.ts`. The Cloudflare plugin names the Worker's environment after the `name` in your Wrangler config, with dashes replaced by underscores (`my-app` becomes `my_app`):
 
 ```ts
 import { defineConfig } from 'vite'
@@ -602,7 +602,7 @@ export default defineConfig({
 })
 ```
 
-`src/ssr.ts`. Resolve pages with `import.meta.glob` here, not with the `pages` shorthand. When the Worker transforms an entry that uses `pages`, `@inertiajs/vite` warms the page files up for the browser before Vite has pre-bundled the client's dependencies, and the browser then loads two copies of `@inertiajs/vue3` in dev. The `pages` shorthand is fine in `src/client.ts`.
+The SSR entry, `src/ssr.ts`, resolves pages with `import.meta.glob` instead of the `pages` shorthand. When the Worker transforms an entry that uses `pages`, `@inertiajs/vite` warms up the page files for the browser before Vite has pre-bundled the client's dependencies. The browser then loads two copies of `@inertiajs/vue3` in dev. The `pages` shorthand is fine in `src/client.ts`.
 
 ```ts
 import { createInertiaApp } from '@inertiajs/vue3'
@@ -624,7 +624,7 @@ export default (page: PageObject) =>
   })
 ```
 
-`src/worker.ts`. In production the Worker inlines the client manifest for the asset tags and the asset version. In dev it loads the client from the Vite dev server:
+The Worker, `src/worker.ts`, inlines the client manifest in production and builds the asset tags and the asset version from it. In dev, it loads the client from the Vite dev server:
 
 ```ts
 import { Hono } from 'hono'
@@ -670,7 +670,7 @@ export default app
 
 ### When SSR fails
 
-If the SSR server is unreachable, times out, or returns an error or an invalid result, or if `ssr.render` throws, the adapter calls `onSsrError(error, page)` and renders the page client-side. For an Inertia SSR server, the error keeps the server's error details (`error`, `type`, `hint`, `stack`) as `error.cause`. The default handler logs with `console.error`. Throw from `onSsrError` to fail the request instead, which is useful in E2E tests:
+When SSR fails, the adapter calls `onSsrError(error, page)` and renders the page client-side. SSR fails when the SSR server is unreachable, times out, or returns an error or an invalid result, and when `ssr.render` throws. With an Inertia SSR server, `error.cause` holds the server's error details (`error`, `type`, `hint`, `stack`). The default handler logs with `console.error`. Throw from `onSsrError` to fail the request instead, which is useful in E2E tests:
 
 ```ts
 inertia({
@@ -756,7 +756,7 @@ Enable `encryptHistory` on authenticated pages. If bfcache restoration matters t
 Responses the adapter emits (Inertia JSON, initial HTML, 409s) carry `Cache-Control: private, no-cache, must-revalidate` by default:
 
 - Without a `Cache-Control` header, browsers apply heuristic freshness to the HTML document. After a deploy, the browser could answer the full-page reload that a 409 triggers with the same stale document from cache, and asset versioning would silently fail. The 409 mechanism needs this header to work.
-- `private` because the rendered HTML embeds per-user props (session, auth) in the page data script, so a shared cache or CDN must never store it.
+- `private`, because the rendered HTML embeds per-user props (session, auth) in the page data script, so a shared cache or CDN must never store it.
 - `no-cache` (store but revalidate) instead of `no-store`, because `no-store` disables the back/forward cache and turns every back navigation into a full load.
 
 Override the value with `cacheControl: '…'`, or omit the header with `cacheControl: false`. For a per-route override, set the header with `c.header()` before `render()`. It applies to both initial HTML and Inertia JSON responses. 409 responses always use the config value:
@@ -778,7 +778,7 @@ window.addEventListener('pageshow', (e) => {
 })
 ```
 
-A note for testing: Chromium automation (`page.goBack()` in Playwright) triggers `popstate`, not bfcache. A passing Chromium test says nothing about Back behavior in Safari or Firefox.
+When testing, keep in mind that Chromium automation (`page.goBack()` in Playwright) triggers `popstate`, not bfcache. A passing Chromium test says nothing about Back behavior in Safari or Firefox.
 
 ### SSR
 
