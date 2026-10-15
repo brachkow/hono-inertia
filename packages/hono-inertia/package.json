@@ -54,7 +54,7 @@
     "node": ">=22.12.0"
   },
   "peerDependencies": {
-    "hono": ">=4.8.0",
+    "hono": ">=4.8.0 || >=5.0.0-rc.1",
     "vite": ">=6.0.0"
   },
   "devDependencies": {
