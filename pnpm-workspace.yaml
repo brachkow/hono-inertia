@@ -1,3 +1,23 @@
+packages:
+  - 'packages/*'
+  - 'examples/*'
+  - 'e2e'
+
+# Each example gets its own copy of the adapter, so the adapter's `hono` peer
+# resolves to the example's Hono. A symlink would resolve it from the adapter's
+# devDependencies and bundle a second Hono.
+injectWorkspacePackages: true
+# Refresh those copies whenever the adapter builds
+syncInjectedDepsAfterScripts:
+  - build
+
+# size-limit loads its plugins with a bare import() from its own install
+# location, so the preset has to be reachable from the root node_modules.
+publicHoistPattern:
+  - '@size-limit/*'
+
 allowBuilds:
   esbuild: true
   unrs-resolver: false
+  # Downloads the runtime binary that wrangler and @cloudflare/vite-plugin run
+  workerd: true

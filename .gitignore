@@ -3,3 +3,11 @@ dist
 *.tsbuildinfo
 SECURITY_AUDIT.md
 .inertia/
+
+# Copied from the repo root by prepack so npm shows the docs
+packages/hono-inertia/README.md
+
+# e2e and Workers output
+test-results/
+playwright-report/
+.wrangler/

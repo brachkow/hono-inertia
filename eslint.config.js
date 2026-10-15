@@ -4,6 +4,7 @@ export default defineConfig(
   {
     typescript: true,
     test: true,
+    vue: true,
     formatter: 'prettier',
   },
   {
@@ -31,6 +32,9 @@ export default defineConfig(
         'error',
         { checkArrowFunctionBody: false, checkArguments: false },
       ],
+      // Inertia page names are the identifiers servers pass to render(), so
+      // single-word pages like "Home" are intended.
+      'vue/multi-word-component-names': 'off',
     },
   },
 );
