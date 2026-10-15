@@ -10,7 +10,7 @@ A pnpm monorepo:
 
 - `packages/hono-inertia/` is the published library. Paths below are relative to it.
 - `examples/` holds runnable apps (`react-node`, `vue-node`, `vue-workers`) that double as guides. They implement the same pages and depend on the library via `workspace:*`, which resolves to its `dist/`, so build the library first.
-- `e2e/` is one Playwright suite that runs against every example's production build.
+- `e2e/` is one Playwright suite that runs against every example twice: the production build, and the Vite dev server (ports +1000), where `hmr.spec.ts` also edits a page and checks it updates without a reload.
 
 ## Commands
 
