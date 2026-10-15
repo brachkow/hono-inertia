@@ -26,6 +26,8 @@ jobs:
             ${{ runner.os }}-pnpm-store-
 
       - run: pnpm install --frozen-lockfile
+      - run: pnpm test:format
+      - run: pnpm test:lint
       - run: pnpm test
       - run: pnpm typecheck
       - run: pnpm size
