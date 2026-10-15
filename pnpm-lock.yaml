@@ -20,9 +20,12 @@ importers:
       hono:
         specifier: ^4.12.8
         version: 4.12.9
-      hono-4.0.0:
-        specifier: npm:hono@4.0.0
-        version: hono@4.0.0
+      hono-4.8.0:
+        specifier: npm:hono@4.8.0
+        version: hono@4.8.0
+      hono-5:
+        specifier: npm:hono@5.0.0-rc.1
+        version: hono@5.0.0-rc.1
       prettier:
         specifier: ^3.9.10
         version: 3.9.10
@@ -1519,13 +1522,17 @@ packages:
     resolution: {integrity: sha512-iZyKG96/JwPz1N55vj2Ie2vXbhu440zfUfJvSwEqEbeLluk7NnapfGqa7LH0mOsnDxTF85Mx8/dyR6HfqcbmbQ==}
     engines: {node: '>=20'}
 
-  hono@4.0.0:
-    resolution: {integrity: sha512-8dKhuBBpRZEodUttQhrSFJ6PQqHRjXHyeeegfxOf132pvgbf0tOb9qqb7q7eYwAWpOcYrsUOsWdJ0sQIIovhZg==}
-    engines: {node: '>=16.0.0'}
-
   hono@4.12.9:
     resolution: {integrity: sha512-wy3T8Zm2bsEvxKZM5w21VdHDDcwVS1yUFFY6i8UobSsKfFceT7TOwhbhfKsDyx7tYQlmRM5FLpIuYvNFyjctiA==}
     engines: {node: '>=16.9.0'}
+
+  hono@4.8.0:
+    resolution: {integrity: sha512-NoiHrqJxoe1MYXqW+/0/Q4NCizKj2Ivm4KmX8mOSBtw9UJ7KYaOGKkO7csIwO5UlZpfvVRdcgiMb0GGyjEjtcw==}
+    engines: {node: '>=16.9.0'}
+
+  hono@5.0.0-rc.1:
+    resolution: {integrity: sha512-vTcfU9yAggXh/+ZSi8zpYbzYDubCgFnSt8d5afCAlgkd38dyYb3CVtOh8YWhS65NkEqBseCsTj/P8mceJ+7KNA==}
+    engines: {node: '>=22.12.0'}
 
   hookable@6.1.2:
     resolution: {integrity: sha512-+abwxtiEA52GCVIsQqut3S/uKTbUwYIp4Pe/vv+6py5XiXBCqMZHg6pA6Y5qhgLSEys0/cYuPbO0z1QFj5ZCmg==}
@@ -3325,9 +3332,11 @@ snapshots:
     dependencies:
       hookified: 1.15.1
 
-  hono@4.0.0: {}
-
   hono@4.12.9: {}
+
+  hono@4.8.0: {}
+
+  hono@5.0.0-rc.1: {}
 
   hookable@6.1.2: {}
 

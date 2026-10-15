@@ -79,6 +79,9 @@ export interface DevtoolsOptions {
 export interface DevtoolsPayload {
   component: string;
   page: PageObject;
+  // Read inside the handler: Hono 5 restores routeIndex once next() returns,
+  // so the middleware would otherwise see its own path.
+  routePath: string;
   propTags: Record<string, TaggedProperty | undefined>;
   rescuedProps: string[];
   sharedKeys: string[];
@@ -353,7 +356,13 @@ async function buildEntry(
             options.redactKeys,
           )
         : {},
-    route: { name: null, uri: routePath(c), action: null },
+    route: {
+      name: null,
+      // Without render() the handler is unknown; the last matched route is the
+      // closest guess on both Hono 4 and 5.
+      uri: payload?.routePath ?? routePath(c, -1),
+      action: null,
+    },
     renderSource: null,
     componentPath: payload ? options.componentPath(payload.component) : null,
   };

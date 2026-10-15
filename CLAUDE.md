@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is this
 
-Inertia.js v2 server-side adapter for Hono. Zero runtime dependencies (peer: `hono >=4.0.0`). ESM-only library.
+Inertia.js v2 server-side adapter for Hono. Zero runtime dependencies (peer: `hono >=4.8.0`). ESM-only library.
 
 ## Commands
 

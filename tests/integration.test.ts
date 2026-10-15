@@ -659,6 +659,12 @@ describe('Deferred props', () => {
 
   it('still fails the response when a non-rescued deferred prop throws', async () => {
     const app = createApp();
+    // c.error rather than app.onError: the onError signature differs between
+    // Hono 4 and 5, and this suite runs on both.
+    app.use(async (c, next) => {
+      await next();
+      if (c.error) c.res = c.text(c.error.message, 500);
+    });
     app.get('/test', (c) =>
       c.var.inertia.render('Test', {
         comments: deferred(() => {
@@ -666,7 +672,6 @@ describe('Deferred props', () => {
         }),
       }),
     );
-    app.onError((error, c) => c.text(error.message, 500));
 
     const response = await app.request('/test', {
       headers: inertiaHeaders({

@@ -544,6 +544,15 @@ describe('DevTools entry meta', () => {
     expect(entry.renderSource).toBeNull();
     expect(entry.componentPath).toBe('resources/js/Pages/Users/Show.vue');
   });
+
+  it('records the matched route path when the handler does not render', async () => {
+    const { app, store } = createApp();
+    app.post('/users/:id', (c) => c.redirect('/users'));
+
+    await app.request('/users/7', { method: 'POST' });
+    const entry = await lastEntry(store);
+    expect(entry.route.uri).toBe('/users/:id');
+  });
 });
 
 // =========================================================================
