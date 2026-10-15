@@ -5,7 +5,7 @@
   "scripts": {
     "build": "pnpm --filter @brachkow/hono-inertia build",
     "test": "pnpm --filter @brachkow/hono-inertia test",
-    "build:examples": "pnpm --filter \"./examples/*...\" build",
+    "build:examples": "pnpm --filter \"{./examples/*}...\" build",
     "test:e2e": "pnpm build:examples && pnpm --filter e2e test",
     "typecheck": "pnpm -r typecheck",
     "size": "pnpm --filter @brachkow/hono-inertia size",
