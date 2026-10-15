@@ -4,6 +4,27 @@
 
 Inertia.js v3 server-side adapter for [Hono](https://hono.dev).
 
+## Features
+
+- The full Inertia v3 protocol: initial visits, Inertia requests, partial reloads, asset version checks with 409 reloads, and 303 redirects after `PUT`, `PATCH` and `DELETE`
+- Every prop type: [`optional`](#optionalfn), [`always`](#alwaysvalue), [`deferred`](#deferredfn-group) with groups and rescue, [`merge`, `prepend` and `deepMerge`](#mergevalue--prependvalue--deepmergevalue), [`scroll`](#scrollvalue-metadata) for infinite scrolling, and [`once`](#oncefn-key-expiresat). Wrappers chain, as in `deferred(fn).merge().once()`
+- [Shared data](#shared-data) from config or per-request middleware
+- Server-side rendering through Inertia's SSR server or [in the same process](#in-the-same-process-cloudflare-workers), with a fallback to client-side rendering when SSR fails
+- A [Vite plugin](#vite-plugin) that gives the server the asset tags and version, and keeps the build manifest private
+- [Flash messages](#flash-messages), [history encryption](#history-encryption), [view data](#view-data), [server-provided head elements](#server-provided-head-elements) and [BigInt props](#bigint-props)
+- Request recording for [Inertia DevTools](#devtools)
+- A page object that is safe to embed in HTML: [`serializePage`](#embedding-the-page-object-xss) escapes `<` and `>`
+- No runtime dependencies. The adapter uses only web-standard APIs, so it runs on Cloudflare Workers as well as Node.js
+- Tested against Hono 4.8.0, the latest Hono 4 and Hono 5
+
+## Requirements
+
+- Hono 4.8.0 or newer, including Hono 5
+- An Inertia v3 client: `@inertiajs/vue3`, `@inertiajs/react` or `@inertiajs/svelte`. BigInt props need client 3.8 or newer, and server-provided head elements need 3.5 or newer
+- Node.js 22.12 or newer when running on Node.js. On Cloudflare Workers, no Node.js compatibility flag is needed
+- Vite 6 or newer, only for the optional Vite plugin
+- ESM. The package has no CommonJS build
+
 ## Install
 
 ```bash
@@ -13,11 +34,11 @@ pnpm add @brachkow/hono-inertia
 ## Quick start
 
 ```ts
-import { Hono } from 'hono'
-import { inertia, serializePage } from '@brachkow/hono-inertia'
-import type { InertiaEnv } from '@brachkow/hono-inertia'
+import { Hono } from 'hono';
+import { inertia, serializePage } from '@brachkow/hono-inertia';
+import type { InertiaEnv } from '@brachkow/hono-inertia';
 
-const app = new Hono<InertiaEnv>()
+const app = new Hono<InertiaEnv>();
 
 app.use(
   inertia({
@@ -35,23 +56,33 @@ app.use(
 </body>
 </html>`,
   }),
-)
+);
 
 app.get('/', (c) => {
-  return c.var.inertia.render('Home', { title: 'Hello' })
-})
+  return c.var.inertia.render('Home', { title: 'Hello' });
+});
 
-export default app
+export default app;
 ```
+
+## Examples
+
+Complete apps with Vite, server-side rendering and production builds:
+
+- [React on Node.js](https://github.com/brachkow/hono-inertia/tree/main/examples/react-node) runs Inertia's SSR server next to the Hono app
+- [Vue on Node.js](https://github.com/brachkow/hono-inertia/tree/main/examples/vue-node) has the same setup with Vue
+- [Vue on Cloudflare Workers](https://github.com/brachkow/hono-inertia/tree/main/examples/vue-workers) renders pages inside the Worker
+
+Each example has the same pages: navigation, shared props, partial reloads, deferred and merge props, a form with validation errors, and a flash message after a redirect. One Playwright suite runs against all of them in CI.
 
 ## Configuration
 
 ```ts
 inertia({
-  // Asset version, as a string or a sync/async function. Derive it from your
-  // Vite manifest with manifestVersion (see Asset versioning below). Omit it
-  // to disable version checks.
-  version: manifestVersion(manifest),
+  // Asset version, as a string or a sync/async function. The Vite plugin
+  // provides one (see Asset versioning below). Omit it to disable version
+  // checks.
+  version,
 
   // HTML render function. Receives the page object, view data, the SSR result
   // (undefined without SSR), and the Hono context.
@@ -59,9 +90,9 @@ inertia({
   // serializePage(page), never a bare JSON.stringify. See Security below.
   render: (page, viewData, ssr, c) => {
     if (ssr) {
-      return `<html><head>${ssr.head}</head><body>${ssr.body}</body></html>`
+      return `<html><head>${ssr.head}</head><body>${ssr.body}</body></html>`;
     }
-    return `<html><body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body></html>`
+    return `<html><body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body></html>`;
   },
 
   // Global shared props, merged into every response
@@ -78,7 +109,8 @@ inertia({
 
   // Called when SSR fails and the page falls back to client-side rendering.
   // Defaults to console.error. Throw from it to fail the request instead.
-  onSsrError: (error, page) => logger.error({ error, component: page.component }),
+  onSsrError: (error, page) =>
+    logger.error({ error, component: page.component }),
 
   // Cache-Control for responses the adapter emits (see Caching under Security).
   // Defaults to 'private, no-cache, must-revalidate'. Set false to omit it.
@@ -87,7 +119,7 @@ inertia({
   // Called when a deferred(fn).rescue() prop throws (see deferred under Prop types).
   // Defaults to console.error.
   onRescue: (error, prop) => logger.error({ error, prop }),
-})
+});
 ```
 
 ## Rendering pages
@@ -96,8 +128,8 @@ inertia({
 app.get('/users', (c) => {
   return c.var.inertia.render('Users/Index', {
     users: await db.users.findMany(),
-  })
-})
+  });
+});
 ```
 
 Props can be lazy functions. The adapter calls them only when the response includes the prop:
@@ -107,8 +139,8 @@ app.get('/dashboard', (c) => {
   return c.var.inertia.render('Dashboard', {
     stats: async () => computeExpensiveStats(),
     users: () => db.users.findMany(),
-  })
-})
+  });
+});
 ```
 
 ### BigInt props
@@ -119,8 +151,8 @@ Props and flash data can hold `BigInt` values, such as 64-bit IDs from a `bigint
 app.get('/orders/:id', async (c) => {
   return c.var.inertia.render('Orders/Show', {
     id: 900719925474099988n, // arrives in the component as a BigInt
-  })
-})
+  });
+});
 ```
 
 Older clients receive the markers as plain objects. A `BigInt` that the client sends back through the router or a form arrives as a numeric string.
@@ -135,16 +167,16 @@ inertia({
     auth: { user: getUser(c) },
     flash: getFlash(c),
   }),
-})
+});
 ```
 
 Per-request shared props via middleware:
 
 ```ts
 app.use(async (c, next) => {
-  c.var.inertia.share({ notifications: getNotifications(c) })
-  await next()
-})
+  c.var.inertia.share({ notifications: getNotifications(c) });
+  await next();
+});
 ```
 
 Render props override shared props. Shared props override config-level props.
@@ -156,11 +188,11 @@ Render props override shared props. Shared props override config-level props.
 Included in every response, including partial reloads:
 
 ```ts
-import { always } from '@brachkow/hono-inertia'
+import { always } from '@brachkow/hono-inertia';
 
 c.var.inertia.render('Dashboard', {
   auth: always({ user: currentUser }),
-})
+});
 ```
 
 ### `optional(fn)`
@@ -168,11 +200,11 @@ c.var.inertia.render('Dashboard', {
 Excluded from initial visits. Included only when a partial reload requests it:
 
 ```ts
-import { optional } from '@brachkow/hono-inertia'
+import { optional } from '@brachkow/hono-inertia';
 
 c.var.inertia.render('Users/Index', {
   permissions: optional(() => fetchPermissions()),
-})
+});
 ```
 
 ### `deferred(fn, group?)`
@@ -180,13 +212,13 @@ c.var.inertia.render('Users/Index', {
 Excluded from the initial response. The client fetches the prop after mount:
 
 ```ts
-import { deferred } from '@brachkow/hono-inertia'
+import { deferred } from '@brachkow/hono-inertia';
 
 c.var.inertia.render('Dashboard', {
   stats: deferred(() => computeStats()),
   comments: deferred(() => fetchComments(), 'sidebar'),
   likes: deferred(() => fetchLikes(), 'sidebar'),
-})
+});
 ```
 
 Chain `.rescue()` so one failing deferred prop does not fail the whole response. If the function throws, the adapter passes the error to the `onRescue` config callback (default `console.error`), sends the prop as `null`, and lists its key in `page.rescuedProps`. The client's `<Deferred>` component then renders its `rescue` slot (or the fallback) instead of the default content:
@@ -194,7 +226,7 @@ Chain `.rescue()` so one failing deferred prop does not fail the whole response.
 ```ts
 c.var.inertia.render('Dashboard', {
   stats: deferred(() => computeStats()).rescue(),
-})
+});
 ```
 
 ### `merge(value)` / `prepend(value)` / `deepMerge(value)`
@@ -202,13 +234,13 @@ c.var.inertia.render('Dashboard', {
 The client appends, prepends, or deep-merges new data instead of replacing it. Use these for feeds that load more data over time:
 
 ```ts
-import { merge, prepend, deepMerge } from '@brachkow/hono-inertia'
+import { merge, prepend, deepMerge } from '@brachkow/hono-inertia';
 
 c.var.inertia.render('Feed', {
   posts: merge(() => fetchPosts(page)),
   newPosts: prepend(() => fetchNewPosts()),
   settings: deepMerge(() => fetchSettings()),
-})
+});
 ```
 
 Use `.setMatchOn(field)` to match array items by a field:
@@ -216,7 +248,7 @@ Use `.setMatchOn(field)` to match array items by a field:
 ```ts
 c.var.inertia.render('Feed', {
   posts: merge(() => fetchPosts()).setMatchOn('id'),
-})
+});
 ```
 
 ### `scroll(value, metadata)`
@@ -225,22 +257,22 @@ c.var.inertia.render('Feed', {
 current page. You pass the pagination state separately as a `ScrollMetadata` adapter:
 
 ```ts
-import { scroll } from '@brachkow/hono-inertia'
-import type { ScrollMetadata } from '@brachkow/hono-inertia'
+import { scroll } from '@brachkow/hono-inertia';
+import type { ScrollMetadata } from '@brachkow/hono-inertia';
 
 app.get('/feed', async (c) => {
-  const page = Number(c.req.query('page') ?? 1)
-  const { rows, lastPage } = await fetchPosts(page)
+  const page = Number(c.req.query('page') ?? 1);
+  const { rows, lastPage } = await fetchPosts(page);
 
   const metadata: ScrollMetadata = {
     getPageName: () => 'page',
     getCurrentPage: () => page,
     getPreviousPage: () => (page > 1 ? page - 1 : null),
     getNextPage: () => (page < lastPage ? page + 1 : null),
-  }
+  };
 
-  return c.var.inertia.render('Feed', { posts: scroll(rows, metadata) })
-})
+  return c.var.inertia.render('Feed', { posts: scroll(rows, metadata) });
+});
 ```
 
 `<InfiniteScroll>` requires this prop. It throws at mount if the page object has no
@@ -256,7 +288,7 @@ Use `.setMatchOn(field)` so refetched pages update existing rows instead of dupl
 ```ts
 c.var.inertia.render('Feed', {
   posts: scroll(rows, metadata).setMatchOn('id'),
-})
+});
 ```
 
 Without it, a partial reload that returns a page the client already holds appends a second
@@ -268,12 +300,12 @@ its own. The adapter prefixes it with the prop key (`posts` and `id` become `pos
 The adapter resolves it once, and the client caches it across navigations:
 
 ```ts
-import { once } from '@brachkow/hono-inertia'
+import { once } from '@brachkow/hono-inertia';
 
 c.var.inertia.render('Pricing', {
   plans: once(() => fetchPlans()),
   config: once(() => fetchConfig(), 'app-config', 86400),
-})
+});
 ```
 
 ### Chaining
@@ -282,19 +314,21 @@ You can combine prop types:
 
 ```ts
 // Deferred + merge + once
-deferred(() => fetchFeed(), 'main').merge().once()
+deferred(() => fetchFeed(), 'main')
+  .merge()
+  .once();
 
 // Deferred + prepend
-deferred(() => fetchNew(), 'top').prepend()
+deferred(() => fetchNew(), 'top').prepend();
 
 // Optional + once
-optional(() => fetchExpensiveData()).once('cache-key', 3600)
+optional(() => fetchExpensiveData()).once('cache-key', 3600);
 
 // Deep merge with match key
-deepMerge(() => fetchItems()).setMatchOn('id')
+deepMerge(() => fetchItems()).setMatchOn('id');
 
 // Infinite scroll matching rows by id
-scroll(rows, metadata).setMatchOn('id')
+scroll(rows, metadata).setMatchOn('id');
 ```
 
 ## Status codes
@@ -303,9 +337,9 @@ scroll(rows, metadata).setMatchOn('id')
 
 ```ts
 app.notFound((c) => {
-  c.status(404)
-  return c.var.inertia.render('Error', { status: 404 })
-})
+  c.status(404);
+  return c.var.inertia.render('Error', { status: 404 });
+});
 ```
 
 ## External redirects
@@ -314,8 +348,8 @@ Redirect to a non-Inertia URL. Inertia requests get a 409, regular requests get 
 
 ```ts
 app.get('/download', (c) => {
-  return c.var.inertia.location('https://example.com/file.pdf')
-})
+  return c.var.inertia.location('https://example.com/file.pdf');
+});
 ```
 
 Validate any user-supplied URL before passing it to `location()` or `redirect()` to avoid open redirects (see [Security](#security)).
@@ -326,14 +360,51 @@ Every Inertia response carries `page.version`. When a client's `X-Inertia-Versio
 
 The 409 also carries the new version in `X-Inertia-Version`. The client uses it to tell a deploy-driven reload from a plain `location()` redirect. It fires a cancelable `inertia:location` event with `versionChange: true`. For background `async` visits (polling, prefetching, deferred props) it skips the forced reload, so the next visit the user starts picks up the new assets without interrupting them.
 
+### Vite plugin
+
+`honoInertia()` connects the server to the client build. It gives the server the version and the HTML tags that load the client:
+
+```ts
+// vite.config.ts
+import { honoInertia } from '@brachkow/hono-inertia/vite-plugin';
+
+export default defineConfig({
+  plugins: [vue(), inertia(), honoInertia({ entry: 'src/client.ts' })],
+});
+```
+
+```ts
+// server.ts
+import { assetTags, version } from 'virtual:hono-inertia/assets';
+
+app.use(
+  inertia({
+    version,
+    render: (page) =>
+      `<!DOCTYPE html><html><head>${assetTags}</head><body>...</body></html>`,
+  }),
+);
+```
+
+Add `/// <reference types="@brachkow/hono-inertia/vite-plugin/client" />` to a `.d.ts` file in your project to type the `virtual:hono-inertia/assets` import.
+
+- In production, `assetTags` holds the client entry's script, `modulepreload` links for the chunks it imports, and the stylesheets of all of them. URLs follow Vite's `base`. `version` is the same hash `manifestVersion` computes (see below).
+- Under `vite dev`, `assetTags` is whatever Vite's own HTML transform adds, such as `/@vite/client` and the React Refresh preamble, followed by the entry script. `version` is `'dev'`.
+- The plugin turns on the client build's manifest and sets the entry as its input, unless you set either yourself. Once the client build is written, the plugin moves the manifest to `node_modules/.hono-inertia/`. The manifest lists every page and source path, and static hosts such as Workers would otherwise serve it to anyone. Build the client before the server, which then reads the manifest from there.
+- Pass `versionSalt` to change the version without a client change, as with the salt argument below.
+
+Vite 6 or newer is required.
+
+### Without the plugin
+
 Derive the version from your Vite manifest with `manifestVersion`:
 
 ```ts
-import manifest from './dist/client/.vite/manifest.json'
-import { inertia } from '@brachkow/hono-inertia'
-import { manifestVersion } from '@brachkow/hono-inertia/vite'
+import manifest from './dist/client/.vite/manifest.json';
+import { inertia } from '@brachkow/hono-inertia';
+import { manifestVersion } from '@brachkow/hono-inertia/vite';
 
-app.use(inertia({ version: manifestVersion(manifest), render }))
+app.use(inertia({ version: manifestVersion(manifest), render }));
 ```
 
 - It hashes the sorted emitted filenames (sha256, 16 hex chars), not the manifest JSON. Vite already puts content hashes in filenames, so the version changes exactly when an open tab's chunk URLs stop working. A server-only deploy does not force-reload every open tab, as a commit SHA or deployment ID would. Reordered manifest keys or changed metadata don't change the version.
@@ -350,33 +421,33 @@ Omitting `version` disables the check (`page.version` is `null`). A missing or e
 The 409 mechanism covers chunks loaded through an Inertia GET. It can't cover dynamic imports unrelated to a visit (`import('some-lib')` on a button click), or a deploy that lands after the version check passed but before the `import()` ran. For those cases, add a `vite:preloadError` listener in the app that navigates once. Vite dispatches this event for failing dynamic imports, not only for preload links:
 
 ```ts
-import { router } from '@inertiajs/vue3' // or react / svelte
+import { router } from '@inertiajs/vue3'; // or react / svelte
 
-let pendingUrl: string | null = null
+let pendingUrl: string | null = null;
 router.on('start', (event) => {
-  pendingUrl = event.detail.visit.url.href
-})
+  pendingUrl = event.detail.visit.url.href;
+});
 
-const RELOADED_AT = 'inertia:chunk-reload'
-const COOLDOWN_MS = 10_000
+const RELOADED_AT = 'inertia:chunk-reload';
+const COOLDOWN_MS = 10_000;
 
 const sessionStorageUsable = () => {
   try {
-    window.sessionStorage.getItem(RELOADED_AT)
-    return true
+    window.sessionStorage.getItem(RELOADED_AT);
+    return true;
   } catch {
-    return false
+    return false;
   }
-}
+};
 
 window.addEventListener('vite:preloadError', (event) => {
-  if (!sessionStorageUsable()) return
-  const last = Number(sessionStorage.getItem(RELOADED_AT) ?? 0)
-  if (Date.now() - last < COOLDOWN_MS) return
-  sessionStorage.setItem(RELOADED_AT, String(Date.now()))
-  event.preventDefault()
-  window.location.assign(pendingUrl ?? window.location.href)
-})
+  if (!sessionStorageUsable()) return;
+  const last = Number(sessionStorage.getItem(RELOADED_AT) ?? 0);
+  if (Date.now() - last < COOLDOWN_MS) return;
+  sessionStorage.setItem(RELOADED_AT, String(Date.now()));
+  event.preventDefault();
+  window.location.assign(pendingUrl ?? window.location.href);
+});
 ```
 
 Four details matter:
@@ -392,24 +463,24 @@ By default, Inertia stores page state unencrypted in browser history. Encrypt it
 
 ```ts
 app.get('/dashboard', (c) => {
-  c.var.inertia.encryptHistory()
-  return c.var.inertia.render('Dashboard', { secret: 'data' })
-})
+  c.var.inertia.encryptHistory();
+  return c.var.inertia.render('Dashboard', { secret: 'data' });
+});
 ```
 
 Or globally for every response (a route can opt out with `encryptHistory(false)`):
 
 ```ts
-inertia({ encryptHistory: true })
+inertia({ encryptHistory: true });
 ```
 
 Clear encrypted history, for example on logout:
 
 ```ts
 app.post('/logout', (c) => {
-  c.var.inertia.clearHistory()
-  return c.redirect('/login')
-})
+  c.var.inertia.clearHistory();
+  return c.redirect('/login');
+});
 ```
 
 `clearHistory()` works on any response. The flag can only travel on a rendered page object, but logout handlers usually redirect or answer with 204. When a handler calls `clearHistory()` and returns anything other than a page (a redirect, a 409 from `redirect()` or `location()`, a 204, or JSON), the middleware stores the flag in a short-lived first-party cookie (`inertia_clear_history`: `HttpOnly`, `SameSite=Lax`, `Path=/`, `Max-Age=60`). The next rendered page then carries `clearHistory: true`. Laravel does the same by keeping the flag in the session. There are two caveats. This middleware must render the next page, otherwise the cookie expires unused. And with `Path=/`, multiple apps on one origin share the flag.
@@ -420,9 +491,9 @@ Pass data to the render function without exposing it to client-side JavaScript:
 
 ```ts
 app.get('/users', (c) => {
-  c.var.inertia.viewData({ metaTitle: 'User List' })
-  return c.var.inertia.render('Users/Index', { users })
-})
+  c.var.inertia.viewData({ metaTitle: 'User List' });
+  return c.var.inertia.render('Users/Index', { users });
+});
 ```
 
 Access it in your render function:
@@ -433,7 +504,7 @@ render: (page, viewData) => `
   <head><title>${escapeHtml(String(viewData.metaTitle))}</title></head>
   <body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body>
   </html>
-`
+`;
 ```
 
 The render function also receives the Hono context, so it can read request state such as a CSP nonce or a cookie:
@@ -444,7 +515,7 @@ render: (page, viewData, ssr, c) => `
   <head><script nonce="${c.get('cspNonce')}">/* … */</script></head>
   <body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body>
   </html>
-`
+`;
 ```
 
 ## Flash messages
@@ -453,10 +524,10 @@ Send one-shot messages (toasts, alerts) to the client. The client passes them to
 
 ```ts
 app.post('/users', async (c) => {
-  await createUser(c)
-  c.var.inertia.flash({ success: 'User created' })
-  return c.var.inertia.render('Users/Index', { users })
-})
+  await createUser(c);
+  c.var.inertia.flash({ success: 'User created' });
+  return c.var.inertia.render('Users/Index', { users });
+});
 ```
 
 `flash()` accumulates across calls, and later keys win. Flash data is a top-level field and never mixes into your props.
@@ -465,10 +536,10 @@ The adapter has no session, so `flash()` applies to the current response only. T
 
 ```ts
 app.use(async (c, next) => {
-  const flash = readFlashCookie(c) // your own helper
-  if (flash) c.var.inertia.flash(flash)
-  await next()
-})
+  const flash = readFlashCookie(c); // your own helper
+  if (flash) c.var.inertia.flash(flash);
+  await next();
+});
 ```
 
 ## DevTools
@@ -478,7 +549,7 @@ The [Inertia DevTools](https://inertiajs.com/docs/devtools) browser extension re
 ```ts
 inertia({
   devtools: process.env.NODE_ENV !== 'production',
-})
+});
 ```
 
 With it on, every response carries an `X-Inertia-Devtools-Id` header, the adapter injects a `<script data-inertia-devtools-id>` tag before `</body>` in the initial HTML, and it serves entries from `GET /_inertia/devtools/entries/:id` (and `/_inertia/devtools/entries` with `component`, `type`, `exclude`, `offset` and `limit` filters). The client needs `dev: true` in `createInertiaApp()` for visit grouping.
@@ -488,7 +559,7 @@ Entries record the page object, the resolved prop values, the matched Hono route
 Options, all optional:
 
 ```ts
-import { createMemoryDevtoolsStore } from '@brachkow/hono-inertia'
+import { createMemoryDevtoolsStore } from '@brachkow/hono-inertia';
 
 inertia({
   devtools: {
@@ -503,7 +574,7 @@ inertia({
     // Source path for the "open in editor" link of a page component.
     componentPath: (name) => `resources/js/Pages/${name}.vue`,
   },
-})
+});
 ```
 
 The default store keeps entries in memory, per `inertia()` instance. This works for a local `node`, `bun` or `wrangler dev` server. A setup with multiple isolates or processes that must share entries can pass a `DevtoolsStore` (`set`, `get`, `all` newest first, sync or async) backed by KV, a Durable Object, or any other storage.
@@ -516,7 +587,7 @@ The client can take `<head>` elements from a prop (client 3.5+). Pass an array o
 
 ```ts
 app.get('/users/:id', async (c) => {
-  const user = await db.users.find(c.req.param('id'))
+  const user = await db.users.find(c.req.param('id'));
   return c.var.inertia.render('Users/Show', {
     user,
     head: [
@@ -524,14 +595,14 @@ app.get('/users/:id', async (c) => {
       `<meta name="description" content="${escapeHtml(user.bio)}">`,
       `<link data-inertia="canonical" rel="canonical" href="https://example.com/users/${user.id}">`,
     ],
-  })
-})
+  });
+});
 ```
 
 ```ts
 createInertiaApp({
   serverHead: true, // or a prop name, or (page) => string[]
-})
+});
 ```
 
 `head` is an ordinary prop. The adapter sends it on every visit, the client re-syncs it on navigation, SSR renders it, and you can share it via `share`. The client inserts the strings as-is, so escape every interpolated value with `escapeHtml`. The client keys elements by array position. Set your own `data-inertia` key to give an element a stable identity (for a script that must not re-run on every visit), or to let a page-level `<Head>` override a server default with the same key.
@@ -561,7 +632,7 @@ inertia({
     maxResponseBytes: 2_000_000, // default
   },
   render,
-})
+});
 ```
 
 ### In the same process (Cloudflare Workers)
@@ -576,43 +647,43 @@ pnpm add -D vite @vitejs/plugin-vue @inertiajs/vite @cloudflare/vite-plugin wran
 Configure Vite in `vite.config.ts`. The Cloudflare plugin names the Worker's environment after the `name` in your Wrangler config, with dashes replaced by underscores (`my-app` becomes `my_app`):
 
 ```ts
-import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
-import inertia from '@inertiajs/vite'
-import { cloudflare } from '@cloudflare/vite-plugin'
+import { defineConfig } from 'vite';
+import vue from '@vitejs/plugin-vue';
+import inertia from '@inertiajs/vite';
+import { cloudflare } from '@cloudflare/vite-plugin';
+import { honoInertia } from '@brachkow/hono-inertia/vite-plugin';
 
 export default defineConfig({
-  // ssr: false stops @inertiajs/vite from bundling its Node SSR server into the Worker
-  plugins: [vue(), inertia({ ssr: false }), cloudflare()],
+  plugins: [
+    vue(),
+    // ssr: false stops @inertiajs/vite from bundling its Node SSR server into the Worker
+    inertia({ ssr: false }),
+    honoInertia({ entry: 'src/client.ts' }),
+    cloudflare(),
+  ],
   builder: {
-    // The Worker reads the client manifest, so the client has to build first
+    // The Worker inlines the client's asset tags, so the client has to build first
     async buildApp(builder) {
-      await builder.build(builder.environments.client)
-      await builder.build(builder.environments.my_app)
+      await builder.build(builder.environments.client);
+      await builder.build(builder.environments.my_app);
     },
   },
-  environments: {
-    client: {
-      build: {
-        manifest: true,
-        rollupOptions: { input: 'src/client.ts' },
-      },
-    },
-  },
-})
+});
 ```
 
 The SSR entry, `src/ssr.ts`, resolves pages with `import.meta.glob` instead of the `pages` shorthand. When the Worker transforms an entry that uses `pages`, `@inertiajs/vite` warms up the page files for the browser before Vite has pre-bundled the client's dependencies. The browser then loads two copies of `@inertiajs/vue3` in dev. The `pages` shorthand is fine in `src/client.ts`.
 
 ```ts
-import { createInertiaApp } from '@inertiajs/vue3'
-import type { Page } from '@inertiajs/core'
-import type { PageObject } from '@brachkow/hono-inertia'
-import { createSSRApp, h } from 'vue'
-import type { DefineComponent } from 'vue'
-import { renderToString } from 'vue/server-renderer'
+import { createInertiaApp } from '@inertiajs/vue3';
+import type { Page } from '@inertiajs/core';
+import type { PageObject } from '@brachkow/hono-inertia';
+import { createSSRApp, h } from 'vue';
+import type { DefineComponent } from 'vue';
+import { renderToString } from 'vue/server-renderer';
 
-const pages = import.meta.glob<DefineComponent>('./pages/*.vue', { import: 'default' })
+const pages = import.meta.glob<DefineComponent>('./pages/*.vue', {
+  import: 'default',
+});
 
 export default (page: PageObject) =>
   createInertiaApp({
@@ -620,50 +691,36 @@ export default (page: PageObject) =>
     page: page as Page,
     render: renderToString,
     resolve: (name) => pages[`./pages/${name}.vue`](),
-    setup: ({ App, props, plugin }) => createSSRApp({ render: () => h(App, props) }).use(plugin),
-  })
+    setup: ({ App, props, plugin }) =>
+      createSSRApp({ render: () => h(App, props) }).use(plugin),
+  });
 ```
 
-The Worker, `src/worker.ts`, inlines the client manifest in production and builds the asset tags and the asset version from it. In dev, it loads the client from the Vite dev server:
+The Worker, `src/worker.ts`, takes the asset tags and the version from the [Vite plugin](#vite-plugin):
 
 ```ts
-import { Hono } from 'hono'
-import { inertia, serializePage } from '@brachkow/hono-inertia'
-import { manifestVersion } from '@brachkow/hono-inertia/vite'
-import type { InertiaEnv } from '@brachkow/hono-inertia'
-import renderPage from './ssr'
+import { Hono } from 'hono';
+import { inertia, serializePage } from '@brachkow/hono-inertia';
+import type { InertiaEnv } from '@brachkow/hono-inertia';
+import { assetTags, version } from 'virtual:hono-inertia/assets';
+import renderPage from './ssr';
 
-type Manifest = Record<string, { file: string; css?: string[] }>
-
-const manifest = import.meta.env.PROD
-  ? Object.values(
-      import.meta.glob<Manifest>('../dist/client/.vite/manifest.json', { eager: true, import: 'default' }),
-    )[0]
-  : undefined
-
-const assetTags = manifest
-  ? [
-      `<script type="module" src="/${manifest['src/client.ts'].file}"></script>`,
-      ...(manifest['src/client.ts'].css ?? []).map((file) => `<link rel="stylesheet" href="/${file}">`),
-    ].join('')
-  : '<script type="module" src="/@vite/client"></script><script type="module" src="/src/client.ts"></script>'
-
-const app = new Hono<InertiaEnv>()
+const app = new Hono<InertiaEnv>();
 
 app.use(
   inertia({
-    version: manifest ? manifestVersion(manifest) : 'dev',
+    version,
     ssr: { render: renderPage },
     render: (page, viewData, ssr) =>
       ssr
         ? `<!DOCTYPE html><html><head>${ssr.head}${assetTags}</head><body>${ssr.body}</body></html>`
         : `<!DOCTYPE html><html><head>${assetTags}</head><body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body></html>`,
   }),
-)
+);
 
-app.get('/', (c) => c.var.inertia.render('Home', { name: 'Workers' }))
+app.get('/', (c) => c.var.inertia.render('Home', { name: 'Workers' }));
 
-export default app
+export default app;
 ```
 
 `wrangler.jsonc` points `main` at `src/worker.ts`. `vite dev` runs the app, `vite build` builds both environments, and `wrangler deploy` deploys the output.
@@ -676,10 +733,10 @@ When SSR fails, the adapter calls `onSsrError(error, page)` and renders the page
 inertia({
   ssr: { render: renderPage },
   onSsrError: (error) => {
-    throw error
+    throw error;
   },
   render,
-})
+});
 ```
 
 A common cause is a component that touches a browser API (`window`, `document`, `localStorage`) during render. Wrap it in Inertia's `<WhenMounted>` (client 3.8+), which renders its `fallback` on the server and its children only after mounting in the browser.
@@ -701,20 +758,21 @@ The Inertia client boots from a `<script data-page="app" type="application/json"
 Do not HTML-escape the output and do not put it in an attribute. Script content is raw text, so entities like `&quot;` would corrupt the JSON, and the client does not read a `data-page` attribute.
 
 ```ts
-import { serializePage } from '@brachkow/hono-inertia'
+import { serializePage } from '@brachkow/hono-inertia';
 
-render: (page) => `<script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div>`
+render: (page) =>
+  `<script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div>`;
 ```
 
 For any other user-influenced value you interpolate into HTML yourself, such as view data in a `<title>`, use `escapeHtml`:
 
 ```ts
-import { escapeHtml } from '@brachkow/hono-inertia'
+import { escapeHtml } from '@brachkow/hono-inertia';
 
 render: (page, viewData) =>
   `<title>${escapeHtml(String(viewData.title))}</title>
    <script data-page="app" type="application/json">${serializePage(page)}</script>
-   <div id="app"></div>`
+   <div id="app"></div>`;
 ```
 
 ### CSRF
@@ -722,9 +780,9 @@ render: (page, viewData) =>
 This adapter does not provide CSRF protection, and the `X-Inertia` header is not a substitute for it. Add CSRF middleware for state-changing requests. With Hono:
 
 ```ts
-import { csrf } from 'hono/csrf'
+import { csrf } from 'hono/csrf';
 
-app.use(csrf())
+app.use(csrf());
 ```
 
 The Inertia client (axios) reads the `XSRF-TOKEN` cookie and sends it back in an `X-XSRF-TOKEN` header, so a scheme that sets a cookie token and verifies the header works without extra client code.
@@ -739,10 +797,10 @@ Encryption alone doesn't protect the back button either. See the back/forward ca
 
 ```ts
 app.post('/logout', (c) => {
-  deleteCookie(c, 'session')        // 1. end the session
-  c.var.inertia.clearHistory()      // 2. rotate the history encryption key
-  return c.redirect('/login')       //    (flashed across the redirect)
-})
+  deleteCookie(c, 'session'); // 1. end the session
+  c.var.inertia.clearHistory(); // 2. rotate the history encryption key
+  return c.redirect('/login'); //    (flashed across the redirect)
+});
 ```
 
 Enable `encryptHistory` on authenticated pages. If bfcache restoration matters to you, also add `Cache-Control: no-store` and a `pageshow` guard to those pages (see below).
@@ -763,9 +821,9 @@ Override the value with `cacheControl: '…'`, or omit the header with `cacheCon
 
 ```ts
 app.get('/pricing', async (c) => {
-  c.header('Cache-Control', 'public, max-age=300')
-  return c.var.inertia.render('Pricing', { plans })
-})
+  c.header('Cache-Control', 'public, max-age=300');
+  return c.var.inertia.render('Pricing', { plans });
+});
 ```
 
 The adapter never touches responses it doesn't emit, such as your own routes.
@@ -774,8 +832,8 @@ The adapter never touches responses it doesn't emit, such as your own routes.
 
 ```js
 window.addEventListener('pageshow', (e) => {
-  if (e.persisted) window.location.reload()
-})
+  if (e.persisted) window.location.reload();
+});
 ```
 
 When testing, keep in mind that Chromium automation (`page.goBack()` in Playwright) triggers `popstate`, not bfcache. A passing Chromium test says nothing about Back behavior in Safari or Firefox.
@@ -789,19 +847,19 @@ The SSR server is a trust boundary. Your `render` function inserts its `head` an
 Use `InertiaEnv` for typed `c.var.inertia` access:
 
 ```ts
-import type { InertiaEnv } from '@brachkow/hono-inertia'
+import type { InertiaEnv } from '@brachkow/hono-inertia';
 
-const app = new Hono<InertiaEnv>()
+const app = new Hono<InertiaEnv>();
 ```
 
 Compose with your own env types:
 
 ```ts
 type AppEnv = InertiaEnv & {
-  Variables: { db: Database }
-}
+  Variables: { db: Database };
+};
 
-const app = new Hono<AppEnv>()
+const app = new Hono<AppEnv>();
 ```
 
 ## License

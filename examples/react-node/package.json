@@ -1,0 +1,32 @@
+{
+  "name": "example-react-node",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build --mode client && vite build --mode ssr && vite build",
+    "start:ssr": "node dist/ssr/ssr.js",
+    "start:server": "node dist/server/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@brachkow/hono-inertia": "workspace:*",
+    "@hono/node-server": "^2.1.5",
+    "@inertiajs/core": "^3.9.1",
+    "@inertiajs/react": "^3.9.1",
+    "hono": "catalog:",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@hono/vite-build": "^1.11.1",
+    "@hono/vite-dev-server": "^0.26.1",
+    "@inertiajs/vite": "^3.9.1",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "typescript": "catalog:",
+    "vite": "catalog:"
+  }
+}
