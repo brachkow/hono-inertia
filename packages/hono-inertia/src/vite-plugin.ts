@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { normalizePath } from 'vite';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import { manifestFingerprint, VERSION_LENGTH } from './manifest.js';
 import type { ViteManifest } from './manifest.js';
@@ -79,6 +80,11 @@ export const versionFromManifest = (
     .digest('hex')
     .slice(0, VERSION_LENGTH);
 
+// Vite keys the manifest by the path relative to the root, so './src/client.ts'
+// and an absolute path both have to become 'src/client.ts'
+export const manifestKey = (root: string, entry: string): string =>
+  normalizePath(path.relative(root, path.resolve(root, entry)));
+
 const assetsModule = (version: string, assetTags: string): string =>
   `export const version = ${JSON.stringify(version)};\nexport const assetTags = ${JSON.stringify(assetTags)};\n`;
 
@@ -144,7 +150,7 @@ export const honoInertia = (options: HonoInertiaPluginOptions): Plugin => {
           '<html><head></head><body></body></html>',
         );
         const head = HEAD_CONTENT.exec(html)?.[1] ?? '';
-        const entry = `<script type="module" src="${escapeAttribute(`${config.base}${options.entry}`)}"></script>`;
+        const entry = `<script type="module" src="${escapeAttribute(`${config.base}${manifestKey(config.root, options.entry)}`)}"></script>`;
         return assetsModule('dev', `${head}${entry}`);
       }
 
@@ -156,7 +162,11 @@ export const honoInertia = (options: HonoInertiaPluginOptions): Plugin => {
       const manifest = JSON.parse(contents) as ViteManifest;
       return assetsModule(
         versionFromManifest(manifest, options.versionSalt),
-        renderAssetTags(manifest, options.entry, config.base),
+        renderAssetTags(
+          manifest,
+          manifestKey(config.root, options.entry),
+          config.base,
+        ),
       );
     },
   };

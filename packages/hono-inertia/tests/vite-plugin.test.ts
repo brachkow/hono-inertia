@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { manifestVersion } from '../src/vite.js';
 import type { ViteManifest } from '../src/vite.js';
-import { renderAssetTags, versionFromManifest } from '../src/vite-plugin.js';
+import {
+  manifestKey,
+  renderAssetTags,
+  versionFromManifest,
+} from '../src/vite-plugin.js';
 
 const manifest: ViteManifest = {
   'src/client.ts': {
@@ -104,5 +108,19 @@ describe('versionFromManifest', () => {
     expect(versionFromManifest(manifest, 'v2')).not.toBe(
       versionFromManifest(manifest),
     );
+  });
+});
+
+describe('manifestKey', () => {
+  it('keeps a root-relative entry as is', () => {
+    expect(manifestKey('/app', 'src/client.ts')).toBe('src/client.ts');
+  });
+
+  it('drops a leading ./', () => {
+    expect(manifestKey('/app', './src/client.ts')).toBe('src/client.ts');
+  });
+
+  it('makes an absolute entry relative to the root', () => {
+    expect(manifestKey('/app', '/app/src/client.ts')).toBe('src/client.ts');
   });
 });
