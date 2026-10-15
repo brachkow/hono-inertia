@@ -6,7 +6,7 @@ import type {
   DevtoolsBodyCapture,
   DevtoolsConfig,
   DevtoolsEntry,
-  DevtoolsPropertyMeta,
+  DevtoolsPropMeta,
   DevtoolsRequestType,
   DevtoolsStore,
   MergeProperty,
@@ -402,7 +402,7 @@ function resolveRedirectLocation(response: Response): string | null {
 function buildPropertyMeta(
   c: Context,
   payload: DevtoolsPayload,
-): Record<string, DevtoolsPropertyMeta> {
+): Record<string, DevtoolsPropMeta> {
   // A deferred prop only reads as deferred when delivered by the client's
   // deferred follow-up; on a manual partial reload it is a plain prop.
   const deferredDelivery = c.req.header(DEFERRED_HEADER) !== undefined;
@@ -413,14 +413,14 @@ function buildPropertyMeta(
   const mergeMeta = (
     strategy: MergeStrategy,
     matchOn: string | null,
-  ): Partial<DevtoolsPropertyMeta> => ({
+  ): Partial<DevtoolsPropMeta> => ({
     mergeDirection: strategy === 'prepend' ? 'prepend' : 'append',
     ...((strategy === 'deep' || matchOn !== null) && { deepMerge: true }),
   });
 
   const classifiers: Record<
     TaggedProperty[typeof PROP_TYPE],
-    (tag: TaggedProperty) => Partial<DevtoolsPropertyMeta>
+    (tag: TaggedProperty) => Partial<DevtoolsPropMeta>
   > = {
     always: () => ({ inertiaType: 'always' }),
     optional: (tag) => ({
@@ -451,7 +451,7 @@ function buildPropertyMeta(
     }),
   };
 
-  const properties: Record<string, DevtoolsPropertyMeta> = {};
+  const properties: Record<string, DevtoolsPropMeta> = {};
   for (const [key, tag] of Object.entries(payload.propTags)) {
     properties[key] = {
       shared: payload.sharedKeys.includes(key),

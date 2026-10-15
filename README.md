@@ -36,9 +36,9 @@ pnpm add @brachkow/hono-inertia
 ```ts
 import { Hono } from 'hono';
 import { inertia, serializePage } from '@brachkow/hono-inertia';
-import type { InertiaEnvironment } from '@brachkow/hono-inertia';
+import type { InertiaEnv } from '@brachkow/hono-inertia';
 
-const app = new Hono<InertiaEnvironment>();
+const app = new Hono<InertiaEnv>();
 
 app.use(
   inertia({
@@ -701,11 +701,11 @@ The Worker, `src/worker.ts`, takes the asset tags and the version from the [Vite
 ```ts
 import { Hono } from 'hono';
 import { inertia, serializePage } from '@brachkow/hono-inertia';
-import type { InertiaEnvironment } from '@brachkow/hono-inertia';
+import type { InertiaEnv } from '@brachkow/hono-inertia';
 import { assetTags, version } from 'virtual:hono-inertia/assets';
 import renderPage from './ssr';
 
-const app = new Hono<InertiaEnvironment>();
+const app = new Hono<InertiaEnv>();
 
 app.use(
   inertia({
@@ -844,18 +844,18 @@ The SSR server is a trust boundary. Your `render` function inserts its `head` an
 
 ## TypeScript
 
-Use `InertiaEnvironment` for typed `c.var.inertia` access:
+Use `InertiaEnv` for typed `c.var.inertia` access:
 
 ```ts
-import type { InertiaEnvironment } from '@brachkow/hono-inertia';
+import type { InertiaEnv } from '@brachkow/hono-inertia';
 
-const app = new Hono<InertiaEnvironment>();
+const app = new Hono<InertiaEnv>();
 ```
 
 Compose with your own env types:
 
 ```ts
-type AppEnv = InertiaEnvironment & {
+type AppEnv = InertiaEnv & {
   Variables: { db: Database };
 };
 

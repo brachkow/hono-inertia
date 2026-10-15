@@ -14,7 +14,7 @@ import type {
 // Type guard
 // ---------------------------------------------------------------------------
 
-export function isTaggedProperty(value: unknown): value is TaggedProperty {
+export function isTaggedProp(value: unknown): value is TaggedProperty {
   return (
     value !== null &&
     typeof value === 'object' &&

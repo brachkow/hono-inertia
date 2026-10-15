@@ -12,14 +12,10 @@ import {
   scroll,
 } from '../src/properties.js';
 import { serializePage } from '../src/serialize.js';
-import type {
-  InertiaEnvironment,
-  PageObject,
-  ScrollMetadata,
-} from '../src/types.js';
+import type { InertiaEnv, PageObject, ScrollMetadata } from '../src/types.js';
 
 function createApp(config?: Partial<Parameters<typeof inertia>[0]>) {
-  const app = new Hono<InertiaEnvironment>();
+  const app = new Hono<InertiaEnv>();
   app.use(
     inertia({
       version: '1.0',
@@ -1121,7 +1117,7 @@ describe('View data', () => {
   it('passes view data to render function but not to page props', async () => {
     let receivedViewData: Record<string, unknown> | undefined;
 
-    const app = new Hono<InertiaEnvironment>();
+    const app = new Hono<InertiaEnv>();
     app.use(
       inertia({
         version: '1.0',
@@ -1820,7 +1816,7 @@ describe('View data edge cases', () => {
   it('accumulates from multiple viewData() calls', async () => {
     let receivedViewData: Record<string, unknown> | undefined;
 
-    const app = new Hono<InertiaEnvironment>();
+    const app = new Hono<InertiaEnv>();
     app.use(
       inertia({
         version: '1.0',
@@ -1843,7 +1839,7 @@ describe('View data edge cases', () => {
   it('merges render viewData arg with accumulated viewData', async () => {
     let receivedViewData: Record<string, unknown> | undefined;
 
-    const app = new Hono<InertiaEnvironment>();
+    const app = new Hono<InertiaEnv>();
     app.use(
       inertia({
         version: '1.0',
@@ -1873,7 +1869,7 @@ describe('View data edge cases', () => {
   it('does not send view data on Inertia JSON responses', async () => {
     let renderCalled = false;
 
-    const app = new Hono<InertiaEnvironment>();
+    const app = new Hono<InertiaEnv>();
     app.use(
       inertia({
         version: '1.0',
@@ -1988,7 +1984,7 @@ describe('SSR integration', () => {
     });
     vi.stubGlobal('fetch', mockFetch);
 
-    const app = new Hono<InertiaEnvironment>();
+    const app = new Hono<InertiaEnv>();
     app.use(
       inertia({
         version: '1.0',
@@ -2020,7 +2016,7 @@ describe('SSR integration', () => {
       vi.fn().mockRejectedValue(new Error('ECONNREFUSED')),
     );
 
-    const app = new Hono<InertiaEnvironment>();
+    const app = new Hono<InertiaEnv>();
     app.use(
       inertia({
         version: '1.0',
@@ -2044,7 +2040,7 @@ describe('SSR integration', () => {
     const mockFetch = vi.fn();
     vi.stubGlobal('fetch', mockFetch);
 
-    const app = new Hono<InertiaEnvironment>();
+    const app = new Hono<InertiaEnv>();
     app.use(
       inertia({
         version: '1.0',
@@ -2065,7 +2061,7 @@ describe('SSR integration', () => {
     const mockFetch = vi.fn();
     vi.stubGlobal('fetch', mockFetch);
 
-    const app = new Hono<InertiaEnvironment>();
+    const app = new Hono<InertiaEnv>();
     app.use(
       inertia({
         version: '1.0',
@@ -2332,7 +2328,7 @@ describe('Lazy evaluation edge cases', () => {
 // =========================================================================
 describe('Version defaults', () => {
   const createUnversionedApp = () => {
-    const app = new Hono<InertiaEnvironment>();
+    const app = new Hono<InertiaEnv>();
     app.use(
       inertia({
         render: (page) =>
@@ -2566,9 +2562,7 @@ describe('Response status', () => {
 
 describe('Render function context', () => {
   it('passes the Hono context to the render function', async () => {
-    const app = new Hono<
-      InertiaEnvironment & { Variables: { nonce: string } }
-    >();
+    const app = new Hono<InertiaEnv & { Variables: { nonce: string } }>();
     app.use(async (c, next) => {
       c.set('nonce', 'abc123');
       await next();
@@ -2682,7 +2676,7 @@ describe('BigInt props', () => {
 describe('Lazy version resolution', () => {
   const createCountingApp = () => {
     let calls = 0;
-    const app = new Hono<InertiaEnvironment>();
+    const app = new Hono<InertiaEnv>();
     app.use(
       inertia({
         version: () => {

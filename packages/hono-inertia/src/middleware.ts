@@ -1,7 +1,7 @@
 import { createMiddleware } from 'hono/factory';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { Context, MiddlewareHandler, Next } from 'hono';
-import type { InertiaConfig, InertiaEnvironment } from './types.js';
+import type { InertiaConfig, InertiaEnv } from './types.js';
 import { InertiaResponse } from './response.js';
 import {
   beginDevtoolsRecording,
@@ -30,12 +30,10 @@ const isRedirectShaped = (response: Response): boolean =>
     (response.headers.has('X-Inertia-Redirect') ||
       response.headers.has('X-Inertia-Location')));
 
-export function inertia(
-  config: InertiaConfig,
-): MiddlewareHandler<InertiaEnvironment> {
+export function inertia(config: InertiaConfig): MiddlewareHandler<InertiaEnv> {
   const devtools = resolveDevtools(config.devtools);
 
-  return createMiddleware<InertiaEnvironment>(async (c, next) => {
+  return createMiddleware<InertiaEnv>(async (c, next) => {
     if (devtools) {
       const handled = await handleDevtoolsRequest(c, devtools);
       if (handled) return handled;
@@ -58,7 +56,7 @@ export function inertia(
 // Runs the Inertia request lifecycle, leaving the final response on `c.res`.
 // Returns the InertiaResponse when the handler ran, null on a version 409.
 async function handle(
-  c: Context<InertiaEnvironment>,
+  c: Context<InertiaEnv>,
   next: Next,
   config: InertiaConfig,
 ): Promise<InertiaResponse | null> {

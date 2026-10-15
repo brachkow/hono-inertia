@@ -7,7 +7,7 @@ import {
   optional,
   serializePage,
 } from '@brachkow/hono-inertia';
-import type { InertiaEnvironment } from '@brachkow/hono-inertia';
+import type { InertiaEnv } from '@brachkow/hono-inertia';
 import type { Page } from '@inertiajs/core';
 import { assetTags, version } from 'virtual:hono-inertia/assets';
 import renderPage from './ssr';
@@ -27,7 +27,7 @@ const USERS = [
   'Frances Allen',
 ].map((name, index) => ({ id: index + 1, name }));
 
-const app = new Hono<InertiaEnvironment>();
+const app = new Hono<InertiaEnv>();
 
 app.use(
   inertia({

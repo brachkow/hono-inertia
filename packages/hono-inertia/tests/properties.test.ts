@@ -4,7 +4,7 @@ import {
   always,
   deferred,
   deepMerge,
-  isTaggedProperty,
+  isTaggedProp,
   merge,
   once,
   optional,
@@ -13,14 +13,14 @@ import {
 } from '../src/properties.js';
 import type { ScrollMetadata } from '../src/types.js';
 
-describe('isTaggedProperty', () => {
+describe('isTaggedProp', () => {
   it('returns false for plain values', () => {
-    expect(isTaggedProperty('string')).toBe(false);
-    expect(isTaggedProperty(42)).toBe(false);
-    expect(isTaggedProperty(null)).toBe(false);
-    expect(isTaggedProperty(undefined)).toBe(false);
-    expect(isTaggedProperty({})).toBe(false);
-    expect(isTaggedProperty(() => {})).toBe(false);
+    expect(isTaggedProp('string')).toBe(false);
+    expect(isTaggedProp(42)).toBe(false);
+    expect(isTaggedProp(null)).toBe(false);
+    expect(isTaggedProp(undefined)).toBe(false);
+    expect(isTaggedProp({})).toBe(false);
+    expect(isTaggedProp(() => {})).toBe(false);
   });
 
   it('returns true for tagged props', () => {
@@ -30,12 +30,12 @@ describe('isTaggedProperty', () => {
       getPreviousPage: () => null,
       getNextPage: () => null,
     };
-    expect(isTaggedProperty(optional(() => 1))).toBe(true);
-    expect(isTaggedProperty(always(1))).toBe(true);
-    expect(isTaggedProperty(deferred(() => 1))).toBe(true);
-    expect(isTaggedProperty(merge(1))).toBe(true);
-    expect(isTaggedProperty(once(() => 1))).toBe(true);
-    expect(isTaggedProperty(scroll([1], meta))).toBe(true);
+    expect(isTaggedProp(optional(() => 1))).toBe(true);
+    expect(isTaggedProp(always(1))).toBe(true);
+    expect(isTaggedProp(deferred(() => 1))).toBe(true);
+    expect(isTaggedProp(merge(1))).toBe(true);
+    expect(isTaggedProp(once(() => 1))).toBe(true);
+    expect(isTaggedProp(scroll([1], meta))).toBe(true);
   });
 });
 

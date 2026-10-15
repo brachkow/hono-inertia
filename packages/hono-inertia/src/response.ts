@@ -14,7 +14,7 @@ import type {
   SsrResult,
   TaggedProperty,
 } from './types.js';
-import { isTaggedProperty } from './properties.js';
+import { isTaggedProp } from './properties.js';
 import { renderSsr } from './ssr.js';
 import { stringifyPage } from './serialize.js';
 import type { DevtoolsPayload } from './devtools.js';
@@ -319,7 +319,7 @@ export class InertiaResponse implements InertiaContext {
     };
 
     for (const [key, value] of Object.entries(allProperties)) {
-      if (!isTaggedProperty(value)) {
+      if (!isTaggedProp(value)) {
         if (!isFilteredOut(key)) {
           included[key] = value;
         }
@@ -425,7 +425,7 @@ export class InertiaResponse implements InertiaContext {
       propTags: Object.fromEntries(
         Object.keys(included).map((key) => [
           key,
-          isTaggedProperty(allProperties[key]) ? allProperties[key] : undefined,
+          isTaggedProp(allProperties[key]) ? allProperties[key] : undefined,
         ]),
       ),
       rescuedProps: rescuedProperties,

@@ -17,7 +17,7 @@ export {
   deepMerge,
   once,
   scroll,
-  isTaggedProperty,
+  isTaggedProp,
 } from './properties.js';
 
 // Types
@@ -25,12 +25,12 @@ export type {
   DevtoolsBodyCapture,
   DevtoolsConfig,
   DevtoolsEntry,
-  DevtoolsPropertyMeta,
+  DevtoolsPropMeta,
   DevtoolsRequestType,
   DevtoolsStore,
   InertiaConfig,
   InertiaContext,
-  InertiaEnvironment,
+  InertiaEnv,
   PageObject,
   RenderFunction,
   ScrollMetadata,

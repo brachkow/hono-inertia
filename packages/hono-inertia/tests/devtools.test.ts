@@ -16,7 +16,7 @@ import type {
   DevtoolsEntry,
   DevtoolsStore,
   InertiaConfig,
-  InertiaEnvironment,
+  InertiaEnv,
   ScrollMetadata,
 } from '../src/types.js';
 
@@ -26,7 +26,7 @@ const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 function createApp(devtools: DevtoolsConfig = {}, config: AppConfig = {}) {
   const store = createMemoryDevtoolsStore();
-  const app = new Hono<InertiaEnvironment>();
+  const app = new Hono<InertiaEnv>();
   app.use(
     inertia({
       version: '1.0',
@@ -112,7 +112,7 @@ describe('DevTools discovery', () => {
   });
 
   it('records nothing when devtools is off', async () => {
-    const app = new Hono<InertiaEnvironment>();
+    const app = new Hono<InertiaEnv>();
     app.use(inertia({ version: '1.0', render: () => '<body></body>' }));
     app.get('/page', (c) => c.var.inertia.render('Test'));
 

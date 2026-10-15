@@ -157,7 +157,7 @@ export type DevtoolsBodyCapture =
   | { status: 'present'; value: unknown }
   | { status: 'omitted'; reason: string };
 
-export interface DevtoolsPropertyMeta {
+export interface DevtoolsPropMeta {
   shared: boolean;
   inertiaType:
     'always' | 'defer' | 'optional' | 'merge' | 'scroll' | 'once' | null;
@@ -191,7 +191,7 @@ export interface DevtoolsEntry {
     requestBody: DevtoolsBodyCapture;
     responseBody: DevtoolsBodyCapture;
   };
-  props: Record<string, DevtoolsPropertyMeta>;
+  props: Record<string, DevtoolsPropMeta>;
   propValues: Record<string, unknown>;
   route: { name: string | null; uri: string; action: string | null };
   renderSource: null;
@@ -222,7 +222,7 @@ export interface InertiaContext {
 // Hono Env type for typed c.var.inertia
 // ---------------------------------------------------------------------------
 
-export interface InertiaEnvironment {
+export interface InertiaEnv {
   Variables: {
     inertia: InertiaContext;
   };

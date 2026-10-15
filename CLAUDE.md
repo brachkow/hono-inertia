@@ -45,7 +45,7 @@ The library is a Hono middleware + prop helpers. Request flow:
 
 5. **SSR** (`src/ssr.ts`) — renders the page object via an external SSR server (HTTP POST to `ssr.url`) or an in-process `ssr.render` function, validates the `{ head, body }` result, and rejects on failure. `InertiaResponse.render` catches the rejection, reports it via `onSsrError`, and falls back to CSR.
 
-Key type: `InertiaEnvironment` (`src/types.ts`) — Hono env binding that types `c.get('inertia')`.
+Key type: `InertiaEnv` (`src/types.ts`) — Hono env binding that types `c.get('inertia')`.
 
 ## Reference
 

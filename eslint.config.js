@@ -14,6 +14,12 @@ export default defineConfig(
       'unicorn/prevent-abbreviations': [
         'error',
         {
+          // Public API names from 3.x. Renaming them would break every import.
+          allowList: {
+            InertiaEnv: true,
+            isTaggedProp: true,
+            DevtoolsPropMeta: true,
+          },
           replacements: {
             res: { response: true, resource: false, result: false },
             def: {
