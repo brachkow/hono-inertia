@@ -11,9 +11,13 @@ Inertia.js v2 server-side adapter for Hono. Zero runtime dependencies (peer: `ho
 ```bash
 pnpm test          # run all tests (vitest, once)
 pnpm test:watch    # vitest in watch mode
-pnpm test -- tests/props.test.ts  # run a single test file
+pnpm test -- tests/properties.test.ts  # run a single test file
 pnpm typecheck     # tsc --noEmit
-pnpm build         # tsup → dist/
+pnpm test:lint     # eslint (eslint-config-fans)
+pnpm fix:lint      # eslint --fix
+pnpm test:format   # prettier --check
+pnpm fix:format    # prettier --write
+pnpm build         # tsdown → dist/
 pnpm fetch:inertia # clone upstream Inertia into .inertia/ (gitignored, for reference)
 ```
 
@@ -25,13 +29,13 @@ The library is a Hono middleware + prop helpers. Request flow:
 
 2. **`InertiaResponse`** (`src/response.ts`) — attached to Hono context as `c.get('inertia')`. Its `render(component, props)` method does the heavy lifting: classifies props by tag type, resolves partial/deferred/merge/once logic against Inertia request headers, resolves lazy functions in parallel, builds the `PageObject`, and returns either JSON (Inertia request) or HTML (initial visit, optionally via SSR).
 
-3. **Prop wrappers** (`src/props.ts`) — `optional()`, `always()`, `deferred()`, `merge()`/`prepend()`/`deepMerge()`, `once()`. Each returns a tagged object (symbol `PROP_TYPE` from `src/symbols.ts`). Wrappers are chainable: e.g. `deferred(fn).merge().once()`.
+3. **Prop wrappers** (`src/properties.ts`) — `optional()`, `always()`, `deferred()`, `merge()`/`prepend()`/`deepMerge()`, `once()`. Each returns a tagged object (symbol `PROP_TYPE` from `src/symbols.ts`). Wrappers are chainable: e.g. `deferred(fn).merge().once()`.
 
-4. **Utils** (`src/utils.ts`) — header parsing helpers for `X-Inertia`, `X-Inertia-Partial-Data`, `X-Inertia-Version`, etc.
+4. **Utils** (`src/utilities.ts`) — header parsing helpers for `X-Inertia`, `X-Inertia-Partial-Data`, `X-Inertia-Version`, etc.
 
 5. **SSR** (`src/ssr.ts`) — renders the page object via an external SSR server (HTTP POST to `ssr.url`) or an in-process `ssr.render` function, validates the `{ head, body }` result, and rejects on failure. `InertiaResponse.render` catches the rejection, reports it via `onSsrError`, and falls back to CSR.
 
-Key type: `InertiaEnv` (`src/types.ts`) — Hono env binding that types `c.get('inertia')`.
+Key type: `InertiaEnvironment` (`src/types.ts`) — Hono env binding that types `c.get('inertia')`.
 
 ## Reference
 

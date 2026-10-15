@@ -1,74 +1,79 @@
-import type { Context } from 'hono'
-import type { InertiaConfig } from './types.js'
+import type { Context } from 'hono';
+import type { InertiaConfig } from './types.js';
 
 // Without Cache-Control, browsers apply heuristic freshness to the HTML
 // document — after a 409-triggered full reload they may serve the same stale
 // document again, defeating asset versioning. `no-cache` (not `no-store`,
 // which disables bfcache) forces revalidation; `private` because the HTML
 // embeds per-user state in data-page.
-const DEFAULT_CACHE_CONTROL = 'private, no-cache, must-revalidate'
+const DEFAULT_CACHE_CONTROL = 'private, no-cache, must-revalidate';
 
 export function cacheControlValue(config: InertiaConfig): string | undefined {
-  if (config.cacheControl === false) return undefined
-  return config.cacheControl ?? DEFAULT_CACHE_CONTROL
+  if (config.cacheControl === false) return undefined;
+  return config.cacheControl ?? DEFAULT_CACHE_CONTROL;
 }
 
 export function isInertiaRequest(c: Context): boolean {
-  return c.req.header('X-Inertia') === 'true'
+  return c.req.header('X-Inertia') === 'true';
 }
 
 function parseHeaderList(header: string | undefined): Set<string> {
-  if (!header) return new Set()
-  return new Set(header.split(',').map((s) => s.trim()).filter(Boolean))
+  if (!header) return new Set();
+  return new Set(
+    header
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
 }
 
 // Returned as a Set so membership checks in response.ts are O(1) — an attacker
 // could otherwise send thousands of comma-separated keys and force O(n) scans
 // per prop on every partial reload.
 export function getPartialData(c: Context): Set<string> {
-  return parseHeaderList(c.req.header('X-Inertia-Partial-Data'))
+  return parseHeaderList(c.req.header('X-Inertia-Partial-Data'));
 }
 
 export function getPartialExcept(c: Context): Set<string> {
-  return parseHeaderList(c.req.header('X-Inertia-Partial-Except'))
+  return parseHeaderList(c.req.header('X-Inertia-Partial-Except'));
 }
 
 export function getPartialComponent(c: Context): string | null {
-  return c.req.header('X-Inertia-Partial-Component') ?? null
+  return c.req.header('X-Inertia-Partial-Component') ?? null;
 }
 
-export function getExceptOnceProps(c: Context): Set<string> {
-  return parseHeaderList(c.req.header('X-Inertia-Except-Once-Props'))
+export function getExceptOnceProperties(c: Context): Set<string> {
+  return parseHeaderList(c.req.header('X-Inertia-Except-Once-Props'));
 }
 
 export function getErrorBag(c: Context): string | null {
-  return c.req.header('X-Inertia-Error-Bag') ?? null
+  return c.req.header('X-Inertia-Error-Bag') ?? null;
 }
 
 export function getRequestVersion(c: Context): string | null {
-  return c.req.header('X-Inertia-Version') ?? null
+  return c.req.header('X-Inertia-Version') ?? null;
 }
 
-export function getResetProps(c: Context): Set<string> {
-  return parseHeaderList(c.req.header('X-Inertia-Reset'))
+export function getResetProperties(c: Context): Set<string> {
+  return parseHeaderList(c.req.header('X-Inertia-Reset'));
 }
 
 export function isPrefetch(c: Context): boolean {
-  return c.req.header('Purpose') === 'prefetch'
+  return c.req.header('Purpose') === 'prefetch';
 }
 
 export function getScrollMergeIntent(c: Context): 'append' | 'prepend' {
-  const header = c.req.header('X-Inertia-Infinite-Scroll-Merge-Intent')
-  return header === 'prepend' ? 'prepend' : 'append'
+  const header = c.req.header('X-Inertia-Infinite-Scroll-Merge-Intent');
+  return header === 'prepend' ? 'prepend' : 'append';
 }
 
 // Present only on incremental infinite-scroll fetches; its absence means a fresh
 // load, which is how the server decides whether to reset the scroll collection.
 export function hasScrollMergeIntent(c: Context): boolean {
-  return c.req.header('X-Inertia-Infinite-Scroll-Merge-Intent') !== undefined
+  return c.req.header('X-Inertia-Infinite-Scroll-Merge-Intent') !== undefined;
 }
 
 export function resolveUrl(c: Context): string {
-  const url = new URL(c.req.url)
-  return url.pathname + url.search
+  const url = new URL(c.req.url);
+  return url.pathname + url.search;
 }

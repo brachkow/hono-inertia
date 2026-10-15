@@ -1,22 +1,22 @@
 export interface ViteManifestChunk {
-  file: string
-  css?: string[]
-  imports?: string[]
+  file: string;
+  css?: string[];
+  imports?: string[];
 }
 
-export type ViteManifest = Record<string, ViteManifestChunk>
+export type ViteManifest = Record<string, ViteManifestChunk>;
 
-const VERSION_LENGTH = 16
+const VERSION_LENGTH = 16;
 
 const sha256Hex = async (input: string): Promise<string> => {
   const digest = await crypto.subtle.digest(
     'SHA-256',
     new TextEncoder().encode(input),
-  )
-  return [...new Uint8Array(digest)]
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
-}
+  );
+  return Array.from(new Uint8Array(digest), (b) =>
+    b.toString(16).padStart(2, '0'),
+  ).join('');
+};
 
 // Hash the sorted set of emitted filenames, not the raw JSON: filenames are
 // already content-hashed by Vite, and sorting makes the result immune to
@@ -29,15 +29,15 @@ export const manifestVersion = (
 ): (() => Promise<string>) => {
   const fingerprint = Object.values(manifest)
     .map((chunk) => chunk.file)
-    .sort()
-    .join('\n')
+    .toSorted()
+    .join('\n');
 
-  let cache: Promise<string> | undefined
+  let cache: Promise<string> | undefined;
 
   return () => {
     cache ??= sha256Hex(`${salt}:${fingerprint}`).then((hex) =>
       hex.slice(0, VERSION_LENGTH),
-    )
-    return cache
-  }
-}
+    );
+    return cache;
+  };
+};

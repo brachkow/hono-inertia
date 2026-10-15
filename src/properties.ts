@@ -1,86 +1,85 @@
-import { PROP_TYPE } from './symbols.js'
+import { PROP_TYPE } from './symbols.js';
 import type {
-  AlwaysProp,
-  DeferredProp,
-  MergeProp,
-  MergeStrategy,
-  OnceProp,
-  OptionalProp,
+  AlwaysProperty,
+  DeferredProperty,
+  MergeProperty,
+  OnceProperty,
+  OptionalProperty,
   ScrollMetadata,
-  ScrollProp,
-  TaggedProp,
-} from './types.js'
+  ScrollProperty,
+  TaggedProperty,
+} from './types.js';
 
 // ---------------------------------------------------------------------------
 // Type guard
 // ---------------------------------------------------------------------------
 
-export function isTaggedProp(value: unknown): value is TaggedProp {
+export function isTaggedProperty(value: unknown): value is TaggedProperty {
   return (
     value !== null &&
     typeof value === 'object' &&
     PROP_TYPE in (value as Record<string, unknown>)
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Chainable return types
 // ---------------------------------------------------------------------------
 
-export type OptionalChain = OptionalProp & {
-  once(key?: string, expiresAt?: number | null): OptionalProp
-}
+export type OptionalChain = OptionalProperty & {
+  once(key?: string, expiresAt?: number | null): OptionalProperty;
+};
 
-export type DeferredChain = DeferredProp & {
-  rescue(): DeferredChain
-  merge(): DeferredChain
-  prepend(): DeferredChain
-  deepMerge(): DeferredChain
-  setMatchOn(field: string): DeferredChain
-  once(key?: string, expiresAt?: number | null): DeferredChain
-}
+export type DeferredChain = DeferredProperty & {
+  rescue(): DeferredChain;
+  merge(): DeferredChain;
+  prepend(): DeferredChain;
+  deepMerge(): DeferredChain;
+  setMatchOn(field: string): DeferredChain;
+  once(key?: string, expiresAt?: number | null): DeferredChain;
+};
 
-export type MergeChain = MergeProp & {
-  prepend(): MergeChain
-  deepMerge(): MergeChain
-  setMatchOn(field: string): MergeChain
-}
+export type MergeChain = MergeProperty & {
+  prepend(): MergeChain;
+  deepMerge(): MergeChain;
+  setMatchOn(field: string): MergeChain;
+};
 
-export type ScrollChain = ScrollProp & {
-  setMatchOn(field: string): ScrollChain
-}
+export type ScrollChain = ScrollProperty & {
+  setMatchOn(field: string): ScrollChain;
+};
 
 // ---------------------------------------------------------------------------
 // optional(fn) — excluded from first visit, included on partial reload
 // ---------------------------------------------------------------------------
 
 export function optional(
-  fn: () => unknown | Promise<unknown>,
+  function_: () => unknown | Promise<unknown>,
 ): OptionalChain {
-  const prop: OptionalProp = {
+  const property: OptionalProperty = {
     [PROP_TYPE]: 'optional',
-    value: fn,
+    value: function_,
     isOnce: false,
     onceKey: null,
     expiresAt: null,
-  }
+  };
 
-  return Object.assign(prop, {
-    once(key?: string, expiresAt?: number | null): OptionalProp {
-      prop.isOnce = true
-      prop.onceKey = key ?? null
-      prop.expiresAt = expiresAt ?? null
-      return prop
+  return Object.assign(property, {
+    once(key?: string, expiresAt?: number | null): OptionalProperty {
+      property.isOnce = true;
+      property.onceKey = key ?? null;
+      property.expiresAt = expiresAt ?? null;
+      return property;
     },
-  })
+  });
 }
 
 // ---------------------------------------------------------------------------
 // always(value) — always included, even in partial reloads
 // ---------------------------------------------------------------------------
 
-export function always(value: unknown): AlwaysProp {
-  return { [PROP_TYPE]: 'always', value }
+export function always(value: unknown): AlwaysProperty {
+  return { [PROP_TYPE]: 'always', value };
 }
 
 // ---------------------------------------------------------------------------
@@ -88,56 +87,56 @@ export function always(value: unknown): AlwaysProp {
 // ---------------------------------------------------------------------------
 
 export function deferred(
-  fn: () => unknown | Promise<unknown>,
+  function_: () => unknown | Promise<unknown>,
   group = 'default',
 ): DeferredChain {
-  const prop: DeferredProp = {
+  const property: DeferredProperty = {
     [PROP_TYPE]: 'deferred',
-    value: fn,
+    value: function_,
     group,
     shouldRescue: false,
     isMerge: false,
-    mergeStrategy: 'append' as MergeStrategy,
+    mergeStrategy: 'append',
     matchOn: null,
     isOnce: false,
     onceKey: null,
     expiresAt: null,
-  }
+  };
 
   const chain = {
     rescue(): DeferredChain {
-      prop.shouldRescue = true
-      return result
+      property.shouldRescue = true;
+      return result;
     },
     merge(): DeferredChain {
-      prop.isMerge = true
-      prop.mergeStrategy = 'append'
-      return result
+      property.isMerge = true;
+      property.mergeStrategy = 'append';
+      return result;
     },
     prepend(): DeferredChain {
-      prop.isMerge = true
-      prop.mergeStrategy = 'prepend'
-      return result
+      property.isMerge = true;
+      property.mergeStrategy = 'prepend';
+      return result;
     },
     deepMerge(): DeferredChain {
-      prop.isMerge = true
-      prop.mergeStrategy = 'deep'
-      return result
+      property.isMerge = true;
+      property.mergeStrategy = 'deep';
+      return result;
     },
     setMatchOn(field: string): DeferredChain {
-      prop.matchOn = field
-      return result
+      property.matchOn = field;
+      return result;
     },
     once(key?: string, expiresAt?: number | null): DeferredChain {
-      prop.isOnce = true
-      prop.onceKey = key ?? null
-      prop.expiresAt = expiresAt ?? null
-      return result
+      property.isOnce = true;
+      property.onceKey = key ?? null;
+      property.expiresAt = expiresAt ?? null;
+      return result;
     },
-  }
+  };
 
-  const result: DeferredChain = Object.assign(prop, chain)
-  return result
+  const result: DeferredChain = Object.assign(property, chain);
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -147,30 +146,30 @@ export function deferred(
 export function merge(
   value: unknown | (() => unknown | Promise<unknown>),
 ): MergeChain {
-  const prop: MergeProp = {
+  const property: MergeProperty = {
     [PROP_TYPE]: 'merge',
     value,
     strategy: 'append',
     matchOn: null,
-  }
+  };
 
   const chain = {
     prepend(): MergeChain {
-      prop.strategy = 'prepend'
-      return result
+      property.strategy = 'prepend';
+      return result;
     },
     deepMerge(): MergeChain {
-      prop.strategy = 'deep'
-      return result
+      property.strategy = 'deep';
+      return result;
     },
     setMatchOn(field: string): MergeChain {
-      prop.matchOn = field
-      return result
+      property.matchOn = field;
+      return result;
     },
-  }
+  };
 
-  const result: MergeChain = Object.assign(prop, chain)
-  return result
+  const result: MergeChain = Object.assign(property, chain);
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -180,7 +179,7 @@ export function merge(
 export function prepend(
   value: unknown | (() => unknown | Promise<unknown>),
 ): MergeChain {
-  return merge(value).prepend()
+  return merge(value).prepend();
 }
 
 // ---------------------------------------------------------------------------
@@ -190,7 +189,7 @@ export function prepend(
 export function deepMerge(
   value: unknown | (() => unknown | Promise<unknown>),
 ): MergeChain {
-  return merge(value).deepMerge()
+  return merge(value).deepMerge();
 }
 
 // ---------------------------------------------------------------------------
@@ -198,16 +197,16 @@ export function deepMerge(
 // ---------------------------------------------------------------------------
 
 export function once(
-  fn: () => unknown | Promise<unknown>,
+  function_: () => unknown | Promise<unknown>,
   key?: string,
   expiresAt?: number | null,
-): OnceProp {
+): OnceProperty {
   return {
     [PROP_TYPE]: 'once',
-    value: fn,
+    value: function_,
     onceKey: key ?? null,
     expiresAt: expiresAt ?? null,
-  }
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -218,7 +217,7 @@ export function scroll(
   value: unknown | (() => unknown | Promise<unknown>),
   metadata: ScrollMetadata,
 ): ScrollChain {
-  const prop: ScrollProp = {
+  const property: ScrollProperty = {
     [PROP_TYPE]: 'scroll',
     value,
     pageName: metadata.getPageName(),
@@ -226,15 +225,15 @@ export function scroll(
     previousPage: metadata.getPreviousPage(),
     nextPage: metadata.getNextPage(),
     matchOn: null,
-  }
+  };
 
   const chain = {
     setMatchOn(field: string): ScrollChain {
-      prop.matchOn = field
-      return result
+      property.matchOn = field;
+      return result;
     },
-  }
+  };
 
-  const result: ScrollChain = Object.assign(prop, chain)
-  return result
+  const result: ScrollChain = Object.assign(property, chain);
+  return result;
 }

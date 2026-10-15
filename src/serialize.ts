@@ -1,4 +1,4 @@
-import type { PageObject } from './types.js'
+import type { PageObject } from './types.js';
 
 const HTML_ENTITIES: Record<string, string> = {
   '&': '&amp;',
@@ -6,12 +6,12 @@ const HTML_ENTITIES: Record<string, string> = {
   '>': '&gt;',
   '"': '&quot;',
   "'": '&#39;',
-}
+};
 
 // HTML-escape a string so it is safe to interpolate into HTML text or an
 // attribute value (used for view data such as a <title>).
 export function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (char) => HTML_ENTITIES[char])
+  return value.replaceAll(/["&'<>]/g, (char) => HTML_ENTITIES[char]);
 }
 
 // Serialize the page object for the `<script data-page="app" type="application/json">`
@@ -20,7 +20,9 @@ export function escapeHtml(value: string): string {
 // run as markup. Script content is raw text, so HTML entities would corrupt the
 // JSON instead; JSON unicode escapes keep it valid JSON while inert as HTML.
 export function serializePage(page: PageObject): string {
-  return stringifyPage(page).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
+  return stringifyPage(page)
+    .replaceAll('<', String.raw`\u003c`)
+    .replaceAll('>', String.raw`\u003e`);
 }
 
 // JSON has no BigInt, so a page holding one is sent with each BigInt as a
@@ -30,15 +32,18 @@ export function serializePage(page: PageObject): string {
 // the original error is rethrown if the retry fails too (e.g. a cycle).
 export function stringifyPage(page: PageObject): string {
   try {
-    return JSON.stringify(page)
+    return JSON.stringify(page);
   } catch (error) {
     try {
-      return JSON.stringify({ ...page, preserveBigIntegers: true }, replaceBigInt)
+      return JSON.stringify(
+        { ...page, preserveBigIntegers: true },
+        replaceBigInt,
+      );
     } catch {
-      throw error
+      throw error;
     }
   }
 }
 
 const replaceBigInt = (_key: string, value: unknown): unknown =>
-  typeof value === 'bigint' ? { $bigint: value.toString() } : value
+  typeof value === 'bigint' ? { $bigint: value.toString() } : value;

@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config'
+import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
@@ -6,4 +6,4 @@ export default defineConfig({
     // Only our suite — never the vendored upstream specs under .inertia/
     include: ['tests/**/*.test.ts'],
   },
-})
+});

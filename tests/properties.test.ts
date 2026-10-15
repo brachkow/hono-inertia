@@ -1,27 +1,27 @@
-import { describe, expect, it } from 'vitest'
-import { PROP_TYPE } from '../src/symbols.js'
+import { describe, expect, it } from 'vitest';
+import { PROP_TYPE } from '../src/symbols.js';
 import {
   always,
   deferred,
   deepMerge,
-  isTaggedProp,
+  isTaggedProperty,
   merge,
   once,
   optional,
   prepend,
   scroll,
-} from '../src/props.js'
-import type { ScrollMetadata } from '../src/types.js'
+} from '../src/properties.js';
+import type { ScrollMetadata } from '../src/types.js';
 
-describe('isTaggedProp', () => {
+describe('isTaggedProperty', () => {
   it('returns false for plain values', () => {
-    expect(isTaggedProp('string')).toBe(false)
-    expect(isTaggedProp(42)).toBe(false)
-    expect(isTaggedProp(null)).toBe(false)
-    expect(isTaggedProp(undefined)).toBe(false)
-    expect(isTaggedProp({})).toBe(false)
-    expect(isTaggedProp(() => {})).toBe(false)
-  })
+    expect(isTaggedProperty('string')).toBe(false);
+    expect(isTaggedProperty(42)).toBe(false);
+    expect(isTaggedProperty(null)).toBe(false);
+    expect(isTaggedProperty(undefined)).toBe(false);
+    expect(isTaggedProperty({})).toBe(false);
+    expect(isTaggedProperty(() => {})).toBe(false);
+  });
 
   it('returns true for tagged props', () => {
     const meta: ScrollMetadata = {
@@ -29,166 +29,172 @@ describe('isTaggedProp', () => {
       getCurrentPage: () => 1,
       getPreviousPage: () => null,
       getNextPage: () => null,
-    }
-    expect(isTaggedProp(optional(() => 1))).toBe(true)
-    expect(isTaggedProp(always(1))).toBe(true)
-    expect(isTaggedProp(deferred(() => 1))).toBe(true)
-    expect(isTaggedProp(merge(1))).toBe(true)
-    expect(isTaggedProp(once(() => 1))).toBe(true)
-    expect(isTaggedProp(scroll([1], meta))).toBe(true)
-  })
-})
+    };
+    expect(isTaggedProperty(optional(() => 1))).toBe(true);
+    expect(isTaggedProperty(always(1))).toBe(true);
+    expect(isTaggedProperty(deferred(() => 1))).toBe(true);
+    expect(isTaggedProperty(merge(1))).toBe(true);
+    expect(isTaggedProperty(once(() => 1))).toBe(true);
+    expect(isTaggedProperty(scroll([1], meta))).toBe(true);
+  });
+});
 
 describe('optional', () => {
   it('creates an optional prop', () => {
-    const fn = () => 'value'
-    const prop = optional(fn)
-    expect(prop[PROP_TYPE]).toBe('optional')
-    expect(prop.value).toBe(fn)
-    expect(prop.isOnce).toBe(false)
-  })
+    const function_ = () => 'value';
+    const property = optional(function_);
+    expect(property[PROP_TYPE]).toBe('optional');
+    expect(property.value).toBe(function_);
+    expect(property.isOnce).toBe(false);
+  });
 
   it('supports .once() chaining', () => {
-    const prop = optional(() => 'value').once('myKey', 3600)
-    expect(prop[PROP_TYPE]).toBe('optional')
-    expect(prop.isOnce).toBe(true)
-    expect(prop.onceKey).toBe('myKey')
-    expect(prop.expiresAt).toBe(3600)
-  })
-})
+    const property = optional(() => 'value').once('myKey', 3600);
+    expect(property[PROP_TYPE]).toBe('optional');
+    expect(property.isOnce).toBe(true);
+    expect(property.onceKey).toBe('myKey');
+    expect(property.expiresAt).toBe(3600);
+  });
+});
 
 describe('always', () => {
   it('creates an always prop', () => {
-    const prop = always('value')
-    expect(prop[PROP_TYPE]).toBe('always')
-    expect(prop.value).toBe('value')
-  })
-})
+    const property = always('value');
+    expect(property[PROP_TYPE]).toBe('always');
+    expect(property.value).toBe('value');
+  });
+});
 
 describe('deferred', () => {
   it('creates a deferred prop with default group', () => {
-    const fn = () => 'data'
-    const prop = deferred(fn)
-    expect(prop[PROP_TYPE]).toBe('deferred')
-    expect(prop.value).toBe(fn)
-    expect(prop.group).toBe('default')
-    expect(prop.shouldRescue).toBe(false)
-    expect(prop.isMerge).toBe(false)
-    expect(prop.isOnce).toBe(false)
-  })
+    const function_ = () => 'data';
+    const property = deferred(function_);
+    expect(property[PROP_TYPE]).toBe('deferred');
+    expect(property.value).toBe(function_);
+    expect(property.group).toBe('default');
+    expect(property.shouldRescue).toBe(false);
+    expect(property.isMerge).toBe(false);
+    expect(property.isOnce).toBe(false);
+  });
 
   it('supports .rescue() chaining', () => {
-    const prop = deferred(() => []).rescue()
-    expect(prop.shouldRescue).toBe(true)
-  })
+    const property = deferred(() => []).rescue();
+    expect(property.shouldRescue).toBe(true);
+  });
 
   it('accepts a custom group', () => {
-    const prop = deferred(() => 'data', 'sidebar')
-    expect(prop.group).toBe('sidebar')
-  })
+    const property = deferred(() => 'data', 'sidebar');
+    expect(property.group).toBe('sidebar');
+  });
 
   it('supports .merge() chaining', () => {
-    const prop = deferred(() => []).merge()
-    expect(prop.isMerge).toBe(true)
-    expect(prop.mergeStrategy).toBe('append')
-  })
+    const property = deferred(() => []).merge();
+    expect(property.isMerge).toBe(true);
+    expect(property.mergeStrategy).toBe('append');
+  });
 
   it('supports .prepend() chaining', () => {
-    const prop = deferred(() => []).prepend()
-    expect(prop.isMerge).toBe(true)
-    expect(prop.mergeStrategy).toBe('prepend')
-  })
+    const property = deferred(() => []).prepend();
+    expect(property.isMerge).toBe(true);
+    expect(property.mergeStrategy).toBe('prepend');
+  });
 
   it('supports .deepMerge() chaining', () => {
-    const prop = deferred(() => []).deepMerge()
-    expect(prop.isMerge).toBe(true)
-    expect(prop.mergeStrategy).toBe('deep')
-  })
+    const property = deferred(() => []).deepMerge();
+    expect(property.isMerge).toBe(true);
+    expect(property.mergeStrategy).toBe('deep');
+  });
 
   it('supports .setMatchOn() chaining', () => {
-    const prop = deferred(() => []).merge().setMatchOn('id')
-    expect(prop.matchOn).toBe('id')
-  })
+    const property = deferred(() => [])
+      .merge()
+      .setMatchOn('id');
+    expect(property.matchOn).toBe('id');
+  });
 
   it('supports .once() chaining', () => {
-    const prop = deferred(() => []).once('key')
-    expect(prop.isOnce).toBe(true)
-    expect(prop.onceKey).toBe('key')
-  })
+    const property = deferred(() => []).once('key');
+    expect(property.isOnce).toBe(true);
+    expect(property.onceKey).toBe('key');
+  });
 
   it('supports multiple chaining', () => {
-    const prop = deferred(() => [], 'sidebar').merge().once('k').setMatchOn('id').rescue()
-    expect(prop.shouldRescue).toBe(true)
-    expect(prop.isMerge).toBe(true)
-    expect(prop.isOnce).toBe(true)
-    expect(prop.matchOn).toBe('id')
-    expect(prop.group).toBe('sidebar')
-  })
-})
+    const property = deferred(() => [], 'sidebar')
+      .merge()
+      .once('k')
+      .setMatchOn('id')
+      .rescue();
+    expect(property.shouldRescue).toBe(true);
+    expect(property.isMerge).toBe(true);
+    expect(property.isOnce).toBe(true);
+    expect(property.matchOn).toBe('id');
+    expect(property.group).toBe('sidebar');
+  });
+});
 
 describe('merge', () => {
   it('creates a merge prop with append strategy', () => {
-    const prop = merge([1, 2, 3])
-    expect(prop[PROP_TYPE]).toBe('merge')
-    expect(prop.value).toEqual([1, 2, 3])
-    expect(prop.strategy).toBe('append')
-    expect(prop.matchOn).toBeNull()
-  })
+    const property = merge([1, 2, 3]);
+    expect(property[PROP_TYPE]).toBe('merge');
+    expect(property.value).toEqual([1, 2, 3]);
+    expect(property.strategy).toBe('append');
+    expect(property.matchOn).toBeNull();
+  });
 
   it('supports lazy values', () => {
-    const fn = () => [1, 2, 3]
-    const prop = merge(fn)
-    expect(prop.value).toBe(fn)
-  })
+    const function_ = () => [1, 2, 3];
+    const property = merge(function_);
+    expect(property.value).toBe(function_);
+  });
 
   it('supports .prepend() chaining', () => {
-    const prop = merge([]).prepend()
-    expect(prop.strategy).toBe('prepend')
-  })
+    const property = merge([]).prepend();
+    expect(property.strategy).toBe('prepend');
+  });
 
   it('supports .deepMerge() chaining', () => {
-    const prop = merge({}).deepMerge()
-    expect(prop.strategy).toBe('deep')
-  })
+    const property = merge({}).deepMerge();
+    expect(property.strategy).toBe('deep');
+  });
 
   it('supports .setMatchOn() chaining', () => {
-    const prop = merge([]).setMatchOn('id')
-    expect(prop.matchOn).toBe('id')
-  })
-})
+    const property = merge([]).setMatchOn('id');
+    expect(property.matchOn).toBe('id');
+  });
+});
 
 describe('prepend', () => {
   it('is sugar for merge().prepend()', () => {
-    const prop = prepend([1, 2])
-    expect(prop[PROP_TYPE]).toBe('merge')
-    expect(prop.strategy).toBe('prepend')
-  })
-})
+    const property = prepend([1, 2]);
+    expect(property[PROP_TYPE]).toBe('merge');
+    expect(property.strategy).toBe('prepend');
+  });
+});
 
 describe('deepMerge', () => {
   it('is sugar for merge().deepMerge()', () => {
-    const prop = deepMerge({ a: 1 })
-    expect(prop[PROP_TYPE]).toBe('merge')
-    expect(prop.strategy).toBe('deep')
-  })
-})
+    const property = deepMerge({ a: 1 });
+    expect(property[PROP_TYPE]).toBe('merge');
+    expect(property.strategy).toBe('deep');
+  });
+});
 
 describe('once', () => {
   it('creates a once prop', () => {
-    const fn = () => 'plans'
-    const prop = once(fn)
-    expect(prop[PROP_TYPE]).toBe('once')
-    expect(prop.value).toBe(fn)
-    expect(prop.onceKey).toBeNull()
-    expect(prop.expiresAt).toBeNull()
-  })
+    const function_ = () => 'plans';
+    const property = once(function_);
+    expect(property[PROP_TYPE]).toBe('once');
+    expect(property.value).toBe(function_);
+    expect(property.onceKey).toBeNull();
+    expect(property.expiresAt).toBeNull();
+  });
 
   it('accepts key and expiresAt', () => {
-    const prop = once(() => 'data', 'myKey', 7200)
-    expect(prop.onceKey).toBe('myKey')
-    expect(prop.expiresAt).toBe(7200)
-  })
-})
+    const property = once(() => 'data', 'myKey', 7200);
+    expect(property.onceKey).toBe('myKey');
+    expect(property.expiresAt).toBe(7200);
+  });
+});
 
 describe('scroll', () => {
   const mockMetadata: ScrollMetadata = {
@@ -196,32 +202,32 @@ describe('scroll', () => {
     getCurrentPage: () => 3,
     getPreviousPage: () => 2,
     getNextPage: () => 4,
-  }
+  };
 
   it('creates a scroll prop with correct type tag', () => {
-    const prop = scroll([1, 2], mockMetadata)
-    expect(prop[PROP_TYPE]).toBe('scroll')
-  })
+    const property = scroll([1, 2], mockMetadata);
+    expect(property[PROP_TYPE]).toBe('scroll');
+  });
 
   it('stores the value', () => {
-    const data = [{ id: 1 }]
-    const prop = scroll(data, mockMetadata)
-    expect(prop.value).toBe(data)
-  })
+    const data = [{ id: 1 }];
+    const property = scroll(data, mockMetadata);
+    expect(property.value).toBe(data);
+  });
 
   it('supports lazy values', () => {
-    const fn = () => [1, 2, 3]
-    const prop = scroll(fn, mockMetadata)
-    expect(prop.value).toBe(fn)
-  })
+    const function_ = () => [1, 2, 3];
+    const property = scroll(function_, mockMetadata);
+    expect(property.value).toBe(function_);
+  });
 
   it('extracts pagination metadata from adapter', () => {
-    const prop = scroll([], mockMetadata)
-    expect(prop.pageName).toBe('page')
-    expect(prop.currentPage).toBe(3)
-    expect(prop.previousPage).toBe(2)
-    expect(prop.nextPage).toBe(4)
-  })
+    const property = scroll([], mockMetadata);
+    expect(property.pageName).toBe('page');
+    expect(property.currentPage).toBe(3);
+    expect(property.previousPage).toBe(2);
+    expect(property.nextPage).toBe(4);
+  });
 
   it('handles null previous/next pages', () => {
     const firstPageMeta: ScrollMetadata = {
@@ -229,26 +235,26 @@ describe('scroll', () => {
       getCurrentPage: () => 1,
       getPreviousPage: () => null,
       getNextPage: () => null,
-    }
-    const prop = scroll([], firstPageMeta)
-    expect(prop.previousPage).toBeNull()
-    expect(prop.nextPage).toBeNull()
-    expect(prop.pageName).toBe('p')
-  })
+    };
+    const property = scroll([], firstPageMeta);
+    expect(property.previousPage).toBeNull();
+    expect(property.nextPage).toBeNull();
+    expect(property.pageName).toBe('p');
+  });
 
   it('defaults matchOn to null', () => {
-    const prop = scroll([], mockMetadata)
-    expect(prop.matchOn).toBeNull()
-  })
+    const property = scroll([], mockMetadata);
+    expect(property.matchOn).toBeNull();
+  });
 
   it('supports .setMatchOn() chaining', () => {
-    const prop = scroll([], mockMetadata).setMatchOn('id')
-    expect(prop.matchOn).toBe('id')
-  })
+    const property = scroll([], mockMetadata).setMatchOn('id');
+    expect(property.matchOn).toBe('id');
+  });
 
   it('preserves pagination metadata through .setMatchOn()', () => {
-    const prop = scroll([], mockMetadata).setMatchOn('id')
-    expect(prop.currentPage).toBe(3)
-    expect(prop.nextPage).toBe(4)
-  })
-})
+    const property = scroll([], mockMetadata).setMatchOn('id');
+    expect(property.currentPage).toBe(3);
+    expect(property.nextPage).toBe(4);
+  });
+});

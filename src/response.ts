@@ -1,45 +1,45 @@
-import type { Context } from 'hono'
+import type { Context } from 'hono';
 import type {
-  AlwaysProp,
-  DeferredProp,
+  AlwaysProperty,
+  DeferredProperty,
   InertiaConfig,
   InertiaContext,
-  MergeProp,
+  MergeProperty,
   MergeStrategy,
-  OnceProp,
-  OptionalProp,
+  OnceProperty,
+  OptionalProperty,
   PageObject,
-  ScrollProp,
+  ScrollProperty,
   SsrResult,
-  TaggedProp,
-} from './types.js'
-import { isTaggedProp } from './props.js'
-import { renderSsr } from './ssr.js'
-import { stringifyPage } from './serialize.js'
-import type { DevtoolsPayload } from './devtools.js'
+  TaggedProperty,
+} from './types.js';
+import { isTaggedProperty } from './properties.js';
+import { renderSsr } from './ssr.js';
+import { stringifyPage } from './serialize.js';
+import type { DevtoolsPayload } from './devtools.js';
 import {
   cacheControlValue,
   getErrorBag,
-  getExceptOnceProps,
+  getExceptOnceProperties,
   getPartialComponent,
   getPartialData,
   getPartialExcept,
-  getResetProps,
+  getResetProperties,
   getScrollMergeIntent,
   hasScrollMergeIntent,
   isInertiaRequest,
   resolveUrl,
-} from './utils.js'
+} from './utilities.js';
 
 export class InertiaResponse implements InertiaContext {
-  private sharedProps: Record<string, unknown> = {}
-  private viewDataStore: Record<string, unknown> = {}
-  private flashStore: Record<string, unknown> = {}
-  private shouldEncryptHistory = false
-  private shouldClearHistory = false
-  private clearHistoryWasConsumed = false
-  private shouldPreserveFragment = false
-  private devtoolsPayloadStore: DevtoolsPayload | null = null
+  private sharedProps: Record<string, unknown> = {};
+  private viewDataStore: Record<string, unknown> = {};
+  private flashStore: Record<string, unknown> = {};
+  private shouldEncryptHistory = false;
+  private shouldClearHistory = false;
+  private clearHistoryWasConsumed = false;
+  private shouldPreserveFragment = false;
+  private devtoolsPayloadStore: DevtoolsPayload | null = null;
 
   constructor(
     private c: Context,
@@ -48,42 +48,42 @@ export class InertiaResponse implements InertiaContext {
   ) {}
 
   share(data: Record<string, unknown>): void {
-    Object.assign(this.sharedProps, data)
+    Object.assign(this.sharedProps, data);
   }
 
   viewData(data: Record<string, unknown>): void {
-    Object.assign(this.viewDataStore, data)
+    Object.assign(this.viewDataStore, data);
   }
 
   flash(data: Record<string, unknown>): void {
-    Object.assign(this.flashStore, data)
+    Object.assign(this.flashStore, data);
   }
 
   encryptHistory(encrypt = true): void {
-    this.shouldEncryptHistory = encrypt
+    this.shouldEncryptHistory = encrypt;
   }
 
   clearHistory(clear = true): void {
-    this.shouldClearHistory = clear
+    this.shouldClearHistory = clear;
   }
 
   // Read by the middleware to flash clearHistory across redirects via a
   // cookie. Not part of the public InertiaContext interface.
   get clearHistoryPending(): boolean {
-    return this.shouldClearHistory
+    return this.shouldClearHistory;
   }
 
   get clearHistoryConsumed(): boolean {
-    return this.clearHistoryWasConsumed
+    return this.clearHistoryWasConsumed;
   }
 
   // Read by the middleware's DevTools recorder after the handler ran.
   get devtoolsPayload(): DevtoolsPayload | null {
-    return this.devtoolsPayloadStore
+    return this.devtoolsPayloadStore;
   }
 
   preserveFragment(preserve = true): void {
-    this.shouldPreserveFragment = preserve
+    this.shouldPreserveFragment = preserve;
   }
 
   redirect(url: string): Response {
@@ -92,12 +92,12 @@ export class InertiaResponse implements InertiaContext {
         status: 409,
         headers: {
           'X-Inertia-Redirect': url,
-          'Vary': 'X-Inertia',
+          Vary: 'X-Inertia',
           ...this.cacheControlHeader(),
         },
-      })
+      });
     }
-    return this.c.redirect(url, 302)
+    return this.c.redirect(url, 302);
   }
 
   location(url: string): Response {
@@ -106,166 +106,204 @@ export class InertiaResponse implements InertiaContext {
         status: 409,
         headers: {
           'X-Inertia-Location': url,
-          'Vary': 'X-Inertia',
+          Vary: 'X-Inertia',
           ...this.cacheControlHeader(),
         },
-      })
+      });
     }
-    return this.c.redirect(url, 302)
+    return this.c.redirect(url, 302);
   }
 
   private cacheControlHeader(): Record<string, string> {
-    const cacheControl = cacheControlValue(this.config)
-    return cacheControl !== undefined ? { 'Cache-Control': cacheControl } : {}
+    const cacheControl = cacheControlValue(this.config);
+    return cacheControl === undefined ? {} : { 'Cache-Control': cacheControl };
   }
 
   async render(
     component: string,
-    props: Record<string, unknown> = {},
+    properties: Record<string, unknown> = {},
     extraViewData: Record<string, unknown> = {},
   ): Promise<Response> {
-    const mergedViewData = { ...this.viewDataStore, ...extraViewData }
+    const mergedViewData = { ...this.viewDataStore, ...extraViewData };
 
     // 1. Capture shared prop keys before merging (for v3 instant visits)
-    const sharedKeys = Object.keys(this.sharedProps)
+    const sharedKeys = Object.keys(this.sharedProps);
 
     // 2. Merge shared + render props. Render props win. Ensure errors exists.
-    const allProps: Record<string, unknown> = {
+    const allProperties: Record<string, unknown> = {
       errors: {},
       ...this.sharedProps,
-      ...props,
-    }
+      ...properties,
+    };
 
-    const isInertia = isInertiaRequest(this.c)
-    const partialComponent = getPartialComponent(this.c)
-    const isPartialForThis = partialComponent === component
-    const partialData = getPartialData(this.c)
-    const partialExcept = getPartialExcept(this.c)
+    const isInertia = isInertiaRequest(this.c);
+    const partialComponent = getPartialComponent(this.c);
+    const isPartialForThis = partialComponent === component;
+    const partialData = getPartialData(this.c);
+    const partialExcept = getPartialExcept(this.c);
     const isPartialRequest =
-      isPartialForThis && (partialData.size > 0 || partialExcept.size > 0)
-    const exceptOnceProps = getExceptOnceProps(this.c)
-    const errorBag = getErrorBag(this.c)
-    const resetProps = getResetProps(this.c)
-    const scrollMergeIntent = getScrollMergeIntent(this.c)
+      isPartialForThis && (partialData.size > 0 || partialExcept.size > 0);
+    const exceptOnceProperties = getExceptOnceProperties(this.c);
+    const errorBag = getErrorBag(this.c);
+    const resetProperties = getResetProperties(this.c);
+    const scrollMergeIntent = getScrollMergeIntent(this.c);
     // No merge-intent header => a fresh load, so the client should reset the
     // accumulated infinite-scroll collection rather than append/prepend.
-    const scrollReset = !hasScrollMergeIntent(this.c)
+    const scrollReset = !hasScrollMergeIntent(this.c);
 
     // 3. Classify props and determine which to include
-    const included: Record<string, unknown> = {}
-    const deferredGroups: Record<string, string[]> = {}
-    const mergeKeys: string[] = []
-    const prependKeys: string[] = []
-    const deepMergeKeys: string[] = []
-    const matchOnKeys: string[] = []
-    const rescuableKeys = new Set<string>()
+    const included: Record<string, unknown> = {};
+    const deferredGroups: Record<string, string[]> = {};
+    const mergeKeys: string[] = [];
+    const prependKeys: string[] = [];
+    const deepMergeKeys: string[] = [];
+    const matchOnKeys: string[] = [];
+    const rescuableKeys = new Set<string>();
     const onceMetadata: Record<
       string,
       { prop: string; expiresAt: number | null }
-    > = {}
+    > = {};
     const scrollMetadata: Record<
       string,
-      { pageName: string; previousPage: number | null; nextPage: number | null; currentPage: number; reset: boolean }
-    > = {}
+      {
+        pageName: string;
+        previousPage: number | null;
+        nextPage: number | null;
+        currentPage: number;
+        reset: boolean;
+      }
+    > = {};
 
     // A top-level prop is requested if named directly or via a nested path
     // (e.g. `only: ['user.name']` requests the `user` prop). The client extracts
     // the nested slice; the server only resolves whole top-level props.
     const isRequestedByPartialData = (key: string): boolean => {
-      if (partialData.has(key)) return true
+      if (partialData.has(key)) return true;
       for (const entry of partialData) {
-        if (entry.startsWith(`${key}.`)) return true
+        if (entry.startsWith(`${key}.`)) return true;
       }
-      return false
-    }
+      return false;
+    };
 
     const isFilteredOut = (key: string): boolean => {
-      if (!isPartialRequest) return false
-      if (key === 'errors') return false
-      if (partialData.size > 0 && !isRequestedByPartialData(key)) return true
-      if (partialExcept.size > 0 && partialExcept.has(key)) return true
-      return false
-    }
+      if (!isPartialRequest) return false;
+      if (key === 'errors') return false;
+      if (partialData.size > 0 && !isRequestedByPartialData(key)) return true;
+      if (partialExcept.size > 0 && partialExcept.has(key)) return true;
+      return false;
+    };
 
-    const propHandlers: Record<string, (key: string, tagged: TaggedProp) => void> = {
+    const propertyHandlers: Record<
+      string,
+      (key: string, tagged: TaggedProperty) => void
+    > = {
       always: (key, tagged) => {
-        included[key] = (tagged as AlwaysProp).value
+        included[key] = (tagged as AlwaysProperty).value;
       },
 
       optional: (key, tagged) => {
-        const opt = tagged as OptionalProp
+        const opt = tagged as OptionalProperty;
         if (isPartialRequest && isRequestedByPartialData(key)) {
-          if (opt.isOnce && exceptOnceProps.has(opt.onceKey ?? key)) return
-          included[key] = opt.value
+          if (opt.isOnce && exceptOnceProperties.has(opt.onceKey ?? key))
+            return;
+          included[key] = opt.value;
           if (opt.isOnce) {
             onceMetadata[opt.onceKey ?? key] = {
               prop: key,
               expiresAt: opt.expiresAt,
-            }
+            };
           }
         }
       },
 
       deferred: (key, tagged) => {
-        const def = tagged as DeferredProp
+        const deferred = tagged as DeferredProperty;
         if (isPartialForThis && isRequestedByPartialData(key)) {
-          if (def.isOnce && exceptOnceProps.has(def.onceKey ?? key)) return
-          included[key] = def.value
-          if (def.shouldRescue) {
-            rescuableKeys.add(key)
+          if (
+            deferred.isOnce &&
+            exceptOnceProperties.has(deferred.onceKey ?? key)
+          )
+            return;
+          included[key] = deferred.value;
+          if (deferred.shouldRescue) {
+            rescuableKeys.add(key);
           }
-          if (def.isMerge && !resetProps.has(key)) {
-            collectMergeMetadata(key, def.mergeStrategy, def.matchOn, mergeKeys, prependKeys, deepMergeKeys, matchOnKeys)
+          if (deferred.isMerge && !resetProperties.has(key)) {
+            collectMergeMetadata(
+              key,
+              deferred.mergeStrategy,
+              deferred.matchOn,
+              mergeKeys,
+              prependKeys,
+              deepMergeKeys,
+              matchOnKeys,
+            );
           }
-          if (def.isOnce) {
-            onceMetadata[def.onceKey ?? key] = {
+          if (deferred.isOnce) {
+            onceMetadata[deferred.onceKey ?? key] = {
               prop: key,
-              expiresAt: def.expiresAt,
-            }
+              expiresAt: deferred.expiresAt,
+            };
           }
         } else if (!isPartialRequest) {
-          if (!deferredGroups[def.group]) {
-            deferredGroups[def.group] = []
+          if (!deferredGroups[deferred.group]) {
+            deferredGroups[deferred.group] = [];
           }
-          deferredGroups[def.group].push(key)
-          if (def.isMerge) {
-            collectMergeMetadata(key, def.mergeStrategy, def.matchOn, mergeKeys, prependKeys, deepMergeKeys, matchOnKeys)
+          deferredGroups[deferred.group].push(key);
+          if (deferred.isMerge) {
+            collectMergeMetadata(
+              key,
+              deferred.mergeStrategy,
+              deferred.matchOn,
+              mergeKeys,
+              prependKeys,
+              deepMergeKeys,
+              matchOnKeys,
+            );
           }
         }
       },
 
       merge: (key, tagged) => {
-        const m = tagged as MergeProp
-        if (isFilteredOut(key)) return
-        included[key] = m.value
-        if (!resetProps.has(key)) {
-          collectMergeMetadata(key, m.strategy, m.matchOn, mergeKeys, prependKeys, deepMergeKeys, matchOnKeys)
+        const m = tagged as MergeProperty;
+        if (isFilteredOut(key)) return;
+        included[key] = m.value;
+        if (!resetProperties.has(key)) {
+          collectMergeMetadata(
+            key,
+            m.strategy,
+            m.matchOn,
+            mergeKeys,
+            prependKeys,
+            deepMergeKeys,
+            matchOnKeys,
+          );
         }
       },
 
       once: (key, tagged) => {
-        const o = tagged as OnceProp
-        if (exceptOnceProps.has(o.onceKey ?? key)) return
-        if (isFilteredOut(key)) return
-        included[key] = o.value
+        const o = tagged as OnceProperty;
+        if (exceptOnceProperties.has(o.onceKey ?? key)) return;
+        if (isFilteredOut(key)) return;
+        included[key] = o.value;
         onceMetadata[o.onceKey ?? key] = {
           prop: key,
           expiresAt: o.expiresAt,
-        }
+        };
       },
 
       scroll: (key, tagged) => {
-        const s = tagged as ScrollProp
-        if (isFilteredOut(key)) return
-        included[key] = s.value
+        const s = tagged as ScrollProperty;
+        if (isFilteredOut(key)) return;
+        included[key] = s.value;
         scrollMetadata[key] = {
           pageName: s.pageName,
           currentPage: s.currentPage,
           previousPage: s.previousPage,
           nextPage: s.nextPage,
           reset: scrollReset,
-        }
-        if (!resetProps.has(key)) {
+        };
+        if (!resetProperties.has(key)) {
           collectMergeMetadata(
             key,
             scrollMergeIntent === 'prepend' ? 'prepend' : 'append',
@@ -274,58 +312,60 @@ export class InertiaResponse implements InertiaContext {
             prependKeys,
             deepMergeKeys,
             matchOnKeys,
-          )
+          );
         }
       },
-    }
+    };
 
-    for (const [key, value] of Object.entries(allProps)) {
-      if (!isTaggedProp(value)) {
+    for (const [key, value] of Object.entries(allProperties)) {
+      if (!isTaggedProperty(value)) {
         if (!isFilteredOut(key)) {
-          included[key] = value
+          included[key] = value;
         }
-        continue
+        continue;
       }
 
-      const propType = (value as TaggedProp).__hono_inertia_prop_type__
-      propHandlers[propType]?.(key, value as TaggedProp)
+      const propertyType = value.__hono_inertia_prop_type__;
+      propertyHandlers[propertyType]?.(key, value);
     }
 
     // 4. Resolve lazy values (functions and async functions). A rescuable
     // deferred prop that throws is sent as null and reported instead of
     // failing the whole response (mirrors Laravel's `defer(..., rescue: true)`).
-    const resolved: Record<string, unknown> = {}
-    const rescued = new Set<string>()
-    const resolvePromises: Promise<void>[] = []
+    const resolved: Record<string, unknown> = {};
+    const rescued = new Set<string>();
+    const resolvePromises: Array<Promise<void>> = [];
 
     for (const [key, value] of Object.entries(included)) {
       if (typeof value !== 'function') {
-        resolved[key] = value
-        continue
+        resolved[key] = value;
+        continue;
       }
       const promise = Promise.resolve()
         .then(() => value())
         .then(
           (result) => {
-            resolved[key] = result
+            resolved[key] = result;
           },
           (error: unknown) => {
-            if (!rescuableKeys.has(key)) throw error
-            ;(this.config.onRescue ?? defaultOnRescue)(error, key)
-            resolved[key] = null
-            rescued.add(key)
+            if (!rescuableKeys.has(key)) throw error;
+            (this.config.onRescue ?? defaultOnRescue)(error, key);
+            resolved[key] = null;
+            rescued.add(key);
           },
-        )
-      resolvePromises.push(promise)
+        );
+      resolvePromises.push(promise);
     }
 
-    await Promise.all(resolvePromises)
-    const rescuedProps = Object.keys(included).filter((key) => rescued.has(key))
+    await Promise.all(resolvePromises);
+    const rescuedProperties = Object.keys(included).filter((key) =>
+      rescued.has(key),
+    );
 
     // 5. Handle error bag scoping
     if (errorBag && resolved.errors && typeof resolved.errors === 'object') {
-      const errors = resolved.errors as Record<string, unknown>
-      resolved.errors = errors[errorBag] ?? {}
+      const errors = resolved.errors as Record<string, unknown>;
+      resolved.errors = errors[errorBag] ?? {};
     }
 
     // 6. Build page object
@@ -334,47 +374,47 @@ export class InertiaResponse implements InertiaContext {
       props: resolved,
       url: resolveUrl(this.c),
       version: await this.version(),
-    }
+    };
 
     if (this.shouldEncryptHistory) {
-      page.encryptHistory = true
+      page.encryptHistory = true;
     }
     if (this.shouldClearHistory) {
-      page.clearHistory = true
-      this.clearHistoryWasConsumed = true
+      page.clearHistory = true;
+      this.clearHistoryWasConsumed = true;
     }
     if (this.shouldPreserveFragment) {
-      page.preserveFragment = true
+      page.preserveFragment = true;
     }
     if (sharedKeys.length > 0) {
-      page.sharedProps = sharedKeys
+      page.sharedProps = sharedKeys;
     }
     if (Object.keys(this.flashStore).length > 0) {
-      page.flash = this.flashStore
+      page.flash = this.flashStore;
     }
     if (Object.keys(deferredGroups).length > 0) {
-      page.deferredProps = deferredGroups
+      page.deferredProps = deferredGroups;
     }
     if (mergeKeys.length > 0) {
-      page.mergeProps = mergeKeys
+      page.mergeProps = mergeKeys;
     }
     if (prependKeys.length > 0) {
-      page.prependProps = prependKeys
+      page.prependProps = prependKeys;
     }
     if (deepMergeKeys.length > 0) {
-      page.deepMergeProps = deepMergeKeys
+      page.deepMergeProps = deepMergeKeys;
     }
     if (matchOnKeys.length > 0) {
-      page.matchPropsOn = matchOnKeys
+      page.matchPropsOn = matchOnKeys;
     }
     if (Object.keys(onceMetadata).length > 0) {
-      page.onceProps = onceMetadata
+      page.onceProps = onceMetadata;
     }
     if (Object.keys(scrollMetadata).length > 0) {
-      page.scrollProps = scrollMetadata
+      page.scrollProps = scrollMetadata;
     }
-    if (rescuedProps.length > 0) {
-      page.rescuedProps = rescuedProps
+    if (rescuedProperties.length > 0) {
+      page.rescuedProps = rescuedProperties;
     }
 
     this.devtoolsPayloadStore = {
@@ -383,12 +423,12 @@ export class InertiaResponse implements InertiaContext {
       propTags: Object.fromEntries(
         Object.keys(included).map((key) => [
           key,
-          isTaggedProp(allProps[key]) ? (allProps[key] as TaggedProp) : undefined,
+          isTaggedProperty(allProperties[key]) ? allProperties[key] : undefined,
         ]),
       ),
-      rescuedProps,
+      rescuedProps: rescuedProperties,
       sharedKeys,
-    }
+    };
 
     // 7. Return response. Built through the Hono context so c.status() and
     // c.header() set by the handler apply to both JSON and HTML responses.
@@ -400,39 +440,47 @@ export class InertiaResponse implements InertiaContext {
           'Content-Type': 'application/json',
           'X-Inertia': 'true',
         }),
-      )
+      );
     }
 
     // Initial visit: optionally SSR, then render HTML
-    let ssrResult: SsrResult | undefined
+    let ssrResult: SsrResult | undefined;
     if (this.config.ssr && this.config.ssr.enabled !== false) {
       try {
-        ssrResult = await renderSsr(this.config.ssr, page)
+        ssrResult = await renderSsr(this.config.ssr, page);
       } catch (error) {
-        ;(this.config.onSsrError ?? defaultOnSsrError)(error, page)
+        (this.config.onSsrError ?? defaultOnSsrError)(error, page);
       }
     }
 
-    const htmlContent = await this.config.render(page, mergedViewData, ssrResult, this.c)
-    return this.withDefaultCacheControl(await this.c.html(htmlContent))
+    const htmlContent = await this.config.render(
+      page,
+      mergedViewData,
+      ssrResult,
+      this.c,
+    );
+    return this.withDefaultCacheControl(this.c.html(htmlContent));
   }
 
   // Only when absent: a Cache-Control set by the handler (via c.header) wins.
-  private withDefaultCacheControl(res: Response): Response {
-    const cacheControl = cacheControlValue(this.config)
-    if (cacheControl !== undefined && !res.headers.has('Cache-Control')) {
-      res.headers.set('Cache-Control', cacheControl)
+  private withDefaultCacheControl(response: Response): Response {
+    const cacheControl = cacheControlValue(this.config);
+    if (cacheControl !== undefined && !response.headers.has('Cache-Control')) {
+      response.headers.set('Cache-Control', cacheControl);
     }
-    return res
+    return response;
   }
 }
 
-function defaultOnRescue(error: unknown, prop: string): void {
-  console.error(`[hono-inertia] rescued deferred prop "${prop}"`, error)
+function defaultOnRescue(error: unknown, property: string): void {
+  console.error(`[hono-inertia] rescued deferred prop "${property}"`, error);
 }
 
 function defaultOnSsrError(error: unknown, page: PageObject): void {
-  console.error(`[hono-inertia] SSR failed for "${page.component}", rendering client-side`, error)
+  console.error(
+    `[hono-inertia] SSR failed for "${page.component}", rendering client-side`,
+    error,
+  );
 }
 
 function collectMergeMetadata(
@@ -448,9 +496,9 @@ function collectMergeMetadata(
     append: () => mergeKeys.push(key),
     prepend: () => prependKeys.push(key),
     deep: () => deepMergeKeys.push(key),
-  }
-  strategyCollectors[strategy]()
+  };
+  strategyCollectors[strategy]();
   if (matchOn) {
-    matchOnKeys.push(`${key}.${matchOn}`)
+    matchOnKeys.push(`${key}.${matchOn}`);
   }
 }

@@ -1,11 +1,11 @@
 // Middleware factory
-export { inertia, CLEAR_HISTORY_COOKIE } from './middleware.js'
+export { inertia, CLEAR_HISTORY_COOKIE } from './middleware.js';
 
 // Serialization helpers
-export { serializePage, escapeHtml } from './serialize.js'
+export { serializePage, escapeHtml } from './serialize.js';
 
 // DevTools
-export { createMemoryDevtoolsStore } from './devtools.js'
+export { createMemoryDevtoolsStore } from './devtools.js';
 
 // Prop wrappers
 export {
@@ -17,20 +17,20 @@ export {
   deepMerge,
   once,
   scroll,
-  isTaggedProp,
-} from './props.js'
+  isTaggedProperty,
+} from './properties.js';
 
 // Types
 export type {
   DevtoolsBodyCapture,
   DevtoolsConfig,
   DevtoolsEntry,
-  DevtoolsPropMeta,
+  DevtoolsPropertyMeta,
   DevtoolsRequestType,
   DevtoolsStore,
   InertiaConfig,
   InertiaContext,
-  InertiaEnv,
+  InertiaEnvironment,
   PageObject,
   RenderFunction,
   ScrollMetadata,
@@ -39,4 +39,4 @@ export type {
   SsrRenderConfig,
   SsrRenderResult,
   SsrResult,
-} from './types.js'
+} from './types.js';
