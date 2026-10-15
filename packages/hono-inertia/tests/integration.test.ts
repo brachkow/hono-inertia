@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
+import { html as honoHtml } from 'hono/html';
 import { inertia } from '../src/middleware.js';
 import {
   always,
@@ -2453,6 +2454,19 @@ describe('Cache-Control', () => {
     const response = await app.request('/test', { headers: inertiaHeaders() });
 
     expect(response.headers.get('Cache-Control')).toBe(null);
+  });
+
+  it('sets the default header when render uses hono/html', async () => {
+    const app = createApp({
+      render: (page) => honoHtml`<div id="app">${page.component}</div>`,
+    });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test');
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe(DEFAULT);
+    expect(await response.text()).toBe('<div id="app">Test</div>');
   });
 
   it('preserves a handler-set Cache-Control on HTML responses', async () => {

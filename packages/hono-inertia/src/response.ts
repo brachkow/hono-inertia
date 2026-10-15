@@ -461,7 +461,11 @@ export class InertiaResponse implements InertiaContext {
       ssrResult,
       this.c,
     );
-    return this.withDefaultCacheControl(this.c.html(htmlContent));
+    // hono/html returns a String object typed as string, and for it c.html()
+    // returns a Promise. Widening the type keeps the await from looking
+    // unnecessary to TypeScript and ESLint.
+    const htmlResponse = this.c.html(htmlContent as string | Promise<string>);
+    return this.withDefaultCacheControl(await htmlResponse);
   }
 
   // Only when absent: a Cache-Control set by the handler (via c.header) wins.
