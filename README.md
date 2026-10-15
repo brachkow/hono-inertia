@@ -4,6 +4,27 @@
 
 Inertia.js v3 server-side adapter for [Hono](https://hono.dev).
 
+## Features
+
+- The full Inertia v3 protocol: initial visits, Inertia requests, partial reloads, asset version checks with 409 reloads, and 303 redirects after `PUT`, `PATCH` and `DELETE`
+- Every prop type: [`optional`](#optionalfn), [`always`](#alwaysvalue), [`deferred`](#deferredfn-group) with groups and rescue, [`merge`, `prepend` and `deepMerge`](#mergevalue--prependvalue--deepmergevalue), [`scroll`](#scrollvalue-metadata) for infinite scrolling, and [`once`](#oncefn-key-expiresat). Wrappers chain, as in `deferred(fn).merge().once()`
+- [Shared data](#shared-data) from config or per-request middleware
+- Server-side rendering through Inertia's SSR server or [in the same process](#in-the-same-process-cloudflare-workers), with a fallback to client-side rendering when SSR fails
+- A [Vite plugin](#vite-plugin) that gives the server the asset tags and version, and keeps the build manifest private
+- [Flash messages](#flash-messages), [history encryption](#history-encryption), [view data](#view-data), [server-provided head elements](#server-provided-head-elements) and [BigInt props](#bigint-props)
+- Request recording for [Inertia DevTools](#devtools)
+- A page object that is safe to embed in HTML: [`serializePage`](#embedding-the-page-object-xss) escapes `<` and `>`
+- No runtime dependencies. The adapter uses only web-standard APIs, so it runs on Cloudflare Workers as well as Node.js
+- Tested against Hono 4.8.0, the latest Hono 4 and Hono 5
+
+## Requirements
+
+- Hono 4.8.0 or newer, including Hono 5
+- An Inertia v3 client: `@inertiajs/vue3`, `@inertiajs/react` or `@inertiajs/svelte`. BigInt props need client 3.8 or newer, and server-provided head elements need 3.5 or newer
+- Node.js 22.12 or newer when running on Node.js. On Cloudflare Workers, no Node.js compatibility flag is needed
+- Vite 6 or newer, only for the optional Vite plugin
+- ESM. The package has no CommonJS build
+
 ## Install
 
 ```bash
