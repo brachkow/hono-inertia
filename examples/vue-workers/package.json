@@ -12,15 +12,15 @@
     "@brachkow/hono-inertia": "workspace:*",
     "@inertiajs/core": "^3.9.1",
     "@inertiajs/vue3": "^3.9.1",
-    "hono": "^4.13.13",
+    "hono": "catalog:",
     "vue": "^3.5.44"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.64.0",
     "@inertiajs/vite": "^3.9.1",
     "@vitejs/plugin-vue": "^6.0.10",
-    "typescript": "^5.9.3",
-    "vite": "^8.3.4",
+    "typescript": "catalog:",
+    "vite": "catalog:",
     "vue-tsc": "^3.3.13",
     "wrangler": "^4.151.0"
   }

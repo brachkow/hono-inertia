@@ -9,6 +9,6 @@
     "declaration": true,
     "outDir": "dist"
   },
-  "include": ["src", "tests", "*.config.ts"],
+  "include": ["src", "tests", "*.config.ts", "client.d.ts"],
   "exclude": ["node_modules", "dist"]
 }

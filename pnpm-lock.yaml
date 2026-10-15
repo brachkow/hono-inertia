@@ -3,7 +3,18 @@ lockfileVersion: '9.0'
 settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
-  injectWorkspacePackages: true
+
+catalogs:
+  default:
+    hono:
+      specifier: ^4.13.13
+      version: 4.13.13
+    typescript:
+      specifier: ^5.9.3
+      version: 5.9.3
+    vite:
+      specifier: ^8.3.4
+      version: 8.3.4
 
 importers:
 
@@ -19,7 +30,7 @@ importers:
         specifier: ^3.9.10
         version: 3.9.10
       typescript:
-        specifier: ^5.9.3
+        specifier: 'catalog:'
         version: 5.9.3
 
   e2e:
@@ -31,14 +42,14 @@ importers:
         specifier: ^26.6.5
         version: 26.6.5
       typescript:
-        specifier: ^5.9.3
+        specifier: 'catalog:'
         version: 5.9.3
 
   examples/react-node:
     dependencies:
       '@brachkow/hono-inertia':
         specifier: workspace:*
-        version: file:packages/hono-inertia(hono@4.13.13)
+        version: link:../../packages/hono-inertia
       '@hono/node-server':
         specifier: ^2.1.5
         version: 2.1.5(hono@4.13.13)
@@ -49,7 +60,7 @@ importers:
         specifier: ^3.9.1
         version: 3.9.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       hono:
-        specifier: ^4.13.13
+        specifier: 'catalog:'
         version: 4.13.13
       react:
         specifier: ^19.3.0
@@ -80,17 +91,17 @@ importers:
         specifier: ^6.1.2
         version: 6.1.2(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))
       typescript:
-        specifier: ^5.9.3
+        specifier: 'catalog:'
         version: 5.9.3
       vite:
-        specifier: ^8.3.4
+        specifier: 'catalog:'
         version: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)
 
   examples/vue-node:
     dependencies:
       '@brachkow/hono-inertia':
         specifier: workspace:*
-        version: file:packages/hono-inertia(hono@4.13.13)
+        version: link:../../packages/hono-inertia
       '@hono/node-server':
         specifier: ^2.1.5
         version: 2.1.5(hono@4.13.13)
@@ -101,7 +112,7 @@ importers:
         specifier: ^3.9.1
         version: 3.9.1(vue@3.5.44(typescript@5.9.3))
       hono:
-        specifier: ^4.13.13
+        specifier: 'catalog:'
         version: 4.13.13
       vue:
         specifier: ^3.5.44
@@ -123,10 +134,10 @@ importers:
         specifier: ^6.0.10
         version: 6.0.10(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))(vue@3.5.44(typescript@5.9.3))
       typescript:
-        specifier: ^5.9.3
+        specifier: 'catalog:'
         version: 5.9.3
       vite:
-        specifier: ^8.3.4
+        specifier: 'catalog:'
         version: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)
       vue-tsc:
         specifier: ^3.3.13
@@ -136,7 +147,7 @@ importers:
     dependencies:
       '@brachkow/hono-inertia':
         specifier: workspace:*
-        version: file:packages/hono-inertia(hono@4.13.13)
+        version: link:../../packages/hono-inertia
       '@inertiajs/core':
         specifier: ^3.9.1
         version: 3.9.1
@@ -144,7 +155,7 @@ importers:
         specifier: ^3.9.1
         version: 3.9.1(vue@3.5.44(typescript@5.9.3))
       hono:
-        specifier: ^4.13.13
+        specifier: 'catalog:'
         version: 4.13.13
       vue:
         specifier: ^3.5.44
@@ -160,10 +171,10 @@ importers:
         specifier: ^6.0.10
         version: 6.0.10(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))(vue@3.5.44(typescript@5.9.3))
       typescript:
-        specifier: ^5.9.3
+        specifier: 'catalog:'
         version: 5.9.3
       vite:
-        specifier: ^8.3.4
+        specifier: 'catalog:'
         version: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)
       vue-tsc:
         specifier: ^3.3.13
@@ -178,8 +189,8 @@ importers:
         specifier: ^14.1.0
         version: 14.1.0(size-limit@14.1.0)
       hono:
-        specifier: ^4.12.8
-        version: 4.12.9
+        specifier: 'catalog:'
+        version: 4.13.13
       hono-4.8.0:
         specifier: npm:hono@4.8.0
         version: hono@4.8.0
@@ -193,8 +204,11 @@ importers:
         specifier: ^0.23.1
         version: 0.23.1(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(typescript@5.9.3)(vue-tsc@3.3.13(typescript@5.9.3))
       typescript:
-        specifier: ^5.9.3
+        specifier: 'catalog:'
         version: 5.9.3
+      vite:
+        specifier: 'catalog:'
+        version: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)
       vitest:
         specifier: ^3.1.0
         version: 3.2.4(@types/node@26.6.5)(lightningcss@1.33.0)
@@ -220,12 +234,6 @@ packages:
   '@babel/types@7.29.8':
     resolution: {integrity: sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg==}
     engines: {node: '>=6.9.0'}
-
-  '@brachkow/hono-inertia@file:packages/hono-inertia':
-    resolution: {directory: packages/hono-inertia, type: directory}
-    engines: {node: '>=22.12.0'}
-    peerDependencies:
-      hono: '>=4.8.0'
 
   '@cacheable/memory@2.2.0':
     resolution: {integrity: sha512-CTLKqLItRCEixEAewD3/j9DB3/o96gpTPD4eJ1v+DGOlxZRZncRQkGYqqnAGCscYd6RNeXfGeiuCphsPtqyIfQ==}
@@ -2275,10 +2283,6 @@ packages:
     resolution: {integrity: sha512-iZyKG96/JwPz1N55vj2Ie2vXbhu440zfUfJvSwEqEbeLluk7NnapfGqa7LH0mOsnDxTF85Mx8/dyR6HfqcbmbQ==}
     engines: {node: '>=20'}
 
-  hono@4.12.9:
-    resolution: {integrity: sha512-wy3T8Zm2bsEvxKZM5w21VdHDDcwVS1yUFFY6i8UobSsKfFceT7TOwhbhfKsDyx7tYQlmRM5FLpIuYvNFyjctiA==}
-    engines: {node: '>=16.9.0'}
-
   hono@4.13.13:
     resolution: {integrity: sha512-CQ46U0ZkAGmbT/4UxdzzGJpacP2IeKgY4a5/tOI9AABbpOMfK739wfDXmv1usCk+3RkKj1hQy4/fjhiwa2xlrA==}
     engines: {node: '>=16.9.0'}
@@ -3119,10 +3123,6 @@ snapshots:
     dependencies:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
-
-  '@brachkow/hono-inertia@file:packages/hono-inertia(hono@4.13.13)':
-    dependencies:
-      hono: 4.13.13
 
   '@cacheable/memory@2.2.0':
     dependencies:
@@ -4822,8 +4822,6 @@ snapshots:
   hashery@1.5.1:
     dependencies:
       hookified: 1.15.1
-
-  hono@4.12.9: {}
 
   hono@4.13.13: {}
 

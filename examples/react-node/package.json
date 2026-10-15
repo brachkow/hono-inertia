@@ -14,7 +14,7 @@
     "@hono/node-server": "^2.1.5",
     "@inertiajs/core": "^3.9.1",
     "@inertiajs/react": "^3.9.1",
-    "hono": "^4.13.13",
+    "hono": "catalog:",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },
@@ -26,7 +26,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
-    "typescript": "^5.9.3",
-    "vite": "^8.3.4"
+    "typescript": "catalog:",
+    "vite": "catalog:"
   }
 }

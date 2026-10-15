@@ -17,10 +17,20 @@
         "types": "./dist/vite.d.ts",
         "default": "./dist/vite.js"
       }
+    },
+    "./vite-plugin": {
+      "import": {
+        "types": "./dist/vite-plugin.d.ts",
+        "default": "./dist/vite-plugin.js"
+      }
+    },
+    "./vite-plugin/client": {
+      "types": "./client.d.ts"
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "client.d.ts"
   ],
   "author": "brachkow",
   "repository": {
@@ -44,16 +54,18 @@
     "node": ">=22.12.0"
   },
   "peerDependencies": {
-    "hono": ">=4.8.0"
+    "hono": ">=4.8.0",
+    "vite": ">=6.0.0"
   },
   "devDependencies": {
     "@size-limit/preset-small-lib": "^14.1.0",
-    "hono": "^4.12.8",
+    "hono": "catalog:",
     "hono-4.8.0": "npm:hono@4.8.0",
     "hono-5": "npm:hono@5.0.0-rc.1",
     "size-limit": "^14.1.0",
     "tsdown": "^0.23.1",
-    "typescript": "^5.9.3",
+    "typescript": "catalog:",
+    "vite": "catalog:",
     "vitest": "^3.1.0"
   },
   "license": "MIT",
@@ -63,5 +75,10 @@
     "inertiajs",
     "adapter",
     "middleware"
-  ]
+  ],
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
+  }
 }
