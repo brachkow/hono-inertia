@@ -9,12 +9,9 @@ import {
 } from '@brachkow/hono-inertia';
 import type { InertiaEnvironment } from '@brachkow/hono-inertia';
 import type { Page } from '@inertiajs/core';
-import { manifestVersion } from '@brachkow/hono-inertia/vite';
+import { assetTags, version } from 'virtual:hono-inertia/assets';
 import renderPage from './ssr';
 
-type Manifest = Record<string, { file: string; css?: string[] }>;
-
-const CLIENT_ENTRY = 'src/client.ts';
 const FLASH_COOKIE = 'flash';
 const PAGE_SIZE = 3;
 
@@ -30,31 +27,12 @@ const USERS = [
   'Frances Allen',
 ].map((name, index) => ({ id: index + 1, name }));
 
-// In production the client manifest is bundled into the Worker. The glob
-// matches nothing in dev, where Vite serves the client itself.
-const manifest = import.meta.env.PROD
-  ? Object.values(
-      import.meta.glob<Manifest>('../dist/client/.vite/manifest.json', {
-        eager: true,
-        import: 'default',
-      }),
-    )[0]
-  : undefined;
-
-const assetTags = manifest
-  ? [
-      `<script type="module" src="/${manifest[CLIENT_ENTRY].file}"></script>`,
-      ...(manifest[CLIENT_ENTRY].css ?? []).map(
-        (file) => `<link rel="stylesheet" href="/${file}">`,
-      ),
-    ].join('')
-  : `<script type="module" src="/@vite/client"></script><script type="module" src="/${CLIENT_ENTRY}"></script>`;
-
 const app = new Hono<InertiaEnvironment>();
 
 app.use(
   inertia({
-    version: manifest ? manifestVersion(manifest) : 'dev',
+    // Both come from honoInertia() in vite.config.ts
+    version,
     // Workers can't run Inertia's Node SSR server, so the Worker renders
     // in-process, in dev and in production alike
     ssr: {

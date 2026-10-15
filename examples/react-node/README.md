@@ -32,7 +32,7 @@ pnpm start:server
 
 ## Key files
 
-- `vite.config.ts` sets up one build per mode and runs Hono inside Vite in dev
+- `vite.config.ts` sets up one build per mode, runs Hono inside Vite in dev, and adds `honoInertia()`, which gives `src/server.ts` the asset tags and version
 - `src/server.ts` is the Hono app: the adapter setup, the routes and the flash cookie
 - `src/client.tsx` boots Inertia in the browser
 - `src/ssr.tsx` renders a page to HTML, and starts Inertia's SSR server in production

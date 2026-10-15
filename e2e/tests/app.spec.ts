@@ -23,6 +23,14 @@ test.describe('server-side rendering', () => {
     expect(html.replaceAll(HTML_COMMENT, '')).toMatch(SSR_HEADING);
   });
 
+  test('does not serve the build manifest', async ({ request }) => {
+    // The server reads it at build time; serving it would list every page
+    // and source path
+    const response = await request.get('/.vite/manifest.json');
+
+    expect(response.status()).toBe(404);
+  });
+
   test('hydrates the server-rendered page', async ({ page }) => {
     await page.goto('/');
 

@@ -35,7 +35,7 @@ Run the two `start` commands in separate terminals. The Hono app posts each page
 
 `pnpm build` runs Vite three times, once per mode in `vite.config.ts`:
 
-1. `client` builds the browser bundle into `dist/client`, with a manifest
+1. `client` builds the browser bundle into `dist/client`. `honoInertia()` moves its manifest out of the public output, for the server build to read
 2. `ssr` builds `src/ssr.ts` into `dist/ssr`, Inertia's SSR server
 3. The default mode builds `src/server.ts` into `dist/server` with `@hono/vite-build`, which adds the Node server and serves `dist/client/assets`
 

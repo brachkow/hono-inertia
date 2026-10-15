@@ -9,11 +9,8 @@ import {
 } from '@brachkow/hono-inertia';
 import type { InertiaEnvironment, SsrConfig } from '@brachkow/hono-inertia';
 import type { Page } from '@inertiajs/core';
-import { manifestVersion } from '@brachkow/hono-inertia/vite';
+import { assetTags, version } from 'virtual:hono-inertia/assets';
 
-type Manifest = Record<string, { file: string; css?: string[] }>;
-
-const CLIENT_ENTRY = 'src/client.ts';
 // Must match SSR_PORT in src/ssr.ts
 const SSR_URL = 'http://127.0.0.1:13716';
 const FLASH_COOKIE = 'flash';
@@ -30,26 +27,6 @@ const USERS = [
   'Ken Thompson',
   'Frances Allen',
 ].map((name, index) => ({ id: index + 1, name }));
-
-// In production the client manifest is bundled into the server. The glob
-// matches nothing in dev, where Vite serves the client itself.
-const manifest = import.meta.env.PROD
-  ? Object.values(
-      import.meta.glob<Manifest>('../dist/client/.vite/manifest.json', {
-        eager: true,
-        import: 'default',
-      }),
-    )[0]
-  : undefined;
-
-const assetTags = manifest
-  ? [
-      `<script type="module" src="/${manifest[CLIENT_ENTRY].file}"></script>`,
-      ...(manifest[CLIENT_ENTRY].css ?? []).map(
-        (file) => `<link rel="stylesheet" href="/${file}">`,
-      ),
-    ].join('')
-  : `<script type="module" src="/@vite/client"></script><script type="module" src="/${CLIENT_ENTRY}"></script>`;
 
 // Production posts pages to the SSR server that `start:ssr` runs. Dev renders
 // in-process: Vite loads src/ssr.ts with hot reload, so no second process.
@@ -68,7 +45,8 @@ const app = new Hono<InertiaEnvironment>();
 
 app.use(
   inertia({
-    version: manifest ? manifestVersion(manifest) : 'dev',
+    // Both come from honoInertia() in vite.config.ts
+    version,
     ssr,
     share: () => ({ appName: 'Vue + Node' }),
     render: (page, _viewData, ssrResult) =>

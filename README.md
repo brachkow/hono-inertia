@@ -58,10 +58,10 @@ Each example has the same pages: navigation, shared props, partial reloads, defe
 
 ```ts
 inertia({
-  // Asset version, as a string or a sync/async function. Derive it from your
-  // Vite manifest with manifestVersion (see Asset versioning below). Omit it
-  // to disable version checks.
-  version: manifestVersion(manifest),
+  // Asset version, as a string or a sync/async function. The Vite plugin
+  // provides one (see Asset versioning below). Omit it to disable version
+  // checks.
+  version,
 
   // HTML render function. Receives the page object, view data, the SSR result
   // (undefined without SSR), and the Hono context.
@@ -339,6 +339,43 @@ Every Inertia response carries `page.version`. When a client's `X-Inertia-Versio
 
 The 409 also carries the new version in `X-Inertia-Version`. The client uses it to tell a deploy-driven reload from a plain `location()` redirect. It fires a cancelable `inertia:location` event with `versionChange: true`. For background `async` visits (polling, prefetching, deferred props) it skips the forced reload, so the next visit the user starts picks up the new assets without interrupting them.
 
+### Vite plugin
+
+`honoInertia()` connects the server to the client build. It gives the server the version and the HTML tags that load the client:
+
+```ts
+// vite.config.ts
+import { honoInertia } from '@brachkow/hono-inertia/vite-plugin';
+
+export default defineConfig({
+  plugins: [vue(), inertia(), honoInertia({ entry: 'src/client.ts' })],
+});
+```
+
+```ts
+// server.ts
+import { assetTags, version } from 'virtual:hono-inertia/assets';
+
+app.use(
+  inertia({
+    version,
+    render: (page) =>
+      `<!DOCTYPE html><html><head>${assetTags}</head><body>...</body></html>`,
+  }),
+);
+```
+
+Add `/// <reference types="@brachkow/hono-inertia/vite-plugin/client" />` to a `.d.ts` file in your project to type the `virtual:hono-inertia/assets` import.
+
+- In production, `assetTags` holds the client entry's script, `modulepreload` links for the chunks it imports, and the stylesheets of all of them. URLs follow Vite's `base`. `version` is the same hash `manifestVersion` computes (see below).
+- Under `vite dev`, `assetTags` is whatever Vite's own HTML transform adds, such as `/@vite/client` and the React Refresh preamble, followed by the entry script. `version` is `'dev'`.
+- The plugin turns on the client build's manifest and sets the entry as its input, unless you set either yourself. Once the client build is written, the plugin moves the manifest to `node_modules/.hono-inertia/`. The manifest lists every page and source path, and static hosts such as Workers would otherwise serve it to anyone. Build the client before the server, which then reads the manifest from there.
+- Pass `versionSalt` to change the version without a client change, as with the salt argument below.
+
+Vite 6 or newer is required.
+
+### Without the plugin
+
 Derive the version from your Vite manifest with `manifestVersion`:
 
 ```ts
@@ -593,23 +630,21 @@ import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import inertia from '@inertiajs/vite';
 import { cloudflare } from '@cloudflare/vite-plugin';
+import { honoInertia } from '@brachkow/hono-inertia/vite-plugin';
 
 export default defineConfig({
-  // ssr: false stops @inertiajs/vite from bundling its Node SSR server into the Worker
-  plugins: [vue(), inertia({ ssr: false }), cloudflare()],
+  plugins: [
+    vue(),
+    // ssr: false stops @inertiajs/vite from bundling its Node SSR server into the Worker
+    inertia({ ssr: false }),
+    honoInertia({ entry: 'src/client.ts' }),
+    cloudflare(),
+  ],
   builder: {
-    // The Worker reads the client manifest, so the client has to build first
+    // The Worker inlines the client's asset tags, so the client has to build first
     async buildApp(builder) {
       await builder.build(builder.environments.client);
       await builder.build(builder.environments.my_app);
-    },
-  },
-  environments: {
-    client: {
-      build: {
-        manifest: true,
-        rollupOptions: { input: 'src/client.ts' },
-      },
     },
   },
 });
@@ -640,40 +675,20 @@ export default (page: PageObject) =>
   });
 ```
 
-The Worker, `src/worker.ts`, inlines the client manifest in production and builds the asset tags and the asset version from it. In dev, it loads the client from the Vite dev server:
+The Worker, `src/worker.ts`, takes the asset tags and the version from the [Vite plugin](#vite-plugin):
 
 ```ts
 import { Hono } from 'hono';
 import { inertia, serializePage } from '@brachkow/hono-inertia';
-import { manifestVersion } from '@brachkow/hono-inertia/vite';
 import type { InertiaEnvironment } from '@brachkow/hono-inertia';
+import { assetTags, version } from 'virtual:hono-inertia/assets';
 import renderPage from './ssr';
-
-type Manifest = Record<string, { file: string; css?: string[] }>;
-
-const manifest = import.meta.env.PROD
-  ? Object.values(
-      import.meta.glob<Manifest>('../dist/client/.vite/manifest.json', {
-        eager: true,
-        import: 'default',
-      }),
-    )[0]
-  : undefined;
-
-const assetTags = manifest
-  ? [
-      `<script type="module" src="/${manifest['src/client.ts'].file}"></script>`,
-      ...(manifest['src/client.ts'].css ?? []).map(
-        (file) => `<link rel="stylesheet" href="/${file}">`,
-      ),
-    ].join('')
-  : '<script type="module" src="/@vite/client"></script><script type="module" src="/src/client.ts"></script>';
 
 const app = new Hono<InertiaEnvironment>();
 
 app.use(
   inertia({
-    version: manifest ? manifestVersion(manifest) : 'dev',
+    version,
     ssr: { render: renderPage },
     render: (page, viewData, ssr) =>
       ssr

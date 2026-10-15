@@ -9,7 +9,7 @@ Inertia's usual SSR server is a separate Node process. Workers can't run one, so
 ## Commands
 
 - `pnpm dev` runs the Worker in workerd through Vite on http://localhost:3003, with hot reload for the client and the SSR entry
-- `pnpm build` builds the client first, then the Worker, which inlines the client manifest
+- `pnpm build` builds the client first, then the Worker, which inlines the client's asset tags
 - `pnpm start` serves the production build locally with `vite preview` on port 3003
 - `pnpm wrangler deploy` deploys the build to Cloudflare after `pnpm build`
 

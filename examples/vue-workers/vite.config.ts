@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import inertia from '@inertiajs/vite';
 import { cloudflare } from '@cloudflare/vite-plugin';
+import { honoInertia } from '@brachkow/hono-inertia/vite-plugin';
 
 const PORT = 3003;
 
@@ -12,23 +13,17 @@ export default defineConfig({
     // imports src/ssr.ts and renders in-process. The plugin still expands
     // the `pages` shorthand in src/client.ts.
     inertia({ ssr: false }),
+    // Hands src/worker.ts the asset tags and version, and keeps the client
+    // manifest out of the static assets
+    honoInertia({ entry: 'src/client.ts' }),
     // Runs the Worker in workerd during `vite dev` and `vite preview`
     cloudflare({ viteEnvironment: { name: 'worker' } }),
   ],
   builder: {
-    // The Worker inlines the client manifest, so the client builds first
+    // The Worker inlines the client's asset tags, so the client builds first
     async buildApp(builder) {
       await builder.build(builder.environments.client);
       await builder.build(builder.environments.worker);
-    },
-  },
-  environments: {
-    client: {
-      build: {
-        // The Worker reads it to build asset tags and the asset version
-        manifest: true,
-        rollupOptions: { input: 'src/client.ts' },
-      },
     },
   },
   server: { port: PORT, strictPort: true },

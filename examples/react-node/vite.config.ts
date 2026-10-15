@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import inertia from '@inertiajs/vite';
 import devServer from '@hono/vite-dev-server';
 import build from '@hono/vite-build/node';
+import { honoInertia } from '@brachkow/hono-inertia/vite-plugin';
 
 const PORT = 3001;
 
@@ -11,17 +12,18 @@ const PORT = 3001;
 export default defineConfig(({ mode }) => {
   // ssr: false: src/ssr.tsx starts its own server, so @inertiajs/vite must not
   // wrap it. The plugin still expands the `pages` shorthand.
-  const shared = [react(), inertia({ ssr: false })];
+  // honoInertia() hands src/server.ts the asset tags and version, and keeps
+  // the client manifest out of the public build output
+  const shared = [
+    react(),
+    inertia({ ssr: false }),
+    honoInertia({ entry: 'src/client.tsx' }),
+  ];
 
   if (mode === 'client') {
     return {
       plugins: shared,
-      build: {
-        outDir: 'dist/client',
-        // The server reads it to build asset tags and the asset version
-        manifest: true,
-        rollupOptions: { input: 'src/client.tsx' },
-      },
+      build: { outDir: 'dist/client' },
     };
   }
 
