@@ -44,6 +44,16 @@ app.get('/', (c) => {
 export default app;
 ```
 
+## Examples
+
+Complete apps with Vite, server-side rendering and production builds:
+
+- [React on Node.js](https://github.com/brachkow/hono-inertia/tree/main/examples/react-node) runs Inertia's SSR server next to the Hono app
+- [Vue on Node.js](https://github.com/brachkow/hono-inertia/tree/main/examples/vue-node) has the same setup with Vue
+- [Vue on Cloudflare Workers](https://github.com/brachkow/hono-inertia/tree/main/examples/vue-workers) renders pages inside the Worker
+
+Each example has the same pages: navigation, shared props, partial reloads, deferred and merge props, a form with validation errors, and a flash message after a redirect. One Playwright suite runs against all of them in CI.
+
 ## Configuration
 
 ```ts

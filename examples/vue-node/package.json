@@ -1,0 +1,30 @@
+{
+  "name": "example-vue-node",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build --mode client && vite build --mode ssr && vite build",
+    "start:ssr": "node dist/ssr/ssr.js",
+    "start:server": "node dist/server/index.js",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "devDependencies": {
+    "@hono/vite-build": "^1.11.1",
+    "@hono/vite-dev-server": "^0.26.1",
+    "@inertiajs/vite": "^3.9.1",
+    "@types/node": "^26.6.5",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.4",
+    "vue-tsc": "^3.3.13"
+  },
+  "dependencies": {
+    "@brachkow/hono-inertia": "workspace:*",
+    "@hono/node-server": "^2.1.5",
+    "@inertiajs/core": "^3.9.1",
+    "@inertiajs/vue3": "^3.9.1",
+    "hono": "^4.13.13",
+    "vue": "^3.5.44"
+  }
+}
