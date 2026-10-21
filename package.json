@@ -1,63 +1,25 @@
 {
-  "name": "@brachkow/hono-inertia",
-  "version": "3.1.0",
-  "description": "Inertia.js v3 server-side adapter for Hono",
+  "name": "hono-inertia-monorepo",
+  "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      }
-    },
-    "./vite": {
-      "import": {
-        "types": "./dist/vite.d.ts",
-        "default": "./dist/vite.js"
-      }
-    }
-  },
-  "files": [
-    "dist"
-  ],
-  "author": "brachkow",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/brachkow/hono-inertia.git"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
-    "prepack": "tsup",
-    "prepublishOnly": "pnpm test && pnpm typecheck",
-    "build": "tsup",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
-    "size": "pnpm build && size-limit",
+    "build": "pnpm --filter @brachkow/hono-inertia build",
+    "test": "pnpm --filter @brachkow/hono-inertia test",
+    "build:examples": "pnpm --filter \"{./examples/*}...\" build",
+    "test:e2e": "pnpm build:examples && pnpm --filter e2e test",
+    "typecheck": "pnpm -r typecheck",
+    "size": "pnpm --filter @brachkow/hono-inertia size",
+    "test:format": "prettier --check .",
+    "fix:format": "prettier --write .",
+    "test:lint": "eslint .",
+    "fix:lint": "eslint . --fix",
     "fetch:inertia": "bash scripts/fetch-inertia.sh"
   },
-  "peerDependencies": {
-    "hono": ">=4.0.0"
-  },
   "devDependencies": {
-    "@size-limit/preset-small-lib": "^14.1.0",
-    "hono": "^4.12.8",
-    "hono-4.0.0": "npm:hono@4.0.0",
-    "size-limit": "^14.1.0",
-    "tsup": "^8.4.0",
-    "typescript": "^5.7.0",
-    "vitest": "^3.1.0"
-  },
-  "license": "MIT",
-  "keywords": [
-    "hono",
-    "inertia",
-    "inertiajs",
-    "adapter",
-    "middleware"
-  ]
+    "eslint": "^10.12.0",
+    "eslint-config-fans": "^1.11.0",
+    "prettier": "^3.9.10",
+    "prettier-plugin-svelte": "^4.1.1",
+    "typescript": "catalog:"
+  }
 }

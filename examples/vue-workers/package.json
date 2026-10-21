@@ -1,0 +1,27 @@
+{
+  "name": "example-vue-workers",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "vite preview",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@brachkow/hono-inertia": "workspace:*",
+    "@inertiajs/core": "^3.9.1",
+    "@inertiajs/vue3": "^3.9.1",
+    "hono": "catalog:",
+    "vue": "^3.5.44"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.64.0",
+    "@inertiajs/vite": "^3.9.1",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vue-tsc": "^3.3.13",
+    "wrangler": "^4.151.0"
+  }
+}

@@ -1,0 +1,3346 @@
+import { describe, expect, it, vi } from 'vitest';
+import { Hono } from 'hono';
+import { html as honoHtml } from 'hono/html';
+import { inertia } from '../src/middleware.js';
+import {
+  always,
+  deferred,
+  deepMerge,
+  merge,
+  once,
+  optional,
+  prepend,
+  scroll,
+} from '../src/properties.js';
+import { serializePage } from '../src/serialize.js';
+import type { InertiaEnv, PageObject, ScrollMetadata } from '../src/types.js';
+
+function createApp(config?: Partial<Parameters<typeof inertia>[0]>) {
+  const app = new Hono<InertiaEnv>();
+  app.use(
+    inertia({
+      version: '1.0',
+      render: (page) =>
+        `<!DOCTYPE html><html><body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body></html>`,
+      ...config,
+    }),
+  );
+  return app;
+}
+
+function inertiaHeaders(extra: Record<string, string> = {}) {
+  return {
+    'X-Inertia': 'true',
+    'X-Inertia-Version': '1.0',
+    ...extra,
+  };
+}
+
+const DATA_PAGE_SCRIPT =
+  /<script data-page="app" type="application\/json">(.*?)<\/script>/s;
+
+async function getPage(response: Response): Promise<PageObject> {
+  return response.json() as Promise<PageObject>;
+}
+
+function parsePageFromHtml(html: string): PageObject {
+  const match = DATA_PAGE_SCRIPT.exec(html);
+  if (!match) throw new Error('no data-page script tag in HTML');
+  return JSON.parse(match[1]) as PageObject;
+}
+
+// =========================================================================
+// 1. Detect Inertia requests via X-Inertia: true
+// =========================================================================
+describe('Inertia request detection', () => {
+  it('returns HTML for non-Inertia requests', async () => {
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test');
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toContain('text/html');
+    const body = await response.text();
+    expect(body).toContain('<script data-page="app" type="application/json">');
+    expect(body).toContain('<div id="app"');
+  });
+
+  it('returns JSON for Inertia requests', async () => {
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toContain('application/json');
+    expect(response.headers.get('X-Inertia')).toBe('true');
+  });
+});
+
+// =========================================================================
+// 2. HTML with page data script tag for initial visits
+// =========================================================================
+describe('Initial HTML visit', () => {
+  it('embeds page data in the data-page script tag', async () => {
+    const app = createApp();
+    app.get('/users', (c) =>
+      c.var.inertia.render('Users/Index', { users: [1, 2, 3] }),
+    );
+
+    const response = await app.request('/users');
+    const body = await response.text();
+    expect(body).toContain('<script data-page="app" type="application/json">');
+    const page = parsePageFromHtml(body);
+    expect(page.component).toBe('Users/Index');
+    expect(page.props.users).toEqual([1, 2, 3]);
+  });
+});
+
+// =========================================================================
+// 3. JSON with X-Inertia: true and Vary: X-Inertia headers
+// =========================================================================
+describe('Inertia JSON response headers', () => {
+  it('sets X-Inertia and Vary headers on JSON responses', async () => {
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    expect(response.headers.get('X-Inertia')).toBe('true');
+    expect(response.headers.get('Vary')).toContain('X-Inertia');
+  });
+});
+
+// =========================================================================
+// 4. Convert 302→303 redirects for PUT/PATCH/DELETE
+// =========================================================================
+describe('302→303 redirect conversion', () => {
+  for (const method of ['PUT', 'PATCH', 'DELETE'] as const) {
+    it(`converts 302 to 303 for ${method}`, async () => {
+      const app = createApp();
+      app.on(method, '/submit', (c) => c.redirect('/result', 302));
+
+      const response = await app.request('/submit', {
+        method,
+        headers: inertiaHeaders(),
+      });
+      expect(response.status).toBe(303);
+      expect(response.headers.get('Location')).toBe('/result');
+    });
+  }
+
+  it('does not convert 302 for GET', async () => {
+    const app = createApp();
+    app.get('/old', (c) => c.redirect('/new', 302));
+
+    const response = await app.request('/old', { headers: inertiaHeaders() });
+    expect(response.status).toBe(302);
+  });
+
+  it('does not convert 302 for non-Inertia requests', async () => {
+    const app = createApp();
+    app.put('/submit', (c) => c.redirect('/result', 302));
+
+    const response = await app.request('/submit', { method: 'PUT' });
+    expect(response.status).toBe(302);
+  });
+
+  it('preserves handler headers, including multiple Set-Cookie', async () => {
+    const app = createApp();
+    app.put('/logout', (c) => {
+      c.header('Set-Cookie', 'session=; Max-Age=0; Path=/', { append: true });
+      c.header('Set-Cookie', 'refresh=; Max-Age=0; Path=/', { append: true });
+      c.header('X-Custom', 'kept');
+      return c.redirect('/', 302);
+    });
+
+    const response = await app.request('/logout', {
+      method: 'PUT',
+      headers: inertiaHeaders(),
+    });
+    expect(response.status).toBe(303);
+    expect(response.headers.get('X-Custom')).toBe('kept');
+    const cookies = response.headers.getSetCookie();
+    expect(cookies).toContain('session=; Max-Age=0; Path=/');
+    expect(cookies).toContain('refresh=; Max-Age=0; Path=/');
+  });
+});
+
+// =========================================================================
+// 5. Version mismatch → 409 (GET only)
+// =========================================================================
+describe('Asset versioning', () => {
+  it('returns 409 on version mismatch for GET', async () => {
+    const app = createApp({ version: '2.0' });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', {
+      headers: { 'X-Inertia': 'true', 'X-Inertia-Version': '1.0' },
+    });
+    expect(response.status).toBe(409);
+    expect(response.headers.get('X-Inertia-Location')).toContain('/test');
+  });
+
+  it('sends the current version on a version-mismatch 409', async () => {
+    const app = createApp({ version: '2.0' });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', {
+      headers: { 'X-Inertia': 'true', 'X-Inertia-Version': '1.0' },
+    });
+    expect(response.headers.get('X-Inertia-Version')).toBe('2.0');
+  });
+
+  it('does not check version on POST', async () => {
+    const app = createApp({ version: '2.0' });
+    app.post('/submit', (c) => c.var.inertia.render('Result'));
+
+    const response = await app.request('/submit', {
+      method: 'POST',
+      headers: { 'X-Inertia': 'true', 'X-Inertia-Version': '1.0' },
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it('passes when versions match', async () => {
+    const app = createApp({ version: '1.0' });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    expect(response.status).toBe(200);
+  });
+
+  it('supports version as a function', async () => {
+    const app = createApp({ version: () => '3.0' });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', {
+      headers: { 'X-Inertia': 'true', 'X-Inertia-Version': '3.0' },
+    });
+    expect(response.status).toBe(200);
+  });
+});
+
+// =========================================================================
+// 6. Always include errors prop
+// =========================================================================
+describe('Errors prop', () => {
+  it('defaults errors to empty object', async () => {
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.props.errors).toEqual({});
+  });
+
+  it('preserves provided errors', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', { errors: { name: 'Required' } }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.props.errors).toEqual({ name: 'Required' });
+  });
+});
+
+// =========================================================================
+// 7. Relative URL in page object
+// =========================================================================
+describe('URL resolution', () => {
+  it('includes relative URL with path', async () => {
+    const app = createApp();
+    app.get('/users/:id', (c) => c.var.inertia.render('Users/Show'));
+
+    const response = await app.request('/users/42', {
+      headers: inertiaHeaders(),
+    });
+    const page = await getPage(response);
+    expect(page.url).toBe('/users/42');
+  });
+
+  it('preserves query string', async () => {
+    const app = createApp();
+    app.get('/search', (c) => c.var.inertia.render('Search'));
+
+    const response = await app.request('/search?q=hello&page=2', {
+      headers: inertiaHeaders(),
+    });
+    const page = await getPage(response);
+    expect(page.url).toBe('/search?q=hello&page=2');
+  });
+});
+
+// =========================================================================
+// 8. External redirect via 409 + X-Inertia-Location
+// =========================================================================
+describe('External redirects', () => {
+  it('returns 409 for Inertia requests', async () => {
+    const app = createApp();
+    app.get('/go', (c) => c.var.inertia.location('https://example.com'));
+
+    const response = await app.request('/go', { headers: inertiaHeaders() });
+    expect(response.status).toBe(409);
+    expect(response.headers.get('X-Inertia-Location')).toBe(
+      'https://example.com',
+    );
+  });
+
+  it('returns 302 for non-Inertia requests', async () => {
+    const app = createApp();
+    app.get('/go', (c) => c.var.inertia.location('https://example.com'));
+
+    const response = await app.request('/go');
+    expect(response.status).toBe(302);
+    expect(response.headers.get('Location')).toBe('https://example.com');
+  });
+});
+
+// =========================================================================
+// 9. Shared data merging
+// =========================================================================
+describe('Shared props', () => {
+  it('merges shared props from middleware', async () => {
+    const app = createApp();
+    app.use(async (c, next) => {
+      c.var.inertia.share({ auth: { user: 'Alice' } });
+      await next();
+    });
+    app.get('/test', (c) => c.var.inertia.render('Test', { title: 'Home' }));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.props.auth).toEqual({ user: 'Alice' });
+    expect(page.props.title).toBe('Home');
+  });
+
+  it('render props override shared props', async () => {
+    const app = createApp();
+    app.use(async (c, next) => {
+      c.var.inertia.share({ title: 'Default' });
+      await next();
+    });
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', { title: 'Override' }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.props.title).toBe('Override');
+  });
+
+  it('supports global share via config', async () => {
+    const app = createApp({
+      share: () => ({ app: 'MyApp' }),
+    });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.props.app).toBe('MyApp');
+  });
+});
+
+// =========================================================================
+// 10. Partial reloads with include/exclude
+// =========================================================================
+describe('Partial reloads', () => {
+  it('filters props with X-Inertia-Partial-Data', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        users: [1, 2],
+        roles: ['admin'],
+        settings: { dark: true },
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'users,roles',
+      }),
+    });
+    const page = await getPage(response);
+    expect(page.props.users).toEqual([1, 2]);
+    expect(page.props.roles).toEqual(['admin']);
+    expect(page.props.settings).toBeUndefined();
+    // errors always included
+    expect(page.props.errors).toEqual({});
+  });
+
+  it('filters props with X-Inertia-Partial-Except', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        users: [1],
+        roles: ['admin'],
+        settings: { dark: true },
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Except': 'settings',
+      }),
+    });
+    const page = await getPage(response);
+    expect(page.props.users).toEqual([1]);
+    expect(page.props.roles).toEqual(['admin']);
+    expect(page.props.settings).toBeUndefined();
+  });
+});
+
+// =========================================================================
+// 11. Partial component name verification
+// =========================================================================
+describe('Partial component verification', () => {
+  it('ignores filters when component does not match', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        users: [1],
+        roles: ['admin'],
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'OtherComponent',
+        'X-Inertia-Partial-Data': 'users',
+      }),
+    });
+    const page = await getPage(response);
+    // All props included because component doesn't match
+    expect(page.props.users).toEqual([1]);
+    expect(page.props.roles).toEqual(['admin']);
+  });
+});
+
+// =========================================================================
+// 12. Lazy prop evaluation
+// =========================================================================
+describe('Lazy prop evaluation', () => {
+  it('only calls functions when prop is needed', async () => {
+    const usersFunction = vi.fn(() => [1, 2, 3]);
+    const rolesFunction = vi.fn(() => ['admin']);
+
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        users: usersFunction,
+        roles: rolesFunction,
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'users',
+      }),
+    });
+    const page = await getPage(response);
+    expect(page.props.users).toEqual([1, 2, 3]);
+    expect(usersFunction).toHaveBeenCalledOnce();
+    expect(rolesFunction).not.toHaveBeenCalled();
+  });
+
+  it('resolves async functions', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        users: () => Promise.resolve([1, 2, 3]),
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.props.users).toEqual([1, 2, 3]);
+  });
+});
+
+// =========================================================================
+// 13. Optional props
+// =========================================================================
+describe('Optional props', () => {
+  it('excludes optional props from full visits', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        users: [1],
+        permissions: optional(() => ['read', 'write']),
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.props.users).toEqual([1]);
+    expect(page.props.permissions).toBeUndefined();
+  });
+
+  it('includes optional props when requested in partial reload', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        users: [1],
+        permissions: optional(() => ['read', 'write']),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'permissions',
+      }),
+    });
+    const page = await getPage(response);
+    expect(page.props.permissions).toEqual(['read', 'write']);
+  });
+});
+
+// =========================================================================
+// 14. Always props
+// =========================================================================
+describe('Always props', () => {
+  it('includes always props in partial reloads regardless of filter', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        users: [1],
+        auth: always({ user: 'Alice' }),
+        roles: ['admin'],
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'users',
+      }),
+    });
+    const page = await getPage(response);
+    expect(page.props.users).toEqual([1]);
+    expect(page.props.auth).toEqual({ user: 'Alice' });
+    expect(page.props.roles).toBeUndefined();
+  });
+
+  it('includes always props on full visits', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        auth: always({ user: 'Alice' }),
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.props.auth).toEqual({ user: 'Alice' });
+  });
+});
+
+// =========================================================================
+// 15. Deferred props
+// =========================================================================
+describe('Deferred props', () => {
+  it('excludes deferred props from initial response', async () => {
+    const function_ = vi.fn(() => ['comment1']);
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        users: [1],
+        comments: deferred(function_, 'sidebar'),
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.props.comments).toBeUndefined();
+    expect(page.deferredProps).toEqual({ sidebar: ['comments'] });
+    expect(function_).not.toHaveBeenCalled();
+  });
+
+  it('includes deferred props when fetched via partial reload', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        users: [1],
+        comments: deferred(() => ['comment1'], 'sidebar'),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'comments',
+      }),
+    });
+    const page = await getPage(response);
+    expect(page.props.comments).toEqual(['comment1']);
+    expect(page.deferredProps).toBeUndefined();
+  });
+
+  it('does not list rescuedProps when nothing was rescued', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        comments: deferred(() => [], 'x').rescue(),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'comments',
+      }),
+    });
+    const page = await getPage(response);
+    expect(page.props.comments).toEqual([]);
+    expect(page.rescuedProps).toBeUndefined();
+  });
+
+  it('sends a throwing rescued deferred prop as null and lists it in rescuedProps', async () => {
+    const onRescue = vi.fn();
+    const app = createApp({ onRescue });
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        comments: deferred(() => {
+          throw new Error('boom');
+        }).rescue(),
+        likes: deferred(() => Promise.reject(new Error('async boom'))).rescue(),
+        stats: deferred(() => 42),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'comments,likes,stats',
+      }),
+    });
+    expect(response.status).toBe(200);
+    const page = await getPage(response);
+    expect(page.props.comments).toBeNull();
+    expect(page.props.likes).toBeNull();
+    expect(page.props.stats).toBe(42);
+    expect(page.rescuedProps).toEqual(['comments', 'likes']);
+    expect(onRescue).toHaveBeenCalledTimes(2);
+    expect(onRescue).toHaveBeenCalledWith(expect.any(Error), 'comments');
+    expect(onRescue).toHaveBeenCalledWith(expect.any(Error), 'likes');
+  });
+
+  it('reports a rescued prop via console.error when onRescue is not configured', async () => {
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        comments: deferred(() => {
+          throw new Error('boom');
+        }).rescue(),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'comments',
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(consoleError).toHaveBeenCalledTimes(1);
+    expect(consoleError.mock.calls[0][0]).toContain('comments');
+    consoleError.mockRestore();
+  });
+
+  it('still fails the response when a non-rescued deferred prop throws', async () => {
+    const app = createApp();
+    // c.error rather than app.onError: the onError signature differs between
+    // Hono 4 and 5, and this suite runs on both.
+    app.use(async (c, next) => {
+      await next();
+      if (c.error) c.res = c.text(c.error.message, 500);
+    });
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        comments: deferred(() => {
+          throw new Error('boom');
+        }),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'comments',
+      }),
+    });
+    expect(response.status).toBe(500);
+    expect(await response.text()).toBe('boom');
+  });
+});
+
+// =========================================================================
+// 16. Merge/prepend/deepMerge metadata
+// =========================================================================
+describe('Merge props', () => {
+  it('sets mergeProps in page object', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', { posts: merge(() => [1, 2]) }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.props.posts).toEqual([1, 2]);
+    expect(page.mergeProps).toEqual(['posts']);
+  });
+
+  it('sets prependProps in page object', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', { posts: prepend(() => [1]) }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.prependProps).toEqual(['posts']);
+  });
+
+  it('sets deepMergeProps in page object', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', { config: deepMerge(() => ({ a: 1 })) }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.deepMergeProps).toEqual(['config']);
+  });
+
+  it('sets matchPropsOn for merge with matchOn', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        items: merge(() => []).setMatchOn('id'),
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.mergeProps).toEqual(['items']);
+    expect(page.matchPropsOn).toEqual(['items.id']);
+  });
+
+  it('strips merge metadata for reset props', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', { posts: merge(() => [1]) }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'posts',
+        'X-Inertia-Reset': 'posts',
+      }),
+    });
+    const page = await getPage(response);
+    expect(page.props.posts).toEqual([1]);
+    expect(page.mergeProps).toBeUndefined();
+  });
+});
+
+// =========================================================================
+// 17. Once props
+// =========================================================================
+describe('Once props', () => {
+  it('includes once props with metadata', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        plans: once(() => ['free', 'pro']),
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.props.plans).toEqual(['free', 'pro']);
+    expect(page.onceProps).toEqual({
+      plans: { prop: 'plans', expiresAt: null },
+    });
+  });
+
+  it('skips once props listed in X-Inertia-Except-Once-Props', async () => {
+    const function_ = vi.fn(() => ['free', 'pro']);
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', { plans: once(function_) }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Except-Once-Props': 'plans',
+      }),
+    });
+    const page = await getPage(response);
+    expect(page.props.plans).toBeUndefined();
+    expect(function_).not.toHaveBeenCalled();
+  });
+
+  it('skips a once prop when the client echoes its custom key', async () => {
+    const function_ = vi.fn(() => ['free', 'pro']);
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', { plans: once(function_, 'plans-cache') }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({ 'X-Inertia-Except-Once-Props': 'plans-cache' }),
+    });
+    const page = await getPage(response);
+    expect(page.props.plans).toBeUndefined();
+    expect(function_).not.toHaveBeenCalled();
+  });
+});
+
+// =========================================================================
+// 18. History encryption
+// =========================================================================
+describe('History encryption', () => {
+  it('omits encryptHistory and clearHistory when not enabled', async () => {
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.encryptHistory).toBeUndefined();
+    expect(page.clearHistory).toBeUndefined();
+  });
+
+  it('sets encryptHistory when enabled', async () => {
+    const app = createApp();
+    app.get('/test', (c) => {
+      c.var.inertia.encryptHistory();
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.encryptHistory).toBe(true);
+  });
+
+  it('sets clearHistory when enabled', async () => {
+    const app = createApp();
+    app.get('/test', (c) => {
+      c.var.inertia.clearHistory();
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.clearHistory).toBe(true);
+  });
+});
+
+// =========================================================================
+// 18b. clearHistory flash across redirects
+// =========================================================================
+describe('clearHistory across redirects', () => {
+  const COOKIE = 'inertia_clear_history';
+
+  const flashedCookie = (response: Response) =>
+    response.headers
+      .getSetCookie()
+      .find((cookie) => cookie.startsWith(`${COOKIE}=`));
+
+  it('flashes a cookie on a plain 302 redirect', async () => {
+    const app = createApp();
+    app.post('/logout', (c) => {
+      c.var.inertia.clearHistory();
+      return c.redirect('/', 302);
+    });
+
+    const response = await app.request('/logout', { method: 'POST' });
+    expect(response.status).toBe(302);
+    const cookie = flashedCookie(response);
+    expect(cookie).toContain(`${COOKIE}=1`);
+    expect(cookie).toContain('Path=/');
+    expect(cookie).toContain('HttpOnly');
+    expect(cookie).toContain('SameSite=Lax');
+    expect(cookie).toContain('Max-Age=60');
+  });
+
+  it('flashes a cookie on a 302→303 converted redirect', async () => {
+    const app = createApp();
+    app.delete('/session', (c) => {
+      c.var.inertia.clearHistory();
+      return c.redirect('/', 302);
+    });
+
+    const response = await app.request('/session', {
+      method: 'DELETE',
+      headers: inertiaHeaders(),
+    });
+    expect(response.status).toBe(303);
+    expect(flashedCookie(response)).toContain(`${COOKIE}=1`);
+  });
+
+  it('flashes a cookie on a 409 X-Inertia-Redirect', async () => {
+    const app = createApp();
+    app.post('/logout', (c) => {
+      c.var.inertia.clearHistory();
+      return c.var.inertia.redirect('/');
+    });
+
+    const response = await app.request('/logout', {
+      method: 'POST',
+      headers: inertiaHeaders(),
+    });
+    expect(response.status).toBe(409);
+    expect(response.headers.get('X-Inertia-Redirect')).toBe('/');
+    expect(flashedCookie(response)).toContain(`${COOKIE}=1`);
+  });
+
+  it('flashes a cookie on a 409 X-Inertia-Location', async () => {
+    const app = createApp();
+    app.post('/logout', (c) => {
+      c.var.inertia.clearHistory();
+      return c.var.inertia.location('https://sso.example.com/logout');
+    });
+
+    const response = await app.request('/logout', {
+      method: 'POST',
+      headers: inertiaHeaders(),
+    });
+    expect(response.status).toBe(409);
+    expect(flashedCookie(response)).toContain(`${COOKIE}=1`);
+  });
+
+  it('does not set a cookie when clearHistory lands on a render', async () => {
+    const app = createApp();
+    app.get('/test', (c) => {
+      c.var.inertia.clearHistory();
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    expect(flashedCookie(response)).toBeUndefined();
+  });
+
+  it('applies the flashed flag to the next JSON page and deletes the cookie', async () => {
+    const app = createApp();
+    app.get('/', (c) => c.var.inertia.render('Home'));
+
+    const response = await app.request('/', {
+      headers: inertiaHeaders({ Cookie: `${COOKIE}=1` }),
+    });
+    const page = await getPage(response);
+    expect(page.clearHistory).toBe(true);
+    const cookie = flashedCookie(response);
+    expect(cookie).toContain(`${COOKIE}=`);
+    expect(cookie).toContain('Max-Age=0');
+  });
+
+  it('applies the flashed flag to the next initial HTML visit', async () => {
+    const app = createApp();
+    app.get('/', (c) => c.var.inertia.render('Home'));
+
+    const response = await app.request('/', {
+      headers: { Cookie: `${COOKIE}=1` },
+    });
+    const page = parsePageFromHtml(await response.text());
+    expect(page.clearHistory).toBe(true);
+    expect(flashedCookie(response)).toContain('Max-Age=0');
+  });
+
+  it('re-flashes the cookie across a redirect chain', async () => {
+    const app = createApp();
+    app.get('/', (c) => c.redirect('/landing', 302));
+
+    const response = await app.request('/', {
+      headers: { Cookie: `${COOKIE}=1` },
+    });
+    const cookie = flashedCookie(response);
+    expect(cookie).toContain(`${COOKIE}=1`);
+    expect(cookie).toContain('Max-Age=60');
+  });
+
+  it('deletes the cookie when the handler cancels via clearHistory(false)', async () => {
+    const app = createApp();
+    app.get('/', (c) => {
+      c.var.inertia.clearHistory(false);
+      return c.redirect('/landing', 302);
+    });
+
+    const response = await app.request('/', {
+      headers: { Cookie: `${COOKIE}=1` },
+    });
+    const cookie = flashedCookie(response);
+    expect(cookie).toContain(`${COOKIE}=`);
+    expect(cookie).toContain('Max-Age=0');
+  });
+
+  it('flashes a cookie on a 204 response', async () => {
+    const app = createApp();
+    app.delete('/account', (c) => {
+      c.var.inertia.clearHistory();
+      return c.body(null, 204);
+    });
+
+    const response = await app.request('/account', { method: 'DELETE' });
+    expect(response.status).toBe(204);
+    const cookie = flashedCookie(response);
+    expect(cookie).toContain(`${COOKIE}=1`);
+    expect(cookie).toContain('Max-Age=60');
+  });
+
+  it('flashes a cookie on a JSON API response', async () => {
+    const app = createApp();
+    app.post('/api/logout', (c) => {
+      c.var.inertia.clearHistory();
+      return c.json({ ok: true });
+    });
+
+    const response = await app.request('/api/logout', { method: 'POST' });
+    expect(flashedCookie(response)).toContain(`${COOKIE}=1`);
+  });
+
+  it('leaves the cookie alone on non-page responses', async () => {
+    const app = createApp();
+    app.get('/api/poll', (c) => c.json({ ok: true }));
+
+    const response = await app.request('/api/poll', {
+      headers: { Cookie: `${COOKIE}=1` },
+    });
+    expect(response.status).toBe(200);
+    expect(flashedCookie(response)).toBeUndefined();
+  });
+
+  it('does not consume the flag on prefetch requests', async () => {
+    const app = createApp();
+    app.get('/', (c) => c.var.inertia.render('Home'));
+
+    const response = await app.request('/', {
+      headers: inertiaHeaders({ Cookie: `${COOKIE}=1`, Purpose: 'prefetch' }),
+    });
+    const page = await getPage(response);
+    expect(page.clearHistory).toBeUndefined();
+    expect(flashedCookie(response)).toBeUndefined();
+  });
+});
+
+// =========================================================================
+// 19. Error bag support
+// =========================================================================
+describe('Error bag', () => {
+  it('scopes errors to bag name', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        errors: {
+          createUser: { name: 'Required' },
+          updateUser: { email: 'Invalid' },
+        },
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({ 'X-Inertia-Error-Bag': 'createUser' }),
+    });
+    const page = await getPage(response);
+    expect(page.props.errors).toEqual({ name: 'Required' });
+  });
+
+  it('returns empty errors when bag is not found', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        errors: { createUser: { name: 'Required' } },
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({ 'X-Inertia-Error-Bag': 'nonexistent' }),
+    });
+    const page = await getPage(response);
+    expect(page.props.errors).toEqual({});
+  });
+});
+
+// =========================================================================
+// 20. Vary: X-Inertia on ALL responses
+// =========================================================================
+describe('Vary header', () => {
+  it('sets Vary on HTML responses', async () => {
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test');
+    expect(response.headers.get('Vary')).toContain('X-Inertia');
+  });
+
+  it('sets Vary on JSON responses', async () => {
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    expect(response.headers.get('Vary')).toContain('X-Inertia');
+  });
+
+  it('sets Vary on redirect responses', async () => {
+    const app = createApp();
+    app.get('/old', (c) => c.redirect('/new'));
+
+    const response = await app.request('/old');
+    expect(response.headers.get('Vary')).toContain('X-Inertia');
+  });
+
+  it('appends to existing Vary header', async () => {
+    const app = createApp();
+    app.get('/test', (c) => {
+      c.header('Vary', 'Accept');
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test');
+    const vary = response.headers.get('Vary');
+    expect(vary).toContain('Accept');
+    expect(vary).toContain('X-Inertia');
+  });
+});
+
+// =========================================================================
+// View data
+// =========================================================================
+describe('View data', () => {
+  it('passes view data to render function but not to page props', async () => {
+    let receivedViewData: Record<string, unknown> | undefined;
+
+    const app = new Hono<InertiaEnv>();
+    app.use(
+      inertia({
+        version: '1.0',
+        render: (page, viewData) => {
+          receivedViewData = viewData;
+          return `<script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div>`;
+        },
+      }),
+    );
+    app.get('/test', (c) => {
+      c.var.inertia.viewData({ metaTitle: 'My Page' });
+      return c.var.inertia.render('Test', { title: 'Hello' });
+    });
+
+    const response = await app.request('/test');
+    expect(receivedViewData).toEqual({ metaTitle: 'My Page' });
+    const body = await response.text();
+    const page = parsePageFromHtml(body);
+    expect(page.props.metaTitle).toBeUndefined();
+    expect(page.props.title).toBe('Hello');
+  });
+});
+
+// =========================================================================
+// Page object structure
+// =========================================================================
+describe('Page object structure', () => {
+  it('includes all required fields', async () => {
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.render('Test', { data: 'value' }));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page).toEqual({
+      component: 'Test',
+      props: { errors: {}, data: 'value' },
+      url: '/test',
+      version: '1.0',
+    });
+  });
+
+  it('omits optional fields when not needed', async () => {
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.deferredProps).toBeUndefined();
+    expect(page.mergeProps).toBeUndefined();
+    expect(page.prependProps).toBeUndefined();
+    expect(page.deepMergeProps).toBeUndefined();
+    expect(page.onceProps).toBeUndefined();
+    expect(page.matchPropsOn).toBeUndefined();
+  });
+});
+
+// =========================================================================
+// Combinatorial prop types
+// =========================================================================
+describe('Combinatorial prop types', () => {
+  it('handles all prop types in a single render call', async () => {
+    const deferredFunction = vi.fn(() => 'deferred-value');
+    const optionalFunction = vi.fn(() => 'optional-value');
+
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        plain: 'hello',
+        lazy: () => 'lazy-value',
+        alwaysProp: always('always-value'),
+        optProp: optional(optionalFunction),
+        deferProp: deferred(deferredFunction, 'sidebar'),
+        mergeProp: merge(() => [1, 2]),
+        onceProp: once(() => 'once-value'),
+      }),
+    );
+
+    // Full visit
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+
+    expect(page.props.plain).toBe('hello');
+    expect(page.props.lazy).toBe('lazy-value');
+    expect(page.props.alwaysProp).toBe('always-value');
+    expect(page.props.optProp).toBeUndefined();
+    expect(page.props.deferProp).toBeUndefined();
+    expect(page.props.mergeProp).toEqual([1, 2]);
+    expect(page.props.onceProp).toBe('once-value');
+
+    expect(page.deferredProps).toEqual({ sidebar: ['deferProp'] });
+    expect(page.mergeProps).toEqual(['mergeProp']);
+    expect(page.onceProps).toEqual({
+      onceProp: { prop: 'onceProp', expiresAt: null },
+    });
+
+    expect(deferredFunction).not.toHaveBeenCalled();
+    expect(optionalFunction).not.toHaveBeenCalled();
+  });
+
+  it('handles all prop types in a partial reload requesting specific keys', async () => {
+    const deferredFunction = vi.fn(() => 'deferred-value');
+    const optionalFunction = vi.fn(() => 'optional-value');
+    const lazyFunction = vi.fn(() => 'lazy-value');
+    const mergeFunction = vi.fn(() => [1, 2]);
+
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        plain: 'hello',
+        lazy: lazyFunction,
+        alwaysProp: always('always-value'),
+        optProp: optional(optionalFunction),
+        deferProp: deferred(deferredFunction, 'sidebar'),
+        mergeProp: merge(mergeFunction),
+        onceProp: once(() => 'once-value'),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'optProp,deferProp',
+      }),
+    });
+    const page = await getPage(response);
+
+    // Only requested + always + errors
+    expect(page.props.optProp).toBe('optional-value');
+    expect(page.props.deferProp).toBe('deferred-value');
+    expect(page.props.alwaysProp).toBe('always-value');
+    expect(page.props.errors).toEqual({});
+
+    // Not requested — not included
+    expect(page.props.plain).toBeUndefined();
+    expect(page.props.lazy).toBeUndefined();
+    expect(page.props.mergeProp).toBeUndefined();
+    expect(page.props.onceProp).toBeUndefined();
+
+    // Only requested fns called
+    expect(optionalFunction).toHaveBeenCalledOnce();
+    expect(deferredFunction).toHaveBeenCalledOnce();
+    expect(lazyFunction).not.toHaveBeenCalled();
+    expect(mergeFunction).not.toHaveBeenCalled();
+  });
+});
+
+// =========================================================================
+// Multiple deferred groups
+// =========================================================================
+describe('Multiple deferred groups', () => {
+  it('registers multiple groups in deferredProps', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        title: 'Page',
+        comments: deferred(() => ['c1'], 'sidebar'),
+        likes: deferred(() => 42, 'sidebar'),
+        analytics: deferred(() => ({ views: 100 }), 'footer'),
+        related: deferred(() => ['r1'], 'aside'),
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+
+    expect(page.deferredProps).toEqual({
+      sidebar: ['comments', 'likes'],
+      footer: ['analytics'],
+      aside: ['related'],
+    });
+    expect(page.props.comments).toBeUndefined();
+    expect(page.props.likes).toBeUndefined();
+    expect(page.props.analytics).toBeUndefined();
+    expect(page.props.related).toBeUndefined();
+    expect(page.props.title).toBe('Page');
+  });
+
+  it('fetches only requested deferred props from one group', async () => {
+    const sidebarFunction = vi.fn(() => ['c1']);
+    const footerFunction = vi.fn(() => ({ views: 100 }));
+
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        comments: deferred(sidebarFunction, 'sidebar'),
+        analytics: deferred(footerFunction, 'footer'),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'comments',
+      }),
+    });
+    const page = await getPage(response);
+
+    expect(page.props.comments).toEqual(['c1']);
+    expect(page.props.analytics).toBeUndefined();
+    expect(sidebarFunction).toHaveBeenCalledOnce();
+    expect(footerFunction).not.toHaveBeenCalled();
+  });
+
+  it('handles deferred with merge+once chaining', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        feed: deferred(() => [1, 2], 'main')
+          .merge()
+          .once('feed-key', 3600),
+      }),
+    );
+
+    // Full visit: listed in deferredProps with merge metadata
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+
+    expect(page.props.feed).toBeUndefined();
+    expect(page.deferredProps).toEqual({ main: ['feed'] });
+    expect(page.mergeProps).toEqual(['feed']);
+
+    // Partial fetch: includes value with merge+once metadata
+    const response2 = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'feed',
+      }),
+    });
+    const page2 = await getPage(response2);
+
+    expect(page2.props.feed).toEqual([1, 2]);
+    expect(page2.mergeProps).toEqual(['feed']);
+    expect(page2.onceProps).toEqual({
+      'feed-key': { prop: 'feed', expiresAt: 3600 },
+    });
+  });
+
+  it('skips deferred+once prop when client already has it', async () => {
+    const function_ = vi.fn(() => [1, 2]);
+
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        feed: deferred(function_, 'main').once(),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'feed',
+        'X-Inertia-Except-Once-Props': 'feed',
+      }),
+    });
+    const page = await getPage(response);
+
+    expect(page.props.feed).toBeUndefined();
+    expect(function_).not.toHaveBeenCalled();
+  });
+});
+
+// =========================================================================
+// Optional + once chaining
+// =========================================================================
+describe('Optional + once chaining', () => {
+  it('excludes optional+once from full visits', async () => {
+    const function_ = vi.fn(() => 'data');
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        expensive: optional(function_).once('exp-key', 7200),
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+
+    expect(page.props.expensive).toBeUndefined();
+    expect(function_).not.toHaveBeenCalled();
+  });
+
+  it('includes optional+once on partial reload with once metadata', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        expensive: optional(() => 'data').once('exp-key', 7200),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'expensive',
+      }),
+    });
+    const page = await getPage(response);
+
+    expect(page.props.expensive).toBe('data');
+    expect(page.onceProps).toEqual({
+      'exp-key': { prop: 'expensive', expiresAt: 7200 },
+    });
+  });
+
+  it('skips optional+once when client already has it', async () => {
+    const function_ = vi.fn(() => 'data');
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        expensive: optional(function_).once(),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'expensive',
+        'X-Inertia-Except-Once-Props': 'expensive',
+      }),
+    });
+    const page = await getPage(response);
+
+    expect(page.props.expensive).toBeUndefined();
+    expect(function_).not.toHaveBeenCalled();
+  });
+});
+
+// =========================================================================
+// Partial reload edge cases
+// =========================================================================
+describe('Partial reload edge cases', () => {
+  it('handles both Partial-Data and Partial-Except simultaneously', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        a: 'A',
+        b: 'B',
+        c: 'C',
+        d: 'D',
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'a,b,c',
+        'X-Inertia-Partial-Except': 'b',
+      }),
+    });
+    const page = await getPage(response);
+
+    // Partial-Data includes a,b,c; Partial-Except removes b
+    expect(page.props.a).toBe('A');
+    expect(page.props.b).toBeUndefined();
+    expect(page.props.c).toBe('C');
+    expect(page.props.d).toBeUndefined();
+  });
+
+  it('always preserves errors even when not in Partial-Data', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        users: [1],
+        errors: { name: 'Required' },
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'users',
+      }),
+    });
+    const page = await getPage(response);
+
+    expect(page.props.users).toEqual([1]);
+    expect(page.props.errors).toEqual({ name: 'Required' });
+  });
+
+  it('cannot exclude errors via Partial-Except', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        users: [1],
+        errors: { name: 'Required' },
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Except': 'errors',
+      }),
+    });
+    const page = await getPage(response);
+
+    expect(page.props.errors).toEqual({ name: 'Required' });
+    expect(page.props.users).toEqual([1]);
+  });
+
+  it('excludes optional props when component does not match', async () => {
+    const function_ = vi.fn(() => 'opt');
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        plain: 'hello',
+        opt: optional(function_),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Other',
+        'X-Inertia-Partial-Data': 'opt',
+      }),
+    });
+    const page = await getPage(response);
+
+    // Component mismatch → treated as full visit → optional excluded
+    expect(page.props.plain).toBe('hello');
+    expect(page.props.opt).toBeUndefined();
+    expect(function_).not.toHaveBeenCalled();
+  });
+
+  it('does not show deferredProps in partial reload response', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        users: [1],
+        comments: deferred(() => ['c1'], 'sidebar'),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'users',
+      }),
+    });
+    const page = await getPage(response);
+
+    expect(page.props.users).toEqual([1]);
+    expect(page.deferredProps).toBeUndefined();
+  });
+});
+
+// =========================================================================
+// Shared props accumulation
+// =========================================================================
+describe('Shared props accumulation', () => {
+  it('accumulates from multiple share() calls', async () => {
+    const app = createApp();
+    app.use(async (c, next) => {
+      c.var.inertia.share({ a: 1 });
+      c.var.inertia.share({ b: 2 });
+      await next();
+    });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.props.a).toBe(1);
+    expect(page.props.b).toBe(2);
+  });
+
+  it('later share() calls override earlier keys', async () => {
+    const app = createApp();
+    app.use(async (c, next) => {
+      c.var.inertia.share({ x: 'first' });
+      c.var.inertia.share({ x: 'second' });
+      await next();
+    });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.props.x).toBe('second');
+  });
+
+  it('merges config share + middleware share + render props', async () => {
+    const app = createApp({
+      share: () => ({ fromConfig: 'config', shared: 'config' }),
+    });
+    app.use(async (c, next) => {
+      c.var.inertia.share({
+        fromMiddleware: 'middleware',
+        shared: 'middleware',
+      });
+      await next();
+    });
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', { fromRender: 'render', shared: 'render' }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+
+    expect(page.props.fromConfig).toBe('config');
+    expect(page.props.fromMiddleware).toBe('middleware');
+    expect(page.props.fromRender).toBe('render');
+    // Render props win over middleware, middleware wins over config
+    expect(page.props.shared).toBe('render');
+  });
+
+  it('accumulates share() across chained middleware', async () => {
+    const app = createApp();
+    app.use(async (c, next) => {
+      c.var.inertia.share({ from1: 'mw1' });
+      await next();
+    });
+    app.use(async (c, next) => {
+      c.var.inertia.share({ from2: 'mw2' });
+      await next();
+    });
+    app.use(async (c, next) => {
+      c.var.inertia.share({ from3: 'mw3' });
+      await next();
+    });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.props.from1).toBe('mw1');
+    expect(page.props.from2).toBe('mw2');
+    expect(page.props.from3).toBe('mw3');
+  });
+});
+
+// =========================================================================
+// Reset props edge cases
+// =========================================================================
+describe('Reset props edge cases', () => {
+  it('strips merge metadata but preserves value on reset', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        posts: merge(() => [1, 2, 3]).setMatchOn('id'),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'posts',
+        'X-Inertia-Reset': 'posts',
+      }),
+    });
+    const page = await getPage(response);
+
+    expect(page.props.posts).toEqual([1, 2, 3]);
+    expect(page.mergeProps).toBeUndefined();
+    expect(page.matchPropsOn).toBeUndefined();
+  });
+
+  it('strips merge metadata on deferred+merge reset', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        feed: deferred(() => [1, 2], 'main').merge(),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'feed',
+        'X-Inertia-Reset': 'feed',
+      }),
+    });
+    const page = await getPage(response);
+
+    expect(page.props.feed).toEqual([1, 2]);
+    expect(page.mergeProps).toBeUndefined();
+  });
+});
+
+// =========================================================================
+// Once props edge cases
+// =========================================================================
+describe('Once props edge cases', () => {
+  it('uses custom key in onceProps metadata', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        plans: once(() => ['free'], 'custom-plans-key', 3600),
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+
+    expect(page.onceProps).toEqual({
+      'custom-plans-key': { prop: 'plans', expiresAt: 3600 },
+    });
+  });
+
+  it('passes through expiresAt value', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        config: once(() => ({}), undefined, 86_400),
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+
+    expect(page.onceProps?.config?.expiresAt).toBe(86_400);
+  });
+});
+
+// =========================================================================
+// URL edge cases
+// =========================================================================
+describe('URL edge cases', () => {
+  it('preserves trailing slash', async () => {
+    const app = createApp();
+    app.get('/users/', (c) => c.var.inertia.render('Users'));
+
+    const response = await app.request('/users/', {
+      headers: inertiaHeaders(),
+    });
+    const page = await getPage(response);
+    expect(page.url).toBe('/users/');
+  });
+
+  it('handles query with special characters', async () => {
+    const app = createApp();
+    app.get('/search', (c) => c.var.inertia.render('Search'));
+
+    const response = await app.request('/search?q=hello%20world&tag=c%2B%2B', {
+      headers: inertiaHeaders(),
+    });
+    const page = await getPage(response);
+    expect(page.url).toBe('/search?q=hello%20world&tag=c%2B%2B');
+  });
+
+  it('handles path without query string', async () => {
+    const app = createApp();
+    app.get('/users', (c) => c.var.inertia.render('Users'));
+
+    const response = await app.request('/users', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.url).toBe('/users');
+  });
+});
+
+// =========================================================================
+// Page URL overrides
+// =========================================================================
+describe('page URL overrides', () => {
+  it('uses c.var.inertia.url() for this response', async () => {
+    const app = createApp();
+    app.post('/users', (c) => {
+      c.var.inertia.url('/users/new');
+      return c.var.inertia.render('Users/New');
+    });
+
+    const response = await app.request('/users', {
+      method: 'POST',
+      headers: inertiaHeaders(),
+    });
+
+    const page = await getPage(response);
+    expect(page.url).toBe('/users/new');
+  });
+
+  it('uses the resolveUrl option', async () => {
+    const app = createApp({
+      resolveUrl: (c) =>
+        c.req.method === 'GET' ? c.req.url : (c.req.header('Referer') ?? ''),
+    });
+    app.post('/users', (c) => c.var.inertia.render('Users/New'));
+
+    const response = await app.request('/users', {
+      method: 'POST',
+      headers: inertiaHeaders({ Referer: 'http://localhost/users/new?step=2' }),
+    });
+
+    const page = await getPage(response);
+    expect(page.url).toBe('/users/new?step=2');
+  });
+
+  it('prefers c.var.inertia.url() over resolveUrl', async () => {
+    const app = createApp({ resolveUrl: () => '/from-option' });
+    app.get('/test', (c) => {
+      c.var.inertia.url('/from-handler');
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+
+    const page = await getPage(response);
+    expect(page.url).toBe('/from-handler');
+  });
+
+  it('drops the origin of an absolute URL', async () => {
+    const app = createApp({
+      resolveUrl: () => 'http://internal:8080/users?page=2',
+    });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+
+    const page = await getPage(response);
+    expect(page.url).toBe('/users?page=2');
+  });
+
+  it('resolves a relative URL against the request URL', async () => {
+    const app = createApp();
+    app.get('/users/42/edit', (c) => {
+      c.var.inertia.url('../42');
+      return c.var.inertia.render('Users/Show');
+    });
+
+    const response = await app.request('/users/42/edit', {
+      headers: inertiaHeaders(),
+    });
+
+    const page = await getPage(response);
+    expect(page.url).toBe('/users/42');
+  });
+
+  it('keeps a fragment', async () => {
+    const app = createApp();
+    app.get('/docs', (c) => {
+      c.var.inertia.url('/docs#install');
+      return c.var.inertia.render('Docs');
+    });
+
+    const response = await app.request('/docs', { headers: inertiaHeaders() });
+
+    const page = await getPage(response);
+    expect(page.url).toBe('/docs#install');
+  });
+
+  it('applies to the initial HTML response', async () => {
+    const app = createApp();
+    app.get('/test', (c) => {
+      c.var.inertia.url('/elsewhere');
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test');
+
+    expect(parsePageFromHtml(await response.text()).url).toBe('/elsewhere');
+  });
+});
+
+// =========================================================================
+// History encryption edge cases
+// =========================================================================
+describe('History encryption edge cases', () => {
+  it('can explicitly disable encryptHistory with false', async () => {
+    const app = createApp();
+    app.get('/test', (c) => {
+      c.var.inertia.encryptHistory(true);
+      c.var.inertia.encryptHistory(false);
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.encryptHistory).toBeUndefined();
+  });
+
+  it('can explicitly disable clearHistory with false', async () => {
+    const app = createApp();
+    app.get('/test', (c) => {
+      c.var.inertia.clearHistory(true);
+      c.var.inertia.clearHistory(false);
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.clearHistory).toBeUndefined();
+  });
+
+  it('supports both encryptHistory and clearHistory together', async () => {
+    const app = createApp();
+    app.get('/test', (c) => {
+      c.var.inertia.encryptHistory();
+      c.var.inertia.clearHistory();
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.encryptHistory).toBe(true);
+    expect(page.clearHistory).toBe(true);
+  });
+});
+
+// =========================================================================
+// View data edge cases
+// =========================================================================
+describe('View data edge cases', () => {
+  it('accumulates from multiple viewData() calls', async () => {
+    let receivedViewData: Record<string, unknown> | undefined;
+
+    const app = new Hono<InertiaEnv>();
+    app.use(
+      inertia({
+        version: '1.0',
+        render: (page, viewData) => {
+          receivedViewData = viewData;
+          return `<script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div>`;
+        },
+      }),
+    );
+    app.get('/test', (c) => {
+      c.var.inertia.viewData({ a: 1 });
+      c.var.inertia.viewData({ b: 2 });
+      return c.var.inertia.render('Test');
+    });
+
+    await app.request('/test');
+    expect(receivedViewData).toEqual({ a: 1, b: 2 });
+  });
+
+  it('merges render viewData arg with accumulated viewData', async () => {
+    let receivedViewData: Record<string, unknown> | undefined;
+
+    const app = new Hono<InertiaEnv>();
+    app.use(
+      inertia({
+        version: '1.0',
+        render: (page, viewData) => {
+          receivedViewData = viewData;
+          return `<script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div>`;
+        },
+      }),
+    );
+    app.get('/test', (c) => {
+      c.var.inertia.viewData({ fromMethod: 'method', shared: 'method' });
+      return c.var.inertia.render(
+        'Test',
+        {},
+        { fromRender: 'render', shared: 'render' },
+      );
+    });
+
+    await app.request('/test');
+    expect(receivedViewData).toEqual({
+      fromMethod: 'method',
+      fromRender: 'render',
+      shared: 'render',
+    });
+  });
+
+  it('does not send view data on Inertia JSON responses', async () => {
+    let renderCalled = false;
+
+    const app = new Hono<InertiaEnv>();
+    app.use(
+      inertia({
+        version: '1.0',
+        render: () => {
+          renderCalled = true;
+          return '<div></div>';
+        },
+      }),
+    );
+    app.get('/test', (c) => {
+      c.var.inertia.viewData({ meta: 'value' });
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+
+    // Render function not called for JSON responses
+    expect(renderCalled).toBe(false);
+    expect(page.props.meta).toBeUndefined();
+  });
+});
+
+// =========================================================================
+// Error bag edge cases
+// =========================================================================
+describe('Error bag edge cases', () => {
+  it('returns empty errors when errors is empty and bag is requested', async () => {
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({ 'X-Inertia-Error-Bag': 'createUser' }),
+    });
+    const page = await getPage(response);
+    expect(page.props.errors).toEqual({});
+  });
+
+  it('returns full errors when no error bag header is sent', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        errors: {
+          createUser: { name: 'Required' },
+          updateUser: { email: 'Invalid' },
+        },
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.props.errors).toEqual({
+      createUser: { name: 'Required' },
+      updateUser: { email: 'Invalid' },
+    });
+  });
+});
+
+// =========================================================================
+// Async version function
+// =========================================================================
+describe('Async version function', () => {
+  it('resolves async version and matches', async () => {
+    const app = createApp({
+      version: () => Promise.resolve('async-v1'),
+    });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', {
+      headers: {
+        'X-Inertia': 'true',
+        'X-Inertia-Version': 'async-v1',
+      },
+    });
+    expect(response.status).toBe(200);
+    const page = await getPage(response);
+    expect(page.version).toBe('async-v1');
+  });
+
+  it('resolves async version and returns 409 on mismatch', async () => {
+    const app = createApp({
+      version: () => Promise.resolve('async-v2'),
+    });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', {
+      headers: {
+        'X-Inertia': 'true',
+        'X-Inertia-Version': 'old-version',
+      },
+    });
+    expect(response.status).toBe(409);
+    expect(response.headers.get('X-Inertia-Location')).toContain('/test');
+  });
+});
+
+// =========================================================================
+// SSR integration
+// =========================================================================
+describe('SSR integration', () => {
+  it('passes SSR result to render function', async () => {
+    let receivedSsr: { head: string; body: string } | undefined;
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers(),
+      json: () =>
+        Promise.resolve({
+          head: ['<title>SSR</title>'],
+          body: '<div id="app">rendered</div>',
+        }),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const app = new Hono<InertiaEnv>();
+    app.use(
+      inertia({
+        version: '1.0',
+        ssr: { url: 'http://localhost:13714' },
+        render: (page, _viewData, ssr) => {
+          receivedSsr = ssr;
+          return `<html>${ssr?.head ?? ''}<body>${ssr?.body ?? serializePage(page)}</body></html>`;
+        },
+      }),
+    );
+    app.get('/test', (c) => c.var.inertia.render('Test', { data: 1 }));
+
+    const response = await app.request('/test');
+    expect(response.status).toBe(200);
+    expect(receivedSsr).toEqual({
+      head: '<title>SSR</title>',
+      body: '<div id="app">rendered</div>',
+    });
+    expect(mockFetch).toHaveBeenCalledOnce();
+
+    vi.restoreAllMocks();
+  });
+
+  it('falls back gracefully when SSR fails', async () => {
+    let receivedSsr: { head: string; body: string } | undefined;
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockRejectedValue(new Error('ECONNREFUSED')),
+    );
+
+    const app = new Hono<InertiaEnv>();
+    app.use(
+      inertia({
+        version: '1.0',
+        ssr: { url: 'http://localhost:13714' },
+        render: (page, _viewData, ssr) => {
+          receivedSsr = ssr;
+          return `<script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div>`;
+        },
+      }),
+    );
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test');
+    expect(response.status).toBe(200);
+    expect(receivedSsr).toBeUndefined();
+
+    vi.restoreAllMocks();
+  });
+
+  it('skips SSR for Inertia JSON requests', async () => {
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+
+    const app = new Hono<InertiaEnv>();
+    app.use(
+      inertia({
+        version: '1.0',
+        ssr: { url: 'http://localhost:13714' },
+        render: (page) =>
+          `<script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div>`,
+      }),
+    );
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    await app.request('/test', { headers: inertiaHeaders() });
+    expect(mockFetch).not.toHaveBeenCalled();
+
+    vi.restoreAllMocks();
+  });
+
+  it('skips SSR when ssr.enabled is false', async () => {
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+
+    const app = new Hono<InertiaEnv>();
+    app.use(
+      inertia({
+        version: '1.0',
+        ssr: { url: 'http://localhost:13714', enabled: false },
+        render: (page) =>
+          `<script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div>`,
+      }),
+    );
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    await app.request('/test');
+    expect(mockFetch).not.toHaveBeenCalled();
+
+    vi.restoreAllMocks();
+  });
+
+  it('posts to the default URL when ssr has no url', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers(),
+      json: () => Promise.resolve({ head: [], body: '<div id="app"></div>' }),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const app = createApp({ ssr: {} });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    await app.request('/test');
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:13714/render',
+      expect.any(Object),
+    );
+
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('In-process SSR', () => {
+  const renderShell = (
+    page: PageObject,
+    ssr: { head: string; body: string } | undefined,
+  ) =>
+    ssr
+      ? `<html><head>${ssr.head}</head><body>${ssr.body}</body></html>`
+      : `<html><body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body></html>`;
+
+  it('passes the page to ssr.render and its result to the render function', async () => {
+    const ssrRender = vi.fn().mockResolvedValue({
+      head: ['<title>SSR</title>'],
+      body: '<div data-server-rendered="true" id="app"><h1>Hi</h1></div>',
+    });
+    const app = createApp({
+      ssr: { render: ssrRender },
+      render: (page, _viewData, ssr) => renderShell(page, ssr),
+    });
+    app.get('/test', (c) => c.var.inertia.render('Test', { name: 'Hi' }));
+
+    const response = await app.request('/test');
+
+    expect(ssrRender).toHaveBeenCalledWith(
+      expect.objectContaining({
+        component: 'Test',
+        props: { errors: {}, name: 'Hi' },
+      }),
+    );
+    expect(await response.text()).toBe(
+      '<html><head><title>SSR</title></head><body><div data-server-rendered="true" id="app"><h1>Hi</h1></div></body></html>',
+    );
+  });
+
+  it('skips ssr.render for Inertia JSON requests', async () => {
+    const ssrRender = vi.fn();
+    const app = createApp({ ssr: { render: ssrRender } });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    await app.request('/test', { headers: inertiaHeaders() });
+
+    expect(ssrRender).not.toHaveBeenCalled();
+  });
+
+  it('skips ssr.render when ssr.enabled is false', async () => {
+    const ssrRender = vi.fn();
+    const app = createApp({ ssr: { render: ssrRender, enabled: false } });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    await app.request('/test');
+
+    expect(ssrRender).not.toHaveBeenCalled();
+  });
+
+  it('renders client-side and reports the error when ssr.render throws', async () => {
+    const error = new Error('Page not found: Test');
+    const onSsrError = vi.fn();
+    let receivedSsr: unknown = 'not called';
+    const app = createApp({
+      ssr: { render: () => Promise.reject(error) },
+      onSsrError,
+      render: (page, _viewData, ssr) => {
+        receivedSsr = ssr;
+        return renderShell(page, ssr);
+      },
+    });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test');
+
+    expect(response.status).toBe(200);
+    expect(receivedSsr).toBeUndefined();
+    expect(parsePageFromHtml(await response.text()).component).toBe('Test');
+    expect(onSsrError).toHaveBeenCalledWith(
+      error,
+      expect.objectContaining({ component: 'Test' }),
+    );
+  });
+
+  it('reports an invalid ssr.render result as an error', async () => {
+    const onSsrError = vi.fn();
+    const app = createApp({
+      ssr: {
+        render: () =>
+          ({ head: '<title>x</title>', body: '' }) as unknown as {
+            head: string[];
+            body: string;
+          },
+      },
+      onSsrError,
+    });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    await app.request('/test');
+
+    expect(onSsrError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'SSR render must return { head: string[], body: string }',
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it('logs SSR failures with console.error by default', async () => {
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+    const error = new Error('boom');
+    const app = createApp({ ssr: { render: () => Promise.reject(error) } });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    await app.request('/test');
+
+    expect(consoleError).toHaveBeenCalledWith(
+      '[hono-inertia] SSR failed for "Test", rendering client-side',
+      error,
+    );
+    consoleError.mockRestore();
+  });
+
+  it('fails the request when onSsrError throws', async () => {
+    const app = createApp({
+      ssr: { render: () => Promise.reject(new Error('boom')) },
+      onSsrError: (error) => {
+        throw error;
+      },
+    });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test');
+
+    expect(response.status).toBe(500);
+  });
+
+  it('reports HTTP SSR failures through onSsrError', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockRejectedValue(new Error('ECONNREFUSED')),
+    );
+    const onSsrError = vi.fn();
+    const app = createApp({
+      ssr: { url: 'http://localhost:13714' },
+      onSsrError,
+    });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test');
+
+    expect(response.status).toBe(200);
+    expect(onSsrError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'ECONNREFUSED' }),
+      expect.objectContaining({ component: 'Test' }),
+    );
+    vi.unstubAllGlobals();
+  });
+});
+
+// =========================================================================
+// Lazy evaluation edge cases
+// =========================================================================
+describe('Lazy evaluation edge cases', () => {
+  it('handles lazy function returning null', async () => {
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.render('Test', { data: () => null }));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.props.data).toBeNull();
+  });
+
+  it('handles lazy function returning undefined', async () => {
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.render('Test', { data: () => {} }));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.props.data).toBeUndefined();
+  });
+
+  it('resolves multiple async lazy functions in parallel', async () => {
+    const order: string[] = [];
+
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        a: async () => {
+          order.push('a-start');
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          order.push('a-end');
+          return 'A';
+        },
+        b: async () => {
+          order.push('b-start');
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          order.push('b-end');
+          return 'B';
+        },
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+
+    expect(page.props.a).toBe('A');
+    expect(page.props.b).toBe('B');
+    // Both should start before either finishes (parallel)
+    expect(order[0]).toBe('a-start');
+    expect(order[1]).toBe('b-start');
+  });
+
+  it('handles merge prop with lazy function value', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        posts: merge(() => Promise.resolve([1, 2, 3])),
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.props.posts).toEqual([1, 2, 3]);
+    expect(page.mergeProps).toEqual(['posts']);
+  });
+});
+
+// =========================================================================
+// Version defaults
+// =========================================================================
+describe('Version defaults', () => {
+  const createUnversionedApp = () => {
+    const app = new Hono<InertiaEnv>();
+    app.use(
+      inertia({
+        render: (page) =>
+          `<script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div>`,
+      }),
+    );
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+    return app;
+  };
+
+  it('emits version null when no version is configured', async () => {
+    const app = createUnversionedApp();
+
+    const response = await app.request('/test', {
+      headers: { 'X-Inertia': 'true' },
+    });
+
+    expect(response.status).toBe(200);
+    const page = await getPage(response);
+    expect(page.version).toBe(null);
+  });
+
+  it('never 409s when versioning is disabled, even if the client sends a version', async () => {
+    const app = createUnversionedApp();
+
+    const response = await app.request('/test', {
+      headers: { 'X-Inertia': 'true', 'X-Inertia-Version': 'stale-version' },
+    });
+
+    expect(response.status).toBe(200);
+  });
+
+  it('never 409s on a missing X-Inertia-Version header', async () => {
+    const app = createApp({ version: '2.0' });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', {
+      headers: { 'X-Inertia': 'true' },
+    });
+
+    expect(response.status).toBe(200);
+  });
+
+  it('never 409s on an empty X-Inertia-Version header', async () => {
+    const app = createApp({ version: '2.0' });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', {
+      headers: { 'X-Inertia': 'true', 'X-Inertia-Version': '' },
+    });
+
+    expect(response.status).toBe(200);
+  });
+});
+
+describe('Cache-Control', () => {
+  const DEFAULT = 'private, no-cache, must-revalidate';
+
+  it('sets the default header on Inertia JSON responses', async () => {
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+
+    expect(response.headers.get('Cache-Control')).toBe(DEFAULT);
+  });
+
+  it('sets the default header on initial HTML responses', async () => {
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test');
+
+    expect(response.headers.get('Cache-Control')).toBe(DEFAULT);
+  });
+
+  it('sets the default header on 409 version mismatches', async () => {
+    const app = createApp({ version: '2.0' });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', {
+      headers: { 'X-Inertia': 'true', 'X-Inertia-Version': '1.0' },
+    });
+
+    expect(response.status).toBe(409);
+    expect(response.headers.get('Cache-Control')).toBe(DEFAULT);
+  });
+
+  it('sets the default header on location() 409 responses', async () => {
+    const app = createApp();
+    app.get('/away', (c) => c.var.inertia.location('https://example.com'));
+
+    const response = await app.request('/away', { headers: inertiaHeaders() });
+
+    expect(response.status).toBe(409);
+    expect(response.headers.get('Cache-Control')).toBe(DEFAULT);
+  });
+
+  it('sets the default header on redirect() 409 responses', async () => {
+    const app = createApp();
+    app.get('/away', (c) => c.var.inertia.redirect('/other#section'));
+
+    const response = await app.request('/away', { headers: inertiaHeaders() });
+
+    expect(response.status).toBe(409);
+    expect(response.headers.get('Cache-Control')).toBe(DEFAULT);
+  });
+
+  it('uses a custom cacheControl value', async () => {
+    const app = createApp({ cacheControl: 'no-store' });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+  });
+
+  it('omits the header when cacheControl is false', async () => {
+    const app = createApp({ cacheControl: false });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+
+    expect(response.headers.get('Cache-Control')).toBe(null);
+  });
+
+  it('sets the default header when render uses hono/html', async () => {
+    const app = createApp({
+      render: (page) => honoHtml`<div id="app">${page.component}</div>`,
+    });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test');
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe(DEFAULT);
+    expect(await response.text()).toBe('<div id="app">Test</div>');
+  });
+
+  it('preserves a handler-set Cache-Control on HTML responses', async () => {
+    const app = createApp();
+    app.get('/test', (c) => {
+      c.header('Cache-Control', 'public, max-age=60');
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test');
+
+    expect(response.headers.get('Cache-Control')).toBe('public, max-age=60');
+  });
+
+  it('preserves a handler-set Cache-Control on Inertia JSON responses', async () => {
+    const app = createApp();
+    app.get('/test', (c) => {
+      c.header('Cache-Control', 'public, max-age=60');
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+
+    expect(response.headers.get('Cache-Control')).toBe('public, max-age=60');
+  });
+
+  it('does not stamp passthrough responses', async () => {
+    const app = createApp();
+    app.get('/api', (c) => c.json({ ok: true }));
+
+    const response = await app.request('/api');
+
+    expect(response.headers.get('Cache-Control')).toBe(null);
+  });
+});
+
+describe('Response status', () => {
+  it('returns 200 by default', async () => {
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+
+    expect(response.status).toBe(200);
+  });
+
+  it('uses c.status() on Inertia JSON responses', async () => {
+    const app = createApp();
+    app.get('/missing', (c) => {
+      c.status(404);
+      return c.var.inertia.render('Error', { status: 404 });
+    });
+
+    const response = await app.request('/missing', {
+      headers: inertiaHeaders(),
+    });
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get('X-Inertia')).toBe('true');
+    const page = await getPage(response);
+    expect(page.component).toBe('Error');
+  });
+
+  it('uses c.status() on initial HTML responses', async () => {
+    const app = createApp();
+    app.get('/missing', (c) => {
+      c.status(404);
+      return c.var.inertia.render('Error', { status: 404 });
+    });
+
+    const response = await app.request('/missing');
+
+    expect(response.status).toBe(404);
+    const html = await response.text();
+    expect(parsePageFromHtml(html).component).toBe('Error');
+  });
+
+  it('uses c.status() in a notFound handler', async () => {
+    const app = createApp();
+    app.notFound((c) => {
+      c.status(404);
+      return c.var.inertia.render('Error', { status: 404 });
+    });
+
+    const response = await app.request('/nowhere', {
+      headers: inertiaHeaders(),
+    });
+
+    expect(response.status).toBe(404);
+    const page = await getPage(response);
+    expect(page.component).toBe('Error');
+  });
+
+  it('keeps handler-set headers on Inertia JSON responses', async () => {
+    const app = createApp();
+    app.get('/test', (c) => {
+      c.header('X-Custom', 'kept');
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+
+    expect(response.headers.get('X-Custom')).toBe('kept');
+    expect(response.headers.get('Content-Type')).toContain('application/json');
+  });
+});
+
+describe('Render function context', () => {
+  it('passes the Hono context to the render function', async () => {
+    const app = new Hono<InertiaEnv & { Variables: { nonce: string } }>();
+    app.use(async (c, next) => {
+      c.set('nonce', 'abc123');
+      await next();
+    });
+    app.use(
+      inertia({
+        render: (page, viewData, ssr, c) =>
+          `<script nonce="${c.get('nonce')}"></script><script data-page="app" type="application/json">${serializePage(page)}</script>`,
+      }),
+    );
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test');
+
+    expect(await response.text()).toContain('<script nonce="abc123">');
+  });
+});
+
+describe('BigInt props', () => {
+  it('sends BigInt props as $bigint markers on Inertia responses', async () => {
+    const app = createApp();
+    app.get('/orders', (c) =>
+      c.var.inertia.render('Orders', {
+        id: 900_719_925_474_099_988n,
+        total: 12,
+      }),
+    );
+
+    const response = await app.request('/orders', {
+      headers: inertiaHeaders(),
+    });
+    const page = await getPage(response);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toContain('application/json');
+    expect(page.props.id).toEqual({ $bigint: '900719925474099988' });
+    expect(page.props.total).toBe(12);
+    expect(page.preserveBigIntegers).toBe(true);
+  });
+
+  it('resolves lazy props that return a BigInt', async () => {
+    const app = createApp();
+    app.get('/orders', (c) =>
+      c.var.inertia.render('Orders', { id: () => Promise.resolve(5n) }),
+    );
+
+    const page = await getPage(
+      await app.request('/orders', { headers: inertiaHeaders() }),
+    );
+
+    expect(page.props.id).toEqual({ $bigint: '5' });
+  });
+
+  it('embeds BigInt markers in the initial HTML page', async () => {
+    const app = createApp();
+    app.get('/orders', (c) => c.var.inertia.render('Orders', { id: 7n }));
+
+    const response = await app.request('/orders');
+    const page = parsePageFromHtml(await response.text());
+
+    expect(page.props.id).toEqual({ $bigint: '7' });
+    expect(page.preserveBigIntegers).toBe(true);
+  });
+
+  it('does not flag pages without BigInt props', async () => {
+    const app = createApp();
+    app.get('/orders', (c) => c.var.inertia.render('Orders', { id: 7 }));
+
+    const page = await getPage(
+      await app.request('/orders', { headers: inertiaHeaders() }),
+    );
+
+    expect(page.preserveBigIntegers).toBeUndefined();
+  });
+
+  it('posts BigInt markers to the SSR server', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers(),
+      json: () => Promise.resolve({ head: [], body: '<div id="app"></div>' }),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+    const app = createApp({ ssr: { url: 'http://localhost:13714' } });
+    app.get('/orders', (c) => c.var.inertia.render('Orders', { id: 7n }));
+
+    await app.request('/orders');
+
+    const [, init] = mockFetch.mock.calls[0] as Parameters<typeof fetch>;
+    if (typeof init?.body !== 'string') {
+      throw new TypeError('expected the SSR request body to be a JSON string');
+    }
+    const sent = JSON.parse(init.body) as PageObject;
+    expect(sent.props.id).toEqual({ $bigint: '7' });
+    expect(sent.preserveBigIntegers).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it('passes native BigInt values to an in-process ssr.render', async () => {
+    const ssrRender = vi
+      .fn()
+      .mockResolvedValue({ head: [], body: '<div id="app"></div>' });
+    const app = createApp({ ssr: { render: ssrRender } });
+    app.get('/orders', (c) => c.var.inertia.render('Orders', { id: 7n }));
+
+    await app.request('/orders');
+
+    expect(ssrRender.mock.calls[0][0].props.id).toBe(7n);
+  });
+});
+
+describe('Lazy version resolution', () => {
+  const createCountingApp = () => {
+    let calls = 0;
+    const app = new Hono<InertiaEnv>();
+    app.use(
+      inertia({
+        version: () => {
+          calls++;
+          return '1.0';
+        },
+        render: (page) =>
+          `<script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div>`,
+      }),
+    );
+    app.get('/page', (c) => c.var.inertia.render('Test'));
+    app.get('/passthrough', (c) => c.json({ ok: true }));
+    app.post('/action', (c) => c.redirect('/page'));
+    return { app, calls: () => calls };
+  };
+
+  it('does not resolve the version on passthrough routes', async () => {
+    const { app, calls } = createCountingApp();
+
+    await app.request('/passthrough');
+
+    expect(calls()).toBe(0);
+  });
+
+  it('does not resolve the version on POST requests that never render', async () => {
+    const { app, calls } = createCountingApp();
+
+    await app.request('/action', {
+      method: 'POST',
+      headers: { 'X-Inertia': 'true', 'X-Inertia-Version': '0.9' },
+    });
+
+    expect(calls()).toBe(0);
+  });
+
+  it('resolves the version at most once per rendering request', async () => {
+    const { app, calls } = createCountingApp();
+
+    await app.request('/page', {
+      headers: { 'X-Inertia': 'true', 'X-Inertia-Version': '1.0' },
+    });
+
+    expect(calls()).toBe(1);
+  });
+});
+
+// =========================================================================
+// 302→303 redirect edge cases
+// =========================================================================
+describe('302→303 redirect edge cases', () => {
+  it('preserves 301 redirects unchanged', async () => {
+    const app = createApp();
+    app.put('/submit', (c) => c.redirect('/result', 301));
+
+    const response = await app.request('/submit', {
+      method: 'PUT',
+      headers: inertiaHeaders(),
+    });
+    expect(response.status).toBe(301);
+  });
+
+  it('does not convert POST 302 to 303', async () => {
+    const app = createApp();
+    app.post('/submit', (c) => c.redirect('/result', 302));
+
+    const response = await app.request('/submit', {
+      method: 'POST',
+      headers: inertiaHeaders(),
+    });
+    expect(response.status).toBe(302);
+  });
+
+  it('sets Vary header on converted 303 response', async () => {
+    const app = createApp();
+    app.put('/submit', (c) => c.redirect('/result', 302));
+
+    const response = await app.request('/submit', {
+      method: 'PUT',
+      headers: inertiaHeaders(),
+    });
+    expect(response.status).toBe(303);
+    expect(response.headers.get('Vary')).toContain('X-Inertia');
+  });
+});
+
+// =========================================================================
+// v3: sharedProps page object field
+// =========================================================================
+describe('Shared props metadata', () => {
+  it('includes sharedProps keys from config-level share', async () => {
+    const app = createApp({
+      share: () => ({ appName: 'Test', auth: { user: null } }),
+    });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.sharedProps).toEqual(['appName', 'auth']);
+  });
+
+  it('includes sharedProps keys from per-request share', async () => {
+    const app = createApp();
+    app.get('/test', (c) => {
+      c.var.inertia.share({ flash: 'success' });
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.sharedProps).toEqual(['flash']);
+  });
+
+  it('combines config-level and per-request shared keys', async () => {
+    const app = createApp({
+      share: () => ({ appName: 'Test' }),
+    });
+    app.get('/test', (c) => {
+      c.var.inertia.share({ flash: 'ok' });
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.sharedProps).toEqual(['appName', 'flash']);
+  });
+
+  it('omits sharedProps when no sharing occurs', async () => {
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.sharedProps).toBeUndefined();
+  });
+});
+
+// =========================================================================
+// v3: preserveFragment
+// =========================================================================
+describe('Preserve fragment', () => {
+  it('includes preserveFragment when enabled', async () => {
+    const app = createApp();
+    app.get('/test', (c) => {
+      c.var.inertia.preserveFragment();
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.preserveFragment).toBe(true);
+  });
+
+  it('omits preserveFragment by default', async () => {
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.preserveFragment).toBeUndefined();
+  });
+
+  it('can disable preserveFragment after enabling', async () => {
+    const app = createApp();
+    app.get('/test', (c) => {
+      c.var.inertia.preserveFragment(true);
+      c.var.inertia.preserveFragment(false);
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.preserveFragment).toBeUndefined();
+  });
+});
+
+// =========================================================================
+// v3: redirect() with X-Inertia-Redirect header
+// =========================================================================
+describe('Fragment-preserving redirect', () => {
+  it('returns 409 with X-Inertia-Redirect for Inertia requests', async () => {
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.redirect('/new-page#section'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    expect(response.status).toBe(409);
+    expect(response.headers.get('X-Inertia-Redirect')).toBe(
+      '/new-page#section',
+    );
+    expect(response.headers.get('X-Inertia-Location')).toBeNull();
+  });
+
+  it('returns 302 for non-Inertia requests', async () => {
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.redirect('/new-page#section'));
+
+    const response = await app.request('/test', { redirect: 'manual' });
+    expect(response.status).toBe(302);
+    expect(response.headers.get('Location')).toBe('/new-page#section');
+  });
+});
+
+// =========================================================================
+// v3: scroll() prop
+// =========================================================================
+describe('Scroll props', () => {
+  const mockMetadata: ScrollMetadata = {
+    getPageName: () => 'page',
+    getCurrentPage: () => 1,
+    getPreviousPage: () => null,
+    getNextPage: () => 2,
+  };
+
+  it('includes scroll data in props and scrollProps metadata', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        posts: scroll(() => [{ id: 1 }, { id: 2 }], mockMetadata),
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.props.posts).toEqual([{ id: 1 }, { id: 2 }]);
+    expect(page.scrollProps).toEqual({
+      posts: {
+        pageName: 'page',
+        currentPage: 1,
+        previousPage: null,
+        nextPage: 2,
+        reset: true,
+      },
+    });
+  });
+
+  it('implicitly adds scroll prop to mergeProps', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        posts: scroll(() => [1, 2], mockMetadata),
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.mergeProps).toEqual(['posts']);
+  });
+
+  it('routes scroll prop to prependProps on prepend merge intent', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        posts: scroll(() => [1, 2], mockMetadata),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'posts',
+        'X-Inertia-Infinite-Scroll-Merge-Intent': 'prepend',
+      }),
+    });
+    const page = await getPage(response);
+    expect(page.prependProps).toEqual(['posts']);
+    expect(page.mergeProps).toBeUndefined();
+    // Incremental fetch (merge-intent header present) must not reset the collection
+    expect(page.scrollProps?.posts?.reset).toBe(false);
+  });
+
+  it('respects partial reload filtering', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        posts: scroll(() => [1, 2], mockMetadata),
+        other: 'data',
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'other',
+      }),
+    });
+    const page = await getPage(response);
+    expect(page.props.other).toBe('data');
+    expect(page.props.posts).toBeUndefined();
+    expect(page.scrollProps).toBeUndefined();
+  });
+
+  it('excludes from mergeProps when reset', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        posts: scroll(() => [1], mockMetadata),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Reset': 'posts',
+      }),
+    });
+    const page = await getPage(response);
+    expect(page.props.posts).toEqual([1]);
+    expect(page.mergeProps).toBeUndefined();
+  });
+
+  it('sets matchPropsOn for scroll with matchOn', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        posts: scroll(() => [{ id: 1 }], mockMetadata).setMatchOn('id'),
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.mergeProps).toEqual(['posts']);
+    expect(page.matchPropsOn).toEqual(['posts.id']);
+  });
+
+  it('sets matchPropsOn alongside prependProps on prepend merge intent', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        posts: scroll(() => [{ id: 1 }], mockMetadata).setMatchOn('id'),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'posts',
+        'X-Inertia-Infinite-Scroll-Merge-Intent': 'prepend',
+      }),
+    });
+    const page = await getPage(response);
+    expect(page.prependProps).toEqual(['posts']);
+    expect(page.matchPropsOn).toEqual(['posts.id']);
+  });
+
+  it('omits matchPropsOn when setMatchOn is not used', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        posts: scroll(() => [{ id: 1 }], mockMetadata),
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.matchPropsOn).toBeUndefined();
+  });
+
+  it('strips matchPropsOn when reset', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        posts: scroll(() => [{ id: 1 }], mockMetadata).setMatchOn('id'),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Reset': 'posts',
+      }),
+    });
+    const page = await getPage(response);
+    expect(page.matchPropsOn).toBeUndefined();
+  });
+});
+
+// =========================================================================
+// Global history encryption config
+// =========================================================================
+describe('Global history encryption config', () => {
+  it('encrypts history for every response when config.encryptHistory is true', async () => {
+    const app = createApp({ encryptHistory: true });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.encryptHistory).toBe(true);
+  });
+
+  it('allows a route to opt out of global history encryption', async () => {
+    const app = createApp({ encryptHistory: true });
+    app.get('/test', (c) => {
+      c.var.inertia.encryptHistory(false);
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.encryptHistory).toBeUndefined();
+  });
+});
+
+// =========================================================================
+// XSS safety: props are escaped in the data-page script tag
+// =========================================================================
+describe('XSS safety', () => {
+  it('escapes script-breaking sequences from props in the data-page script tag', async () => {
+    const payload = `</script><img src=x onerror="alert(1)">`;
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.render('Test', { bio: payload }));
+
+    const response = await app.request('/test');
+    const body = await response.text();
+
+    // Only the adapter's own closing tag may appear in the document...
+    expect(body.match(/<\/script>/g)).toHaveLength(1);
+    expect(body).not.toContain('<img');
+    expect(body).toContain(String.raw`\u003c/script\u003e`);
+
+    // ...but it round-trips back to the exact original value for the client.
+    const page = parsePageFromHtml(body);
+    expect(page.props.bio).toBe(payload);
+  });
+
+  it('escapes an HTML comment opener from props', async () => {
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.render('Test', { bio: '<!-- x' }));
+
+    const response = await app.request('/test');
+    const body = await response.text();
+    expect(body).not.toContain('<!--');
+    expect(parsePageFromHtml(body).props.bio).toBe('<!-- x');
+  });
+});
+
+// =========================================================================
+// Conformance: nested partial-reload keys
+// =========================================================================
+describe('Conformance: nested partial-reload keys', () => {
+  it('includes the top-level prop when only a nested path is requested', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        user: { name: 'Alice', email: 'a@b.c' },
+        other: 'x',
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'user.name',
+      }),
+    });
+    const page = await getPage(response);
+    expect(page.props.user).toEqual({ name: 'Alice', email: 'a@b.c' });
+    expect(page.props.other).toBeUndefined();
+  });
+});
+
+// =========================================================================
+// Conformance: version mismatch location
+// =========================================================================
+describe('Conformance: version mismatch location', () => {
+  it('returns a relative path in X-Inertia-Location', async () => {
+    const app = createApp({ version: '2.0' });
+    app.get('/users/:id', (c) => c.var.inertia.render('Users/Show'));
+
+    const response = await app.request('/users/42?tab=profile', {
+      headers: { 'X-Inertia': 'true', 'X-Inertia-Version': '1.0' },
+    });
+    expect(response.status).toBe(409);
+    expect(response.headers.get('X-Inertia-Location')).toBe(
+      '/users/42?tab=profile',
+    );
+  });
+});
+
+// =========================================================================
+// Flash messages
+// =========================================================================
+describe('Flash messages', () => {
+  it('emits flash on Inertia JSON responses', async () => {
+    const app = createApp();
+    app.get('/test', (c) => {
+      c.var.inertia.flash({ success: 'Saved!' });
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.flash).toEqual({ success: 'Saved!' });
+  });
+
+  it('emits flash in the data-page script tag on initial visits', async () => {
+    const app = createApp();
+    app.get('/test', (c) => {
+      c.var.inertia.flash({ toast: 'Hi' });
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test');
+    const page = parsePageFromHtml(await response.text());
+    expect(page.flash).toEqual({ toast: 'Hi' });
+  });
+
+  it('accumulates across multiple flash() calls', async () => {
+    const app = createApp();
+    app.get('/test', (c) => {
+      c.var.inertia.flash({ a: 1 });
+      c.var.inertia.flash({ b: 2 });
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.flash).toEqual({ a: 1, b: 2 });
+  });
+
+  it('later flash() calls override earlier keys', async () => {
+    const app = createApp();
+    app.get('/test', (c) => {
+      c.var.inertia.flash({ msg: 'first' });
+      c.var.inertia.flash({ msg: 'second' });
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.flash).toEqual({ msg: 'second' });
+  });
+
+  it('omits flash when none is set', async () => {
+    const app = createApp();
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.flash).toBeUndefined();
+  });
+
+  it('keeps flash out of props', async () => {
+    const app = createApp();
+    app.get('/test', (c) => {
+      c.var.inertia.flash({ success: 'Saved!' });
+      return c.var.inertia.render('Test', { title: 'Home' });
+    });
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.props.success).toBeUndefined();
+    expect(page.props.title).toBe('Home');
+  });
+});

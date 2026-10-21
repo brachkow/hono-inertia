@@ -1,0 +1,8 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "hono-inertia-vue-workers",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-01",
+  // No `assets` block: @cloudflare/vite-plugin serves the client build as
+  // static assets and fills in assets.directory when it builds
+}

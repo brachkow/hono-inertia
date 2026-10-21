@@ -1,0 +1,14 @@
+{
+  // Typechecks against the oldest Hono and Vite the peer ranges allow
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "hono": ["./node_modules/hono-4.8.0/dist/types/index.d.ts"],
+      "hono/*": [
+        "./node_modules/hono-4.8.0/dist/types/helper/*",
+        "./node_modules/hono-4.8.0/dist/types/*"
+      ],
+      "vite": ["./node_modules/vite-7.0.0/dist/node/index.d.ts"]
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "example-vue-node",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "node dist/server/main.js",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "devDependencies": {
+    "@hono/vite-dev-server": "^0.26.1",
+    "@inertiajs/vite": "^3.9.1",
+    "@types/node": "^26.6.5",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vue-tsc": "^3.3.13"
+  },
+  "dependencies": {
+    "@brachkow/hono-inertia": "workspace:*",
+    "@hono/node-server": "^2.1.5",
+    "@inertiajs/core": "^3.9.1",
+    "@inertiajs/vue3": "^3.9.1",
+    "hono": "catalog:",
+    "vue": "^3.5.44"
+  }
+}
