@@ -1,0 +1,28 @@
+{
+  "name": "example-svelte-node",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "node dist/server/main.js",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings"
+  },
+  "dependencies": {
+    "@brachkow/hono-inertia": "workspace:*",
+    "@hono/node-server": "^2.1.5",
+    "@inertiajs/core": "^3.9.1",
+    "@inertiajs/svelte": "^3.9.1",
+    "hono": "catalog:",
+    "svelte": "^5.57.2"
+  },
+  "devDependencies": {
+    "@hono/vite-dev-server": "^0.26.1",
+    "@inertiajs/vite": "^3.9.1",
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@types/node": "^26.6.5",
+    "svelte-check": "^4.7.7",
+    "typescript": "catalog:",
+    "vite": "catalog:"
+  }
+}

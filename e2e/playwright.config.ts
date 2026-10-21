@@ -26,6 +26,12 @@ const EXAMPLES: Example[] = [
     homePage: 'src/pages/Home.vue',
   },
   {
+    name: 'svelte-node',
+    port: 3004,
+    processes: [{ command: 'pnpm start', url: 'http://localhost:3004' }],
+    homePage: 'src/pages/Home.svelte',
+  },
+  {
     name: 'vue-workers',
     port: 3003,
     processes: [{ command: 'pnpm start', url: 'http://localhost:3003' }],
