@@ -101,6 +101,10 @@ inertia({
     auth: { user: getUser(c) },
   }),
 
+  // Optional. The page.url sent to the client. Defaults to the request's path
+  // and query. See Page URL below.
+  resolveUrl: (c) => c.req.url,
+
   // Optional. Posts the page object to an Inertia SSR server, or pass
   // { render } to render in the same process (see SSR below)
   ssr: {
@@ -143,6 +147,33 @@ app.get('/dashboard', (c) => {
   });
 });
 ```
+
+### Page URL
+
+The client shows `page.url` in the address bar. It defaults to the request's path and query, as in inertia-laravel. A handler that renders on a `POST`, for example to show validation errors without redirecting, therefore puts the `POST` URL in the address bar. Set the URL for one response with `c.var.inertia.url()`:
+
+```ts
+app.post('/users', async (c) => {
+  const errors = await validate(c);
+  if (errors) {
+    c.var.inertia.url('/users/new');
+    return c.var.inertia.render('Users/New', { errors });
+  }
+  // ...
+});
+```
+
+To change the default for every response, pass `resolveUrl`. This one uses the page the request came from for non-`GET` requests, like `@hono/inertia` does:
+
+```ts
+inertia({
+  resolveUrl: (c) =>
+    c.req.method === 'GET' ? c.req.url : (c.req.header('Referer') ?? c.req.url),
+  // ...
+});
+```
+
+The `Referer` is missing under a `no-referrer` policy and holds only the origin under `origin` or `strict-origin`, so the fallback matters. Both `url()` and `resolveUrl` accept an absolute or relative URL. The adapter resolves it against the request URL and drops the origin, so an internal origin behind a proxy never reaches the client.
 
 ### BigInt props
 

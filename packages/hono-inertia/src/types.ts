@@ -98,6 +98,10 @@ export interface InertiaConfig<
   render: RenderFunction;
   ssr?: SsrConfig;
   share?: (c: Context) => V | Promise<V>;
+  // The page.url sent to the client. Defaults to the request's path and query.
+  // A relative URL resolves against the request URL, and the origin is dropped.
+  // c.var.inertia.url() overrides it for one response.
+  resolveUrl?: (c: Context) => string;
   // Encrypt browser history state for every response (mirrors Inertia's global
   // `history.encrypt` option). Off by default; pages can opt out per-request via
   // `c.var.inertia.encryptHistory(false)`. Requires the client to be served over HTTPS.
@@ -213,6 +217,9 @@ export interface InertiaContext {
     properties?: P,
     viewData?: Record<string, unknown>,
   ): Promise<RenderResponse<C, P>>;
+  // Sets page.url for this response, e.g. the form page when a POST handler
+  // renders validation errors instead of redirecting
+  url(url: string): void;
   share(data: Record<string, unknown>): void;
   location(url: string): Response;
   redirect(url: string): Response;

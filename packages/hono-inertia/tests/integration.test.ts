@@ -1768,6 +1768,105 @@ describe('URL edge cases', () => {
 // =========================================================================
 // Page URL overrides
 // =========================================================================
+describe('page URL overrides', () => {
+  it('uses c.var.inertia.url() for this response', async () => {
+    const app = createApp();
+    app.post('/users', (c) => {
+      c.var.inertia.url('/users/new');
+      return c.var.inertia.render('Users/New');
+    });
+
+    const response = await app.request('/users', {
+      method: 'POST',
+      headers: inertiaHeaders(),
+    });
+
+    const page = await getPage(response);
+    expect(page.url).toBe('/users/new');
+  });
+
+  it('uses the resolveUrl option', async () => {
+    const app = createApp({
+      resolveUrl: (c) =>
+        c.req.method === 'GET' ? c.req.url : (c.req.header('Referer') ?? ''),
+    });
+    app.post('/users', (c) => c.var.inertia.render('Users/New'));
+
+    const response = await app.request('/users', {
+      method: 'POST',
+      headers: inertiaHeaders({ Referer: 'http://localhost/users/new?step=2' }),
+    });
+
+    const page = await getPage(response);
+    expect(page.url).toBe('/users/new?step=2');
+  });
+
+  it('prefers c.var.inertia.url() over resolveUrl', async () => {
+    const app = createApp({ resolveUrl: () => '/from-option' });
+    app.get('/test', (c) => {
+      c.var.inertia.url('/from-handler');
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+
+    const page = await getPage(response);
+    expect(page.url).toBe('/from-handler');
+  });
+
+  it('drops the origin of an absolute URL', async () => {
+    const app = createApp({
+      resolveUrl: () => 'http://internal:8080/users?page=2',
+    });
+    app.get('/test', (c) => c.var.inertia.render('Test'));
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+
+    const page = await getPage(response);
+    expect(page.url).toBe('/users?page=2');
+  });
+
+  it('resolves a relative URL against the request URL', async () => {
+    const app = createApp();
+    app.get('/users/42/edit', (c) => {
+      c.var.inertia.url('../42');
+      return c.var.inertia.render('Users/Show');
+    });
+
+    const response = await app.request('/users/42/edit', {
+      headers: inertiaHeaders(),
+    });
+
+    const page = await getPage(response);
+    expect(page.url).toBe('/users/42');
+  });
+
+  it('keeps a fragment', async () => {
+    const app = createApp();
+    app.get('/docs', (c) => {
+      c.var.inertia.url('/docs#install');
+      return c.var.inertia.render('Docs');
+    });
+
+    const response = await app.request('/docs', { headers: inertiaHeaders() });
+
+    const page = await getPage(response);
+    expect(page.url).toBe('/docs#install');
+  });
+
+  it('applies to the initial HTML response', async () => {
+    const app = createApp();
+    app.get('/test', (c) => {
+      c.var.inertia.url('/elsewhere');
+      return c.var.inertia.render('Test');
+    });
+
+    const response = await app.request('/test');
+
+    expect(parsePageFromHtml(await response.text()).url).toBe('/elsewhere');
+  });
+});
+
 // =========================================================================
 // History encryption edge cases
 // =========================================================================

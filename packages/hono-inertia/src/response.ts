@@ -30,7 +30,7 @@ import {
   getScrollMergeIntent,
   hasScrollMergeIntent,
   isInertiaRequest,
-  resolveUrl,
+  toPageUrl,
 } from './utilities.js';
 
 export class InertiaResponse implements InertiaContext {
@@ -41,6 +41,7 @@ export class InertiaResponse implements InertiaContext {
   private shouldClearHistory = false;
   private clearHistoryWasConsumed = false;
   private shouldPreserveFragment = false;
+  private urlOverride: string | undefined;
   private devtoolsPayloadStore: DevtoolsPayload | null = null;
 
   constructor(
@@ -135,6 +136,10 @@ export class InertiaResponse implements InertiaContext {
       properties ?? {},
       extraViewData,
     )) as RenderResponse<C, P>;
+  }
+
+  url(url: string): void {
+    this.urlOverride = url;
   }
 
   private async renderPage(
@@ -390,7 +395,10 @@ export class InertiaResponse implements InertiaContext {
     const page: PageObject = {
       component,
       props: resolved,
-      url: resolveUrl(this.c),
+      url: toPageUrl(
+        this.c,
+        this.urlOverride ?? this.config.resolveUrl?.(this.c) ?? this.c.req.url,
+      ),
       version: await this.version(),
     };
 
