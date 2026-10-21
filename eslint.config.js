@@ -19,6 +19,10 @@ export default defineConfig(
             InertiaEnv: true,
             isTaggedProp: true,
             DevtoolsPropMeta: true,
+            // Named after @inertiajs/core's PageProps, and InertiaEnv above
+            PageProps: true,
+            PagePropsFor: true,
+            InertiaSharedEnv: true,
           },
           replacements: {
             res: { response: true, resource: false, result: false },

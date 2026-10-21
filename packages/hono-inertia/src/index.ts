@@ -40,3 +40,15 @@ export type {
   SsrRenderResult,
   SsrResult,
 } from './types.js';
+
+// Typed page props
+export type {
+  AppRegistry,
+  InertiaPages,
+  InertiaSharedEnv,
+  PageName,
+  PageProps,
+  PagePropsFor,
+  RenderResponse,
+  ResolvedProperties,
+} from './page-properties.js';

@@ -1,12 +1,15 @@
 <script setup lang="ts">
   import { Deferred, router } from '@inertiajs/vue3';
+  import type { PageProps } from '../../pages.gen';
+
+  type Properties = PageProps<'Users/Index'>;
 
   const properties = defineProps<{
-    users: Array<{ id: number; name: string }>;
-    page: number;
-    hasMore: boolean;
-    stats?: { total: number };
-    activity?: string[];
+    users: Properties['users'];
+    page: Properties['page'];
+    hasMore: Properties['hasMore'];
+    stats?: Properties['stats'];
+    activity?: Properties['activity'];
   }>();
 
   // Partial reloads fetch only the named props; `users` is a merge prop, so

@@ -8,6 +8,7 @@ Inertia.js v3 server-side adapter for [Hono](https://hono.dev).
 
 - The full Inertia v3 protocol: initial visits, Inertia requests, partial reloads, asset version checks with 409 reloads, and 303 redirects after `PUT`, `PATCH` and `DELETE`
 - Every prop type: [`optional`](#optionalfn), [`always`](#alwaysvalue), [`deferred`](#deferredfn-group) with groups and rescue, [`merge`, `prepend` and `deepMerge`](#mergevalue--prependvalue--deepmergevalue), [`scroll`](#scrollvalue-metadata) for infinite scrolling, and [`once`](#oncefn-key-expiresat). Wrappers chain, as in `deferred(fn).merge().once()`
+- [Typed page props](#typed-page-props): page components get their props' types from the routes that render them, and `render()` only accepts existing pages
 - [Shared data](#shared-data) from config or per-request middleware
 - Server-side rendering through Inertia's SSR server or [in the same process](#in-the-same-process-cloudflare-workers), with a fallback to client-side rendering when SSR fails
 - A [Vite plugin](#vite-plugin) that gives the server the asset tags and version, and keeps the build manifest private
@@ -392,6 +393,7 @@ Add `/// <reference types="@brachkow/hono-inertia/vite-plugin/client" />` to a `
 - Under `vite dev`, `assetTags` is whatever Vite's own HTML transform adds, such as `/@vite/client` and the React Refresh preamble, followed by the entry script. `version` is `'dev'`.
 - The plugin turns on the client build's manifest and sets the entry as its input, unless you set either yourself. Once the client build is written, the plugin moves the manifest to `node_modules/.hono-inertia/`. The manifest lists every page and source path, and static hosts such as Workers would otherwise serve it to anyone. Build the client before the server, which then reads the manifest from there.
 - Pass `versionSalt` to change the version without a client change, as with the salt argument below.
+- Pass `pages` to generate the types for [typed page props](#typed-page-props).
 
 Vite 6 or newer is required.
 
@@ -844,7 +846,68 @@ The SSR server is a trust boundary. Your `render` function inserts its `head` an
 
 ## TypeScript
 
-Use `InertiaEnv` for typed `c.var.inertia` access:
+### Typed page props
+
+The Vite plugin can write a file that ties each page component to the routes that render it. Page components then get their props' types from those routes, and `render()` rejects a page name that has no file.
+
+1. Point the plugin at the pages folder and the module that default-exports the app:
+
+   ```ts
+   honoInertia({
+     entry: 'src/client.ts',
+     pages: { directory: 'src/pages', server: 'src/server.ts' },
+   });
+   ```
+
+   It writes `src/pages.gen.ts` when Vite starts, and again when a page is added or deleted. Commit the file, so `tsc` works before Vite has run.
+
+2. Chain the middleware and routes on the app. Hono records a route's types only in the type of the chained expression:
+
+   ```ts
+   const app = new Hono()
+     .use(inertia({ render, share: () => ({ appName: 'Demo' }) }))
+     .get('/users', (c) =>
+       c.var.inertia.render('Users/Index', {
+         users: merge(() => db.users.page(1)),
+         stats: optional(() => db.users.stats()),
+       }),
+     );
+
+   export default app;
+   ```
+
+3. Read the props in the page with `PageProps`:
+
+   ```tsx
+   import type { PageProps } from '../pages.gen';
+
+   const Index = ({ users, stats, appName }: PageProps<'Users/Index'>) => {
+     // users: User[], stats?: Stats, appName: string, errors
+   };
+   ```
+
+`PageProps` resolves lazy functions and prop wrappers to their values. `optional()` and `deferred()` props are optional, because the first visit leaves them out. Props from a typed `share()` and the `errors` prop are included. When several routes render the same page with different props, a prop that only some of them send is possibly `undefined`.
+
+Vue's `defineProps<T>()` can't take `PageProps` directly, because the SFC compiler has to read the prop names from `T`. Write the names out and take each type from `PageProps`. `vue-tsc` then fails when a route stops sending a prop:
+
+```vue
+<script setup lang="ts">
+  import type { PageProps } from '../pages.gen';
+
+  type Properties = PageProps<'Users/Index'>;
+
+  defineProps<{
+    users: Properties['users'];
+    stats?: Properties['stats'];
+  }>();
+</script>
+```
+
+The [examples](#examples) use this setup. Options: `output` sets the file's path (default: the directory plus `.gen.ts`), `extensions` the page file extensions (default: `tsx`, `jsx`, `vue`, `svelte`), and `exclude` page names to leave out.
+
+### Typing `c.var.inertia`
+
+Chained apps get `c.var.inertia` typed from the middleware. For an app built with separate `app.get()` calls, use `InertiaEnv`:
 
 ```ts
 import type { InertiaEnv } from '@brachkow/hono-inertia';

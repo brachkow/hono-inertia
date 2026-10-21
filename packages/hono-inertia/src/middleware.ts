@@ -2,6 +2,7 @@ import { createMiddleware } from 'hono/factory';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { Context, MiddlewareHandler, Next } from 'hono';
 import type { InertiaConfig, InertiaEnv } from './types.js';
+import type { InertiaSharedEnv } from './page-properties.js';
 import { InertiaResponse } from './response.js';
 import {
   beginDevtoolsRecording,
@@ -30,10 +31,16 @@ const isRedirectShaped = (response: Response): boolean =>
     (response.headers.has('X-Inertia-Redirect') ||
       response.headers.has('X-Inertia-Location')));
 
-export function inertia(config: InertiaConfig): MiddlewareHandler<InertiaEnv> {
+// V comes from share(). The returned middleware records it in the app's Env,
+// where PageProps finds it.
+export function inertia<
+  V extends Record<string, unknown> = Record<string, unknown>,
+>(
+  config: InertiaConfig<V>,
+): MiddlewareHandler<InertiaEnv & InertiaSharedEnv<V>> {
   const devtools = resolveDevtools(config.devtools);
 
-  return createMiddleware<InertiaEnv>(async (c, next) => {
+  return createMiddleware<InertiaEnv & InertiaSharedEnv<V>>(async (c, next) => {
     if (devtools) {
       const handled = await handleDevtoolsRequest(c, devtools);
       if (handled) return handled;
@@ -55,10 +62,10 @@ export function inertia(config: InertiaConfig): MiddlewareHandler<InertiaEnv> {
 
 // Runs the Inertia request lifecycle, leaving the final response on `c.res`.
 // Returns the InertiaResponse when the handler ran, null on a version 409.
-async function handle(
-  c: Context<InertiaEnv>,
+async function handle<V extends Record<string, unknown>>(
+  c: Context<InertiaEnv & InertiaSharedEnv<V>>,
   next: Next,
-  config: InertiaConfig,
+  config: InertiaConfig<V>,
 ): Promise<InertiaResponse | null> {
   // Current asset version, resolved lazily and at most once per request —
   // a version thunk must not run on passthrough routes or POSTs that never

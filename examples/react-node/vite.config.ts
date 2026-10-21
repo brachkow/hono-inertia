@@ -17,7 +17,11 @@ export default defineConfig(({ mode }) => {
   const shared = [
     react(),
     inertia({ ssr: false }),
-    honoInertia({ entry: 'src/client.tsx' }),
+    honoInertia({
+      entry: 'src/client.tsx',
+      // Writes src/pages.gen.ts, which types each page's props
+      pages: { directory: 'src/pages', server: 'src/server.ts' },
+    }),
   ];
 
   if (mode === 'client') {

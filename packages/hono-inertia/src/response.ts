@@ -18,6 +18,7 @@ import { isTaggedProp } from './properties.js';
 import { renderSsr } from './ssr.js';
 import { stringifyPage } from './serialize.js';
 import type { DevtoolsPayload } from './devtools.js';
+import type { PageName, RenderResponse } from './page-properties.js';
 import {
   cacheControlValue,
   getErrorBag,
@@ -120,10 +121,26 @@ export class InertiaResponse implements InertiaContext {
     return cacheControl === undefined ? {} : { 'Cache-Control': cacheControl };
   }
 
-  async render(
-    component: string,
-    properties: Record<string, unknown> = {},
+  async render<
+    C extends PageName,
+    P extends Record<string, unknown> = Record<never, never>,
+  >(
+    component: C,
+    properties?: P,
     extraViewData: Record<string, unknown> = {},
+  ): Promise<RenderResponse<C, P>> {
+    // The props in the return type exist only for PageProps to read
+    return (await this.renderPage(
+      component,
+      properties ?? {},
+      extraViewData,
+    )) as RenderResponse<C, P>;
+  }
+
+  private async renderPage(
+    component: string,
+    properties: Record<string, unknown>,
+    extraViewData: Record<string, unknown>,
   ): Promise<Response> {
     const mergedViewData = { ...this.viewDataStore, ...extraViewData };
 

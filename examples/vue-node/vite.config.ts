@@ -17,7 +17,11 @@ export default defineConfig(({ mode }) => {
   const shared = [
     vue(),
     inertia({ ssr: false }),
-    honoInertia({ entry: 'src/client.ts' }),
+    honoInertia({
+      entry: 'src/client.ts',
+      // Writes src/pages.gen.ts, which types each page's props
+      pages: { directory: 'src/pages', server: 'src/server.ts' },
+    }),
   ];
 
   if (mode === 'client') {

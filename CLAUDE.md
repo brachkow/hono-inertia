@@ -45,6 +45,8 @@ The library is a Hono middleware + prop helpers. Request flow:
 
 5. **SSR** (`src/ssr.ts`) — renders the page object via an external SSR server (HTTP POST to `ssr.url`) or an in-process `ssr.render` function, validates the `{ head, body }` result, and rejects on failure. `InertiaResponse.render` catches the rejection, reports it via `onSsrError`, and falls back to CSR.
 
+6. **Typed page props** (`src/page-properties.ts`), types only. `render()` returns a `TypedResponse` recording the component and its resolved props, and the middleware records `share()`'s type in the app's Env. `PageProps<C>` reads both from the app registered in `AppRegistry`. The Vite plugin's `pages` option writes the `*.gen.ts` file that fills `AppRegistry` and `InertiaPages`. `tests/page-properties.test.ts` holds the type assertions; `pnpm typecheck` checks them.
+
 Key type: `InertiaEnv` (`src/types.ts`) — Hono env binding that types `c.get('inertia')`.
 
 ## Reference

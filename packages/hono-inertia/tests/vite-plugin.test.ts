@@ -1,7 +1,12 @@
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import type { ResolvedConfig } from 'vite';
 import { describe, expect, it } from 'vitest';
 import { manifestVersion } from '../src/vite.js';
 import type { ViteManifest } from '../src/vite.js';
 import {
+  honoInertia,
   manifestKey,
   renderAssetTags,
   versionFromManifest,
@@ -122,5 +127,100 @@ describe('manifestKey', () => {
 
   it('makes an absolute entry relative to the root', () => {
     expect(manifestKey('/app', '/app/src/client.ts')).toBe('src/client.ts');
+  });
+});
+
+describe('pages', () => {
+  const createProject = async (files: string[]) => {
+    const root = await mkdtemp(path.join(tmpdir(), 'hono-inertia-pages-'));
+    for (const file of files) {
+      await mkdir(path.dirname(path.join(root, file)), { recursive: true });
+      await writeFile(path.join(root, file), '');
+    }
+    return root;
+  };
+
+  const generate = async (
+    root: string,
+    pages: Parameters<typeof honoInertia>[0]['pages'],
+  ) => {
+    const plugin = honoInertia({ entry: 'src/client.ts', pages });
+    const hook = plugin.configResolved;
+    if (typeof hook !== 'function') throw new TypeError('no configResolved');
+    // Only root is read
+    await hook.call(undefined as never, { root } as ResolvedConfig);
+  };
+
+  it('lists every page by its path in the folder, sorted', async () => {
+    const root = await createProject([
+      'src/pages/Users/Index.tsx',
+      'src/pages/Home.tsx',
+      'src/pages/Users/Show.tsx',
+    ]);
+
+    await generate(root, { directory: 'src/pages', server: 'src/server.ts' });
+
+    const generated = await readFile(
+      path.join(root, 'src/pages.gen.ts'),
+      'utf8',
+    );
+    expect(generated).toContain(
+      "    Home: true;\n    'Users/Index': true;\n    'Users/Show': true;\n",
+    );
+  });
+
+  it('imports the app type relative to the generated file', async () => {
+    const root = await createProject(['app/pages/Home.vue']);
+
+    await generate(root, {
+      directory: 'app/pages',
+      server: 'app/worker.ts',
+      output: 'types/pages.gen.ts',
+    });
+
+    const generated = await readFile(
+      path.join(root, 'types/pages.gen.ts'),
+      'utf8',
+    );
+    expect(generated).toContain("import type app from '../app/worker';");
+  });
+
+  it('skips other extensions and excluded pages', async () => {
+    const root = await createProject([
+      'src/pages/Home.vue',
+      'src/pages/Layout.vue',
+      'src/pages/helpers.ts',
+      'src/pages/styles.css',
+    ]);
+
+    await generate(root, {
+      directory: 'src/pages',
+      server: 'src/server.ts',
+      exclude: ['Layout'],
+    });
+
+    const generated = await readFile(
+      path.join(root, 'src/pages.gen.ts'),
+      'utf8',
+    );
+    expect(generated).toContain(
+      '  interface InertiaPages {\n    Home: true;\n  }',
+    );
+  });
+
+  it('registers the app and re-exports PageProps', async () => {
+    const root = await createProject(['src/pages/Home.tsx']);
+
+    await generate(root, { directory: 'src/pages', server: 'src/server.ts' });
+
+    const generated = await readFile(
+      path.join(root, 'src/pages.gen.ts'),
+      'utf8',
+    );
+    expect(generated).toContain("import type app from './server';");
+    expect(generated).toContain('    app: typeof app;');
+    expect(generated).toContain(
+      "export type { PageProps } from '@brachkow/hono-inertia';",
+    );
   });
 });

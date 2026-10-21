@@ -15,7 +15,11 @@ export default defineConfig({
     inertia({ ssr: false }),
     // Hands src/worker.ts the asset tags and version, and keeps the client
     // manifest out of the static assets
-    honoInertia({ entry: 'src/client.ts' }),
+    honoInertia({
+      entry: 'src/client.ts',
+      // Writes src/pages.gen.ts, which types each page's props
+      pages: { directory: 'src/pages', server: 'src/worker.ts' },
+    }),
     // Runs the Worker in workerd during `vite dev` and `vite preview`
     cloudflare({ viteEnvironment: { name: 'worker' } }),
   ],

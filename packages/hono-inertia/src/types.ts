@@ -1,4 +1,5 @@
 import type { Context } from 'hono';
+import type { PageName, RenderResponse } from './page-properties.js';
 
 // ---------------------------------------------------------------------------
 // Page object (sent to the Inertia client)
@@ -87,15 +88,16 @@ export type RenderFunction = (
 // Middleware configuration
 // ---------------------------------------------------------------------------
 
-export interface InertiaConfig {
+// V is what share() returns. PageProps adds it to every page's props.
+export interface InertiaConfig<
+  V extends Record<string, unknown> = Record<string, unknown>,
+> {
   // Asset version. Omitting it disables version checks (page.version: null).
   // Keep the value short — the client echoes it back as a request header.
   version?: string | (() => string | Promise<string>);
   render: RenderFunction;
   ssr?: SsrConfig;
-  share?: (
-    c: Context,
-  ) => Record<string, unknown> | Promise<Record<string, unknown>>;
+  share?: (c: Context) => V | Promise<V>;
   // Encrypt browser history state for every response (mirrors Inertia's global
   // `history.encrypt` option). Off by default; pages can opt out per-request via
   // `c.var.inertia.encryptHistory(false)`. Requires the client to be served over HTTPS.
@@ -203,11 +205,14 @@ export interface DevtoolsEntry {
 // ---------------------------------------------------------------------------
 
 export interface InertiaContext {
-  render(
-    component: string,
-    properties?: Record<string, unknown>,
+  render<
+    C extends PageName,
+    P extends Record<string, unknown> = Record<never, never>,
+  >(
+    component: C,
+    properties?: P,
     viewData?: Record<string, unknown>,
-  ): Promise<Response>;
+  ): Promise<RenderResponse<C, P>>;
   share(data: Record<string, unknown>): void;
   location(url: string): Response;
   redirect(url: string): Response;
@@ -245,22 +250,23 @@ export interface ScrollMetadata {
 
 export type MergeStrategy = 'append' | 'prepend' | 'deep';
 
-export interface OptionalProperty {
+// T is the resolved value. Runtime code ignores it; ResolvedProps reads it.
+export interface OptionalProperty<T = unknown> {
   __hono_inertia_prop_type__: 'optional';
-  value: () => unknown | Promise<unknown>;
+  value: () => T | Promise<T>;
   isOnce: boolean;
   onceKey: string | null;
   expiresAt: number | null;
 }
 
-export interface AlwaysProperty {
+export interface AlwaysProperty<T = unknown> {
   __hono_inertia_prop_type__: 'always';
-  value: unknown;
+  value: T | (() => T | Promise<T>);
 }
 
-export interface DeferredProperty {
+export interface DeferredProperty<T = unknown> {
   __hono_inertia_prop_type__: 'deferred';
-  value: () => unknown | Promise<unknown>;
+  value: () => T | Promise<T>;
   group: string;
   shouldRescue: boolean;
   isMerge: boolean;
@@ -271,23 +277,23 @@ export interface DeferredProperty {
   expiresAt: number | null;
 }
 
-export interface MergeProperty {
+export interface MergeProperty<T = unknown> {
   __hono_inertia_prop_type__: 'merge';
-  value: unknown | (() => unknown | Promise<unknown>);
+  value: T | (() => T | Promise<T>);
   strategy: MergeStrategy;
   matchOn: string | null;
 }
 
-export interface OnceProperty {
+export interface OnceProperty<T = unknown> {
   __hono_inertia_prop_type__: 'once';
-  value: () => unknown | Promise<unknown>;
+  value: () => T | Promise<T>;
   onceKey: string | null;
   expiresAt: number | null;
 }
 
-export interface ScrollProperty {
+export interface ScrollProperty<T = unknown> {
   __hono_inertia_prop_type__: 'scroll';
-  value: unknown | (() => unknown | Promise<unknown>);
+  value: T | (() => T | Promise<T>);
   pageName: string;
   currentPage: number;
   previousPage: number | null;

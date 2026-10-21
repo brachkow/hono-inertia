@@ -1,14 +1,15 @@
 import { Deferred, router } from '@inertiajs/react';
+import type { PageProps } from '../../pages.gen';
 
-interface Properties {
-  users: Array<{ id: number; name: string }>;
-  page: number;
-  hasMore: boolean;
-  stats?: { total: number };
-  activity?: string[];
-}
-
-const Index = ({ users, page, hasMore, stats, activity }: Properties) => {
+// From the /users route in src/server.ts: optional() and deferred() props are
+// possibly undefined, merge() gives the users array
+const Index = ({
+  users,
+  page,
+  hasMore,
+  stats,
+  activity,
+}: PageProps<'Users/Index'>) => {
   // Partial reloads fetch only the named props; `users` is a merge prop, so
   // the next page is appended to the list instead of replacing it
   const loadMore = () =>
