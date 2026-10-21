@@ -18,6 +18,20 @@ Inertia.js v3 server-side adapter for [Hono](https://hono.dev).
 - No runtime dependencies. The adapter uses only web-standard APIs, so it runs on Cloudflare Workers as well as Node.js
 - Tested against Hono 4.8.0, the latest Hono 4 and Hono 5
 
+## Differences from `@hono/inertia`
+
+[`@hono/inertia`](https://www.npmjs.com/package/@hono/inertia) is the adapter in the Hono middleware repo. Compared with its version 0.8.1:
+
+- It renders through Hono's `c.render()` and `c.setRenderer()`, so it can't share an app with another renderer such as `jsxRenderer`. This adapter uses `c.var.inertia.render()` and leaves `c.render()` alone
+- It has `defer`, `merge`, `prepend`, `deepMerge` and `scroll`. It has no `optional`, `always` or `once`, and its wrappers don't chain, so a deferred prop can't also merge
+- It has no SSR, validation errors and error bags, flash messages, history encryption, view data, server-provided head elements, BigInt props or DevTools recording
+- Its `share` callback is synchronous. Here it can return a promise
+- The asset version is a fixed string. Here it can be a function, resolved at most once per request
+- On a version mismatch it sends the absolute `c.req.url` in `X-Inertia-Location`, which exposes an internal origin behind a proxy. This adapter sends the path and query
+- For non-`GET` requests it takes `page.url` from the `Referer` header. This adapter uses the request URL by default, as inertia-laravel does, and the `Referer` behavior is [one line of config](#page-url)
+- Its Vite plugin only generates the page types. Here the same plugin also provides the asset tags and version and keeps the build manifest private. Both generate the same kind of `pages.gen.ts`, and `PageProps` works the same way
+- It returns the bare props as JSON when a request accepts `application/json`, ships a default HTML shell, and has a CommonJS build. This adapter has none of these
+
 ## Requirements
 
 - Hono 4.8.0 or newer, including Hono 5
