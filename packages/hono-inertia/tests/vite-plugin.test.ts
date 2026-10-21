@@ -151,6 +151,39 @@ describe('pages', () => {
     await hook.call(undefined as never, { root } as ResolvedConfig);
   };
 
+  it('checks that every Vue page declares the props its routes pass', async () => {
+    const root = await createProject([
+      'src/pages/Home.vue',
+      'src/pages/Users/Index.vue',
+      'src/pages/About.tsx',
+    ]);
+
+    await generate(root, { directory: 'src/pages', server: 'src/server.ts' });
+
+    const generated = await readFile(
+      path.join(root, 'src/pages.gen.ts'),
+      'utf8',
+    );
+    expect(generated).toContain(
+      "import type HomePage from './pages/Home.vue';\nimport type UsersIndexPage from './pages/Users/Index.vue';\n",
+    );
+    expect(generated).toContain(
+      "export type VuePages = [\n  VuePage<'Home', typeof HomePage>,\n  VuePage<'Users/Index', typeof UsersIndexPage>,\n];\n",
+    );
+  });
+
+  it('adds no Vue checks without Vue pages', async () => {
+    const root = await createProject(['src/pages/Home.tsx']);
+
+    await generate(root, { directory: 'src/pages', server: 'src/server.ts' });
+
+    const generated = await readFile(
+      path.join(root, 'src/pages.gen.ts'),
+      'utf8',
+    );
+    expect(generated).not.toContain('VuePage');
+  });
+
   it('lists every page by its path in the folder, sorted', async () => {
     const root = await createProject([
       'src/pages/Users/Index.tsx',
@@ -294,5 +327,78 @@ describe('honoInertia build order', () => {
     await buildApp(builder);
 
     expect(built).toEqual(['ssr']);
+  });
+});
+
+describe('honoInertia server bundle check', () => {
+  const ASSETS = '\0virtual:hono-inertia/assets';
+
+  // Runs the plugin's generateBundle on one chunk of the named environment
+  const generate = (
+    environment: string,
+    chunk: { moduleIds: string[]; imports?: string[] },
+  ) => {
+    const [plugin] = honoInertia({ entry: 'src/client.ts' });
+    const hook = plugin.generateBundle;
+    if (typeof hook !== 'function') throw new TypeError('no generateBundle');
+    const context = {
+      environment: { name: environment },
+      error: (message: string) => {
+        throw new Error(message);
+      },
+    };
+    const bundle = {
+      'main.js': {
+        type: 'chunk',
+        imports: [],
+        dynamicImports: [],
+        ...chunk,
+      },
+    };
+    return () =>
+      hook.call(context as never, {} as never, bundle as never, false);
+  };
+
+  it("fails a server that uses the asset tags and imports Inertia's SSR server", () => {
+    const build = generate('ssr', {
+      moduleIds: ['/app/src/main.ts', ASSETS],
+      imports: ['@inertiajs/react/server'],
+    });
+
+    expect(build).toThrow('@inertiajs/react/server');
+  });
+
+  it('fails when the SSR server is bundled into a Worker', () => {
+    const build = generate('worker', {
+      moduleIds: [ASSETS, '/app/node_modules/@inertiajs/vue3/dist/server.js'],
+    });
+
+    expect(build).toThrow('ssr: false');
+  });
+
+  it('passes a server that only renders in-process', () => {
+    const build = generate('ssr', {
+      moduleIds: ['/app/src/main.ts', '/app/src/ssr.ts', ASSETS],
+      imports: ['@inertiajs/react', 'react-dom/server'],
+    });
+
+    expect(build).not.toThrow();
+  });
+
+  it('passes an Inertia SSR server built without the asset tags', () => {
+    const build = generate('ssr', {
+      moduleIds: ['/app/src/ssr.ts'],
+      imports: ['@inertiajs/react/server'],
+    });
+
+    expect(build).not.toThrow();
+  });
+
+  it('ignores the client build', () => {
+    const build = generate('client', {
+      moduleIds: [ASSETS, '/app/node_modules/@inertiajs/vue3/dist/server.js'],
+    });
+
+    expect(build).not.toThrow();
   });
 });

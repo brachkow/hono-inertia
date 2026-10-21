@@ -22,6 +22,7 @@ export default defineConfig(
             // Named after @inertiajs/core's PageProps, and InertiaEnv above
             PageProps: true,
             PagePropsFor: true,
+            MissingVuePagePropsFor: true,
             InertiaSharedEnv: true,
           },
           replacements: {

@@ -132,3 +132,39 @@ export type PagePropsFor<
 // The props a page component receives, taken from the routes that render it
 export type PageProps<C extends RenderOutput<RegisteredApp>['component']> =
   PagePropsFor<RegisteredApp, C>;
+
+// ---------------------------------------------------------------------------
+// Checks that a Vue page declares every prop its routes pass
+// ---------------------------------------------------------------------------
+
+// Vue's defineProps can't take PageProps, so a Vue page lists its props by
+// hand. These types catch a prop the routes pass that the list leaves out.
+
+// The prop names a Vue component declares, from the instance type vue-tsc
+// gives it
+type VueDeclaredKeys<Component> = Component extends abstract new (
+  ...parameters: never[]
+) => { $props: infer P }
+  ? keyof P
+  : never;
+
+// Shared props and errors are left out, also when a route passes errors
+// itself: a page reads them only if it needs them
+export type MissingVuePagePropsFor<App, C extends string, Component> = Exclude<
+  AllKeys<Extract<RenderOutput<App>, { component: C }>['props']>,
+  VueDeclaredKeys<Component> | 'errors'
+>;
+
+type DeclaresRouteProperties<C extends string, Component> = [
+  MissingVuePagePropsFor<RegisteredApp, C, Component>,
+] extends [never]
+  ? unknown
+  : { 'Missing props': MissingVuePagePropsFor<RegisteredApp, C, Component> };
+
+// Fails typecheck, naming the props, when the Vue component of page C leaves
+// out a prop its routes pass. The file the Vite plugin generates applies it to
+// every .vue page.
+export type VuePage<
+  C extends PageName,
+  Component extends DeclaresRouteProperties<C, Component>,
+> = [C, Component];

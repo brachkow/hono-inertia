@@ -51,4 +51,6 @@ export type {
   PagePropsFor,
   RenderResponse,
   ResolvedProperties,
+  MissingVuePagePropsFor,
+  VuePage,
 } from './page-properties.js';

@@ -9,9 +9,9 @@ const PORT = 3002;
 export default defineConfig({
   plugins: [
     vue(),
-    // ssr: false: otherwise @inertiajs/vite wraps src/ssr.ts in code that
-    // starts Inertia's SSR server, and src/server.ts calls it directly instead.
-    // The plugin still expands the `pages` shorthand.
+    // ssr: false: src/server.ts renders pages itself, so @inertiajs/vite
+    // must not load src/ssr.ts for its own SSR endpoint. The plugin still
+    // expands the `pages` shorthand.
     inertia({ ssr: false }),
     // Hands src/server.ts the asset tags and version, keeps the client
     // manifest out of the public build output, and builds the client before

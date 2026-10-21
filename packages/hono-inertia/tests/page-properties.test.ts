@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { inertia } from '../src/middleware.js';
 import {
@@ -9,7 +10,10 @@ import {
   optional,
   scroll,
 } from '../src/properties.js';
-import type { PagePropsFor } from '../src/page-properties.js';
+import type {
+  MissingVuePagePropsFor,
+  PagePropsFor,
+} from '../src/page-properties.js';
 import type { PageObject, ScrollMetadata } from '../src/types.js';
 
 // Each test checks a PageProps type, which `pnpm typecheck` verifies, and the
@@ -121,6 +125,35 @@ describe('PageProps', () => {
     });
   });
 
+  it('types share from the app Env its context is annotated with', async () => {
+    interface SessionEnvironment {
+      Variables: { session: { user: string } };
+    }
+    const app = new Hono<SessionEnvironment>()
+      .use(async (c, next) => {
+        c.set('session', { user: 'Ada' });
+        await next();
+      })
+      .use(
+        inertia({
+          render,
+          share: (c: Context<SessionEnvironment>) => ({
+            user: c.get('session').user,
+          }),
+        }),
+      )
+      .get('/', (c) => c.var.inertia.render('Home'));
+
+    expectTypeOf<PagePropsFor<typeof app, 'Home'>>().toEqualTypeOf<{
+      user: string;
+      errors: Errors;
+    }>();
+    expect(await firstVisitProperties(app, '/')).toEqual({
+      user: 'Ada',
+      errors: {},
+    });
+  });
+
   it('gives a union when routes render a page with different props', async () => {
     const app = new Hono()
       .use(inertia({ render }))
@@ -156,5 +189,55 @@ describe('PageProps', () => {
       ok: true,
       errors: {},
     });
+  });
+});
+
+// What vue-tsc gives a page component that declares these props
+type VueComponent<Declared> = new () => { $props: Declared };
+
+describe('MissingVuePagePropsFor', () => {
+  const app = new Hono()
+    .use(inertia({ render, share: () => ({ appName: 'Demo' }) }))
+    .get('/users', (c) =>
+      c.var.inertia.render('Users', {
+        users: USERS,
+        stats: optional(() => ({ total: 1 })),
+      }),
+    )
+    .get('/contact', (c) => c.var.inertia.render('Contact'))
+    .post('/contact', (c) =>
+      c.var.inertia.render('Contact', { errors: { name: 'Required' } }),
+    );
+
+  it('names the route props a component leaves out', async () => {
+    // The props it checks against
+    expect(await firstVisitProperties(app, '/users')).toEqual({
+      users: USERS,
+      appName: 'Demo',
+      errors: {},
+    });
+    expectTypeOf<
+      MissingVuePagePropsFor<
+        typeof app,
+        'Users',
+        VueComponent<{ users: unknown }>
+      >
+    >().toEqualTypeOf<'stats'>();
+  });
+
+  it('is never when the component declares every route prop', () => {
+    expectTypeOf<
+      MissingVuePagePropsFor<
+        typeof app,
+        'Users',
+        VueComponent<{ users: unknown; stats?: unknown }>
+      >
+    >().toBeNever();
+  });
+
+  it('leaves out shared props and errors', () => {
+    expectTypeOf<
+      MissingVuePagePropsFor<typeof app, 'Contact', VueComponent<object>>
+    >().toBeNever();
   });
 });
