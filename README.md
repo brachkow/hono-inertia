@@ -55,12 +55,13 @@ Full-featured Inertia.js v3 server-side adapter for [Hono](https://hono.dev).
 ## Features
 
 - Full support of the Inertia v3 protocol
-- [Typed page props](#typed-page-props) for JSX and Vue
+- [Typed page props](#typed-page-props) for React, Vue and Svelte
 - Simple SSR [setup](#ssr)
 - [Inertia DevTools](#devtools) support
 - Runs on Cloudflare Workers as well as Node.js
 - Works with Hono 4.8+ and Hono 5
-- And many more...
+- Every Inertia [prop type](#prop-types): `optional`, `always`, `deferred`, `merge`, `scroll` and `once`
+- [Flash messages](#flash-messages), [history encryption](#history-encryption), [view data](#view-data) and the rest listed in [Contents](#contents)
 
 ## Differences from `@hono/inertia`
 
@@ -86,37 +87,75 @@ pnpm add @brachkow/hono-inertia
 
 ## Quick start
 
+A React app that Vite runs in dev. The [SSR](#ssr) section adds server-side rendering and the production build, and the [examples](#examples) are complete apps.
+
+```bash
+pnpm add hono @brachkow/hono-inertia @inertiajs/react react react-dom
+pnpm add -D vite @vitejs/plugin-react @inertiajs/vite @hono/vite-dev-server
+```
+
+`honoInertia()` gives the server the client's script tags and the asset version, and writes `src/pages.gen.ts`, which types each page's props:
+
 ```ts
+// vite.config.ts
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import inertia from '@inertiajs/vite';
+import devServer from '@hono/vite-dev-server';
+import { honoInertia } from '@brachkow/hono-inertia/vite-plugin';
+
+export default defineConfig({
+  plugins: [
+    react(),
+    inertia(),
+    honoInertia({
+      entry: 'src/client.tsx',
+      pages: { directory: 'src/pages', server: 'src/server.ts' },
+    }),
+    // assetTags already holds /@vite/client in dev
+    devServer({ entry: 'src/server.ts', injectClientScript: false }),
+  ],
+});
+```
+
+The routes are chained, so the app's type records the props each page gets:
+
+```ts
+// src/server.ts
 import { Hono } from 'hono';
 import { inertia, serializePage } from '@brachkow/hono-inertia';
-import type { InertiaEnv } from '@brachkow/hono-inertia';
+import { assetTags, version } from 'virtual:hono-inertia/assets';
 
-const app = new Hono<InertiaEnv>();
-
-app.use(
-  inertia({
-    version: '1.0',
-    render: (page) =>
-      `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <script type="module" src="/src/main.ts"></script>
-</head>
-<body>
-  <script data-page="app" type="application/json">${serializePage(page)}</script>
-  <div id="app"></div>
-</body>
-</html>`,
-  }),
-);
-
-app.get('/', (c) => {
-  return c.var.inertia.render('Home', { title: 'Hello' });
-});
+const app = new Hono()
+  .use(
+    inertia({
+      version,
+      render: (page) =>
+        `<!DOCTYPE html><html><head><meta charset="utf-8">${assetTags}</head><body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body></html>`,
+    }),
+  )
+  .get('/', (c) => c.var.inertia.render('Home', { title: 'Hello' }));
 
 export default app;
 ```
+
+```tsx
+// src/client.tsx
+import { createInertiaApp } from '@inertiajs/react';
+
+await createInertiaApp({ pages: './pages' });
+```
+
+```tsx
+// src/pages/Home.tsx
+import type { PageProps } from '../pages.gen';
+
+const Home = ({ title }: PageProps<'Home'>) => <h1>{title}</h1>;
+
+export default Home;
+```
+
+Add `/// <reference types="@brachkow/hono-inertia/vite-plugin/client" />` to a `.d.ts` file to type the `virtual:hono-inertia/assets` import. `vite dev` then serves the app.
 
 ## Examples
 
@@ -124,6 +163,7 @@ Complete apps with Vite, server-side rendering and production builds:
 
 - [React on Node.js](https://github.com/brachkow/hono-inertia/tree/main/examples/react-node) renders pages inside the Node server
 - [Vue on Node.js](https://github.com/brachkow/hono-inertia/tree/main/examples/vue-node) has the same setup with Vue
+- [Svelte on Node.js](https://github.com/brachkow/hono-inertia/tree/main/examples/svelte-node) has the same setup with Svelte 5
 - [Vue on Cloudflare Workers](https://github.com/brachkow/hono-inertia/tree/main/examples/vue-workers) renders pages inside the Worker
 
 Each example has the same pages: navigation, shared props, partial reloads, deferred and merge props, a form with validation errors, and a flash message after a redirect. One Playwright suite runs against all of them in CI.
@@ -252,6 +292,21 @@ inertia({
     flash: getFlash(c),
   }),
 });
+```
+
+`c` is Hono's untyped `Context` by default. To read variables that earlier middleware sets, annotate it with your app's Env. `c.get()` then checks the variable names, and [`PageProps`](#typed-page-props) still picks up what `share` returns. The same works for `c` in `render` and `resolveUrl`:
+
+```ts
+interface AppEnv {
+  Variables: { session: Session };
+}
+
+const app = new Hono<AppEnv>().use(sessionMiddleware).use(
+  inertia({
+    share: (c: Context<AppEnv>) => ({ user: c.get('session').user }),
+    render,
+  }),
+);
 ```
 
 Per-request shared props via middleware:
@@ -719,7 +774,7 @@ pnpm add -D vite @vitejs/plugin-vue @inertiajs/vite
 
 #### 1. Add the Vite plugin
 
-`honoInertia()` gives the server the client's asset tags and version through `virtual:hono-inertia/assets`. The server inlines those tags, so the plugin builds the client before the server. Vite builds the server too, which lets it import `.vue` files. Pass `ssr: false` to `@inertiajs/vite`. Otherwise it wraps `src/ssr.ts` in code that starts Inertia's SSR server.
+`honoInertia()` gives the server the client's asset tags and version through `virtual:hono-inertia/assets`. The server inlines those tags, so the plugin builds the client before the server. Vite builds the server too, which lets it import `.vue` files. Pass `ssr: false` to `@inertiajs/vite`, since the server renders pages itself. Without it, `vite dev` also loads `src/ssr.ts` for Inertia's own SSR endpoint, and an SSR entry that calls `createInertiaApp()` at the top level gets wrapped in code that starts Inertia's SSR server. `honoInertia()` fails the build if that server ends up in the server bundle.
 
 The rest of the config depends on the runtime.
 
@@ -1036,6 +1091,16 @@ The Vite plugin can write a file that ties each page component to the routes tha
 
 `PageProps` resolves lazy functions and prop wrappers to their values. `optional()` and `deferred()` props are optional, because the first visit leaves them out. Props from a typed `share()` and the `errors` prop are included. When several routes render the same page with different props, a prop that only some of them send is possibly `undefined`.
 
+In Svelte 5, annotate `$props()` the same way:
+
+```svelte
+<script lang="ts">
+  import type { PageProps } from '../pages.gen';
+
+  const { users, stats }: PageProps<'Users/Index'> = $props();
+</script>
+```
+
 Vue's `defineProps<T>()` can't take `PageProps` directly, because the SFC compiler has to read the prop names from `T`. Write the names out and take each type from `PageProps`. `vue-tsc` then fails when a route stops sending a prop:
 
 ```vue
@@ -1050,6 +1115,8 @@ Vue's `defineProps<T>()` can't take `PageProps` directly, because the SFC compil
   }>();
 </script>
 ```
+
+The generated file also checks each `.vue` page the other way. When a route sends a prop the page doesn't declare, `vue-tsc` fails in the generated file and names the prop (`'Missing props': "total"`). Shared props and `errors` are left out of that check, because a page declares them only if it reads them.
 
 The [examples](#examples) use this setup. Options: `output` sets the file's path (default: the directory plus `.gen.ts`), `extensions` the page file extensions (default: `tsx`, `jsx`, `vue`, `svelte`), and `exclude` page names to leave out.
 

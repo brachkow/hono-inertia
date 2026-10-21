@@ -9,7 +9,7 @@ Inertia.js v3 server-side adapter for Hono. Zero runtime dependencies (peer: `ho
 A pnpm monorepo:
 
 - `packages/hono-inertia/` is the published library. Paths below are relative to it.
-- `examples/` holds runnable apps (`react-node`, `vue-node`, `vue-workers`) that double as guides. They implement the same pages and depend on the library via `workspace:*`, which resolves to its `dist/`, so build the library first.
+- `examples/` holds runnable apps (`react-node`, `vue-node`, `svelte-node`, `vue-workers`) that double as guides. They implement the same pages and depend on the library via `workspace:*`, which resolves to its `dist/`, so build the library first.
 - `e2e/` is one Playwright suite that runs against every example twice: the production build, and the Vite dev server (ports +1000), where `hmr.spec.ts` also edits a page and checks it updates without a reload.
 
 ## Commands
@@ -17,9 +17,9 @@ A pnpm monorepo:
 Run from the repo root:
 
 ```bash
-pnpm test          # library unit tests (vitest) against Hono 4, 4.8.0 and 5
+pnpm test          # library unit tests (vitest) against Hono 4, Hono 5, and the lowest supported Hono 4.8.0 with Vite 7.0.0
 pnpm build         # build the library with tsdown → packages/hono-inertia/dist/
-pnpm typecheck     # typecheck every package (build the library first)
+pnpm typecheck     # typecheck every package (build the library first); the library also against the lowest versions and Hono 5 (tsconfig.lowest.json, tsconfig.hono-5.json)
 pnpm test:lint     # eslint (eslint-config-fans)
 pnpm fix:lint      # eslint --fix
 pnpm test:format   # prettier --check
@@ -45,7 +45,7 @@ The library is a Hono middleware + prop helpers. Request flow:
 
 5. **SSR** (`src/ssr.ts`) — renders the page object via an external SSR server (HTTP POST to `ssr.url`) or an in-process `ssr.render` function, validates the `{ head, body }` result, and rejects on failure. `InertiaResponse.render` catches the rejection, reports it via `onSsrError`, and falls back to CSR.
 
-6. **Typed page props** (`src/page-properties.ts`), types only. `render()` returns a `TypedResponse` recording the component and its resolved props, and the middleware records `share()`'s type in the app's Env. `PageProps<C>` reads both from the app registered in `AppRegistry`. The Vite plugin's `pages` option writes the `*.gen.ts` file that fills `AppRegistry` and `InertiaPages`. `tests/page-properties.test.ts` holds the type assertions; `pnpm typecheck` checks them.
+6. **Typed page props** (`src/page-properties.ts`), types only. `render()` returns a `TypedResponse` recording the component and its resolved props, and the middleware records `share()`'s type in the app's Env. `PageProps<C>` reads both from the app registered in `AppRegistry`. The Vite plugin's `pages` option writes the `*.gen.ts` file that fills `AppRegistry` and `InertiaPages`, and checks with `VuePage` that every `.vue` page declares the props its routes pass. `tests/page-properties.test.ts` holds the type assertions; `pnpm typecheck` checks them.
 
 Key type: `InertiaEnv` (`src/types.ts`) — Hono env binding that types `c.get('inertia')`.
 
