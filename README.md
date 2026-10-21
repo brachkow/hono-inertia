@@ -6,7 +6,7 @@ Full-featured Inertia.js v3 server-side adapter for [Hono](https://hono.dev).
 
 ## Features
 
-- Full support of Inertia v3 protocol
+- Full support of the Inertia v3 protocol
 - [Typed page props](#typed-page-props) for JSX and Vue
 - Simple SSR [setup](#ssr)
 - [Inertia DevTools](#devtools) support
@@ -16,11 +16,11 @@ Full-featured Inertia.js v3 server-side adapter for [Hono](https://hono.dev).
 
 ## Differences from `@hono/inertia`
 
-You may be wondering, why this package exists when Hono has first-party adapter [`@hono/inertia`](https://www.npmjs.com/package/@hono/inertia)?
+You may be wondering why this package exists when Hono has a first-party adapter, [`@hono/inertia`](https://www.npmjs.com/package/@hono/inertia).
 
-- It has limited coverage of Inertia.js features, either new or old
-- It doesn't take of SSR for you
-- It still unstable, and it's development, for obvious reasons, seem to be not a top priorit
+- It has limited coverage of Inertia.js features, both new and old
+- It doesn't take care of SSR for you
+- It is still unstable, and its development, for obvious reasons, doesn't seem to be a top priority
 
 ## Requirements
 
