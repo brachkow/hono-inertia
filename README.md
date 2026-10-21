@@ -4,6 +4,54 @@
 
 Full-featured Inertia.js v3 server-side adapter for [Hono](https://hono.dev).
 
+## Contents
+
+- [Features](#features)
+- [Differences from `@hono/inertia`](#differences-from-honoinertia)
+- [Requirements](#requirements)
+- [Install](#install)
+- [Quick start](#quick-start)
+- [Examples](#examples)
+- [Configuration](#configuration)
+- [Rendering pages](#rendering-pages)
+  - [Page URL](#page-url)
+  - [BigInt props](#bigint-props)
+- [Shared data](#shared-data)
+- [Prop types](#prop-types)
+  - [`always(value)`](#alwaysvalue)
+  - [`optional(fn)`](#optionalfn)
+  - [`deferred(fn, group?)`](#deferredfn-group)
+  - [`merge(value)` / `prepend(value)` / `deepMerge(value)`](#mergevalue--prependvalue--deepmergevalue)
+  - [`scroll(value, metadata)`](#scrollvalue-metadata)
+  - [`once(fn, key?, expiresAt?)`](#oncefn-key-expiresat)
+  - [Chaining](#chaining)
+- [Status codes](#status-codes)
+- [External redirects](#external-redirects)
+- [Asset versioning](#asset-versioning)
+  - [Vite plugin](#vite-plugin)
+  - [Without the plugin](#without-the-plugin)
+  - [Recovering from dead chunks (`vite:preloadError`)](#recovering-from-dead-chunks-vitepreloaderror)
+- [History encryption](#history-encryption)
+- [View data](#view-data)
+- [Flash messages](#flash-messages)
+- [DevTools](#devtools)
+- [Server-provided head elements](#server-provided-head-elements)
+- [SSR](#ssr)
+  - [Setup](#setup)
+  - [With an Inertia SSR server](#with-an-inertia-ssr-server)
+  - [When SSR fails](#when-ssr-fails)
+  - [Module state is shared between requests](#module-state-is-shared-between-requests)
+- [Security](#security)
+  - [Embedding the page object (XSS)](#embedding-the-page-object-xss)
+  - [CSRF](#csrf)
+  - [History encryption](#history-encryption-1)
+  - [Redirects](#redirects)
+  - [Caching](#caching)
+  - [SSR](#ssr-1)
+- [TypeScript](#typescript)
+  - [Typed page props](#typed-page-props)
+  - [Typing `c.var.inertia`](#typing-cvarinertia)
+
 ## Features
 
 - Full support of the Inertia v3 protocol
@@ -662,70 +710,20 @@ The setup below is the same on Node.js and Cloudflare Workers. The server import
 
 ### Setup
 
-The examples use Vue. With React, the SSR entry calls `renderToString` from `react-dom/server` instead, as in the [React example](https://github.com/brachkow/hono-inertia/tree/main/examples/react-node).
+The steps use Vue. With React, the SSR entry calls `renderToString` from `react-dom/server` instead, as in the [React example](https://github.com/brachkow/hono-inertia/tree/main/examples/react-node).
 
 ```bash
 pnpm add vue @inertiajs/vue3 @inertiajs/core
 pnpm add -D vite @vitejs/plugin-vue @inertiajs/vite
 ```
 
-The SSR entry, `src/ssr.ts`, renders a page object to `{ head: string[], body: string }`, the same result an Inertia SSR entry returns. It resolves pages with `import.meta.glob` instead of the `pages` shorthand. On Workers, when the Worker transforms an entry that uses `pages`, `@inertiajs/vite` warms up the page files for the browser before Vite has pre-bundled the client's dependencies, and the browser loads two copies of `@inertiajs/vue3` in dev. The `pages` shorthand is fine in `src/client.ts`.
+#### 1. Add the Vite plugin
 
-```ts
-import { createInertiaApp } from '@inertiajs/vue3';
-import type { Page } from '@inertiajs/core';
-import type { PageObject } from '@brachkow/hono-inertia';
-import { createSSRApp, h } from 'vue';
-import type { DefineComponent } from 'vue';
-import { renderToString } from 'vue/server-renderer';
+`honoInertia()` gives the server the client's asset tags and version through `virtual:hono-inertia/assets`. The server inlines those tags, so the plugin builds the client before the server. Vite builds the server too, which lets it import `.vue` files. Pass `ssr: false` to `@inertiajs/vite`. Otherwise it wraps `src/ssr.ts` in code that starts Inertia's SSR server.
 
-const pages = import.meta.glob<DefineComponent>('./pages/*.vue', {
-  import: 'default',
-});
+The rest of the config depends on the runtime.
 
-export default (page: PageObject) =>
-  createInertiaApp({
-    // Inertia's Page type also requires client-only state (rememberedState) that no server sends
-    page: page as Page,
-    render: renderToString,
-    resolve: (name) => pages[`./pages/${name}.vue`](),
-    setup: ({ App, props, plugin }) =>
-      createSSRApp({ render: () => h(App, props) }).use(plugin),
-  });
-```
-
-The server imports it and takes the asset tags and the version from the [Vite plugin](#vite-plugin):
-
-```ts
-import { Hono } from 'hono';
-import { inertia, serializePage } from '@brachkow/hono-inertia';
-import type { InertiaEnv } from '@brachkow/hono-inertia';
-import { assetTags, version } from 'virtual:hono-inertia/assets';
-import renderPage from './ssr';
-
-const app = new Hono<InertiaEnv>();
-
-app.use(
-  inertia({
-    version,
-    ssr: { render: renderPage },
-    render: (page, viewData, ssr) =>
-      ssr
-        ? `<!DOCTYPE html><html><head>${ssr.head}${assetTags}</head><body>${ssr.body}</body></html>`
-        : `<!DOCTYPE html><html><head>${assetTags}</head><body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body></html>`,
-  }),
-);
-
-app.get('/', (c) => c.var.inertia.render('Home', { name: 'Hono' }));
-
-export default app;
-```
-
-Vite builds the server too, so the server can import `.vue` files. Pass `ssr: false` to `@inertiajs/vite`. Otherwise it wraps `src/ssr.ts` in code that starts Inertia's SSR server. The server inlines the client's asset tags, so `honoInertia()` builds the client first. The two runtimes differ only in the Vite config.
-
-#### Node.js
-
-`@hono/vite-dev-server` runs the app inside Vite in dev. For production, Vite builds a small entry that serves the app with `@hono/node-server`:
+**Node.js.** `@hono/vite-dev-server` runs the app inside Vite in dev. `builder: {}` makes `vite build` build every environment, the client and the server's `ssr` environment:
 
 ```bash
 pnpm add @hono/node-server
@@ -733,22 +731,7 @@ pnpm add -D @hono/vite-dev-server
 ```
 
 ```ts
-// src/main.ts
-import { serve } from '@hono/node-server';
-import { serveStatic } from '@hono/node-server/serve-static';
-import { Hono } from 'hono';
-import app from './server';
-
-const main = new Hono()
-  .use('/assets/*', serveStatic({ root: './dist/client' }))
-  .route('/', app);
-
-serve({ fetch: main.fetch, port: Number(process.env.PORT ?? 3000) });
-```
-
-`builder: {}` makes `vite build` build every environment, the client and the server's `ssr` environment:
-
-```ts
+// vite.config.ts
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import inertia from '@inertiajs/vite';
@@ -773,17 +756,14 @@ export default defineConfig({
 });
 ```
 
-`vite dev` runs the app, `vite build` builds the client and then the server, and `node dist/server/main.js` starts it.
-
-#### Cloudflare Workers
-
-`@cloudflare/vite-plugin` runs the Worker in workerd during `vite dev` and builds it with Vite:
+**Cloudflare Workers.** `@cloudflare/vite-plugin` runs the Worker in workerd during `vite dev` and builds it with Vite:
 
 ```bash
 pnpm add -D @cloudflare/vite-plugin wrangler
 ```
 
 ```ts
+// vite.config.ts
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import inertia from '@inertiajs/vite';
@@ -800,7 +780,85 @@ export default defineConfig({
 });
 ```
 
-`wrangler.jsonc` points `main` at `src/server.ts`. `vite dev` runs the app, `vite build` builds the client and the Worker, and `wrangler deploy` deploys the output. The Cloudflare plugin builds the client a second time after the Worker, with the same file names, to move the files the Worker imports into the client's output.
+#### 2. Write the SSR entry
+
+`src/ssr.ts` renders a page object to `{ head: string[], body: string }`, the same result an Inertia SSR entry returns. It resolves pages with `import.meta.glob` instead of the `pages` shorthand. On Workers, when the Worker transforms an entry that uses `pages`, `@inertiajs/vite` warms up the page files for the browser before Vite has pre-bundled the client's dependencies, and the browser loads two copies of `@inertiajs/vue3` in dev. The `pages` shorthand is fine in `src/client.ts`.
+
+```ts
+// src/ssr.ts
+import { createInertiaApp } from '@inertiajs/vue3';
+import type { Page } from '@inertiajs/core';
+import type { PageObject } from '@brachkow/hono-inertia';
+import { createSSRApp, h } from 'vue';
+import type { DefineComponent } from 'vue';
+import { renderToString } from 'vue/server-renderer';
+
+const pages = import.meta.glob<DefineComponent>('./pages/*.vue', {
+  import: 'default',
+});
+
+export default (page: PageObject) =>
+  createInertiaApp({
+    // Inertia's Page type also requires client-only state (rememberedState) that no server sends
+    page: page as Page,
+    render: renderToString,
+    resolve: (name) => pages[`./pages/${name}.vue`](),
+    setup: ({ App, props, plugin }) =>
+      createSSRApp({ render: () => h(App, props) }).use(plugin),
+  });
+```
+
+#### 3. Pass it to the adapter
+
+The server imports the SSR entry and the plugin's asset tags and version:
+
+```ts
+// src/server.ts
+import { Hono } from 'hono';
+import { inertia, serializePage } from '@brachkow/hono-inertia';
+import type { InertiaEnv } from '@brachkow/hono-inertia';
+import { assetTags, version } from 'virtual:hono-inertia/assets';
+import renderPage from './ssr';
+
+const app = new Hono<InertiaEnv>();
+
+app.use(
+  inertia({
+    version,
+    ssr: { render: renderPage },
+    render: (page, viewData, ssr) =>
+      ssr
+        ? `<!DOCTYPE html><html><head>${ssr.head}${assetTags}</head><body>${ssr.body}</body></html>`
+        : `<!DOCTYPE html><html><head>${assetTags}</head><body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body></html>`,
+  }),
+);
+
+app.get('/', (c) => c.var.inertia.render('Home', { name: 'Hono' }));
+
+export default app;
+```
+
+#### 4. Build and run
+
+**Node.js.** Vite builds the production server from a small entry that serves the app and the client assets with `@hono/node-server`:
+
+```ts
+// src/main.ts
+import { serve } from '@hono/node-server';
+import { serveStatic } from '@hono/node-server/serve-static';
+import { Hono } from 'hono';
+import app from './server';
+
+const main = new Hono()
+  .use('/assets/*', serveStatic({ root: './dist/client' }))
+  .route('/', app);
+
+serve({ fetch: main.fetch, port: Number(process.env.PORT ?? 3000) });
+```
+
+`vite dev` runs the app, `vite build` builds the client and then the server, and `node dist/server/main.js` starts it.
+
+**Cloudflare Workers.** `wrangler.jsonc` points `main` at `src/server.ts`. `vite dev` runs the app, `vite build` builds the client and the Worker, and `wrangler deploy` deploys the output. The Cloudflare plugin builds the client a second time after the Worker, with the same file names, to move the files the Worker imports into the client's output.
 
 ### With an Inertia SSR server
 
