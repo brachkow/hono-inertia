@@ -47,7 +47,7 @@
     "build": "tsdown",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.lowest.json && tsc --noEmit -p tsconfig.hono-5.json",
     "size": "pnpm build && size-limit"
   },
   "engines": {
@@ -66,6 +66,7 @@
     "tsdown": "^0.23.1",
     "typescript": "catalog:",
     "vite": "catalog:",
+    "vite-7.0.0": "npm:vite@7.0.0",
     "vitest": "^3.1.0"
   },
   "license": "MIT",

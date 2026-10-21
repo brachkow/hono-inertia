@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "hono": ["./node_modules/hono-5/dist/index.d.ts"],
+      "hono/*": [
+        "./node_modules/hono-5/dist/helper/*",
+        "./node_modules/hono-5/dist/*"
+      ]
+    }
+  }
+}

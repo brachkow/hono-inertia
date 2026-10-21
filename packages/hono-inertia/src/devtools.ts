@@ -1,5 +1,5 @@
 import type { Context } from 'hono';
-import { routePath } from 'hono/route';
+import { matchedRoutes } from 'hono/route';
 import { PROP_TYPE } from './symbols.js';
 import type {
   DeferredProperty,
@@ -359,8 +359,9 @@ async function buildEntry(
     route: {
       name: null,
       // Without render() the handler is unknown; the last matched route is the
-      // closest guess on both Hono 4 and 5.
-      uri: payload?.routePath ?? routePath(c, -1),
+      // closest guess on both Hono 4 and 5. routePath(c, -1) says the same, but
+      // Hono 4.8's routePath takes no index.
+      uri: payload?.routePath ?? matchedRoutes(c).at(-1)?.path ?? '',
       action: null,
     },
     renderSource: null,
