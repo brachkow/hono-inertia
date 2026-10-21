@@ -13,8 +13,9 @@ export default defineConfig({
     // imports src/ssr.ts and renders in-process. The plugin still expands
     // the `pages` shorthand in src/client.ts.
     inertia({ ssr: false }),
-    // Hands src/worker.ts the asset tags and version, and keeps the client
-    // manifest out of the static assets
+    // Hands src/worker.ts the asset tags and version, keeps the client
+    // manifest out of the static assets, and builds the client before the
+    // Worker
     honoInertia({
       entry: 'src/client.ts',
       // Writes src/pages.gen.ts, which types each page's props
@@ -23,13 +24,6 @@ export default defineConfig({
     // Runs the Worker in workerd during `vite dev` and `vite preview`
     cloudflare({ viteEnvironment: { name: 'worker' } }),
   ],
-  builder: {
-    // The Worker inlines the client's asset tags, so the client builds first
-    async buildApp(builder) {
-      await builder.build(builder.environments.client);
-      await builder.build(builder.environments.worker);
-    },
-  },
   server: { port: PORT, strictPort: true },
   preview: { port: PORT, strictPort: true },
 });

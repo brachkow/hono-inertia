@@ -9,7 +9,13 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import { normalizePath } from 'vite';
-import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
+import type {
+  BuildEnvironment,
+  Plugin,
+  ResolvedConfig,
+  ViteBuilder,
+  ViteDevServer,
+} from 'vite';
 import { manifestFingerprint, VERSION_LENGTH } from './manifest.js';
 import type { ViteManifest } from './manifest.js';
 
@@ -201,15 +207,44 @@ const assetsModule = (version: string, assetTags: string): string =>
 
 const HEAD_CONTENT = /<head>([\S\s]*)<\/head>/;
 
-export const honoInertia = (options: HonoInertiaPluginOptions): Plugin => {
+const isUnbuiltClient = (environment: BuildEnvironment) =>
+  environment.name === 'client' && !environment.isBuilt;
+
+// Server environments inline the client's asset tags, so in an app build
+// (`builder` in the Vite config) the client has to build first
+const buildClientFirst = async (builder: ViteBuilder) => {
+  const environments = Object.values(builder.environments);
+  const client = environments.find((environment) =>
+    isUnbuiltClient(environment),
+  );
+  if (client && environments.length > 1) await builder.build(client);
+};
+
+// Vite builds every environment only when nothing is built yet, which the
+// client build above rules out. Builds the rest unless another plugin's
+// buildApp already did, such as @cloudflare/vite-plugin's.
+const buildTheRest = async (builder: ViteBuilder) => {
+  const environments = Object.values(builder.environments);
+  const othersBuilt = environments.some(
+    (environment) => environment.name !== 'client' && environment.isBuilt,
+  );
+  if (othersBuilt) return;
+  for (const environment of environments) {
+    if (!environment.isBuilt) await builder.build(environment);
+  }
+};
+
+export const honoInertia = (options: HonoInertiaPluginOptions): Plugin[] => {
   let config: ResolvedConfig;
   let server: ViteDevServer | undefined;
   let pagesFile: ReturnType<typeof createPagesFile> | undefined;
   const storePath = () =>
     path.join(config.root, STORE_DIRECTORY, 'manifest.json');
 
-  return {
+  const main: Plugin = {
     name: 'hono-inertia',
+
+    buildApp: { order: 'pre', handler: buildClientFirst },
 
     configEnvironment(name, environmentConfig) {
       if (name !== 'client') return;
@@ -293,4 +328,14 @@ export const honoInertia = (options: HonoInertiaPluginOptions): Plugin => {
       );
     },
   };
+
+  // A second plugin, because one plugin has one buildApp hook and this one
+  // has to run after Vite's and the other plugins' builds
+  return [
+    main,
+    {
+      name: 'hono-inertia:build',
+      buildApp: { order: 'post', handler: buildTheRest },
+    },
+  ];
 };

@@ -69,15 +69,12 @@ importers:
         specifier: ^19.3.0
         version: 19.3.0(react@19.3.0)
     devDependencies:
-      '@hono/vite-build':
-        specifier: ^1.11.1
-        version: 1.11.1(hono@4.13.13)
       '@hono/vite-dev-server':
         specifier: ^0.26.1
-        version: 0.26.1(hono@4.13.13)(wrangler@4.151.0(@types/node@26.6.5))
+        version: 0.26.1(hono@4.13.13)
       '@inertiajs/vite':
         specifier: ^3.9.1
-        version: 3.9.1(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))
+        version: 3.9.1(vite@8.3.4(@types/node@26.6.5))
       '@types/node':
         specifier: ^26.6.5
         version: 26.6.5
@@ -89,13 +86,13 @@ importers:
         version: 19.3.0(@types/react@19.3.0)
       '@vitejs/plugin-react':
         specifier: ^6.1.2
-        version: 6.1.2(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))
+        version: 6.1.2(vite@8.3.4(@types/node@26.6.5))
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
       vite:
         specifier: 'catalog:'
-        version: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)
+        version: 8.3.4(@types/node@26.6.5)
 
   examples/vue-node:
     dependencies:
@@ -118,27 +115,24 @@ importers:
         specifier: ^3.5.44
         version: 3.5.44(typescript@5.9.3)
     devDependencies:
-      '@hono/vite-build':
-        specifier: ^1.11.1
-        version: 1.11.1(hono@4.13.13)
       '@hono/vite-dev-server':
         specifier: ^0.26.1
-        version: 0.26.1(hono@4.13.13)(wrangler@4.151.0(@types/node@26.6.5))
+        version: 0.26.1(hono@4.13.13)
       '@inertiajs/vite':
         specifier: ^3.9.1
-        version: 3.9.1(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))
+        version: 3.9.1(vite@8.3.4(@types/node@26.6.5))
       '@types/node':
         specifier: ^26.6.5
         version: 26.6.5
       '@vitejs/plugin-vue':
         specifier: ^6.0.10
-        version: 6.0.10(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))(vue@3.5.44(typescript@5.9.3))
+        version: 6.0.10(vite@8.3.4(@types/node@26.6.5))(vue@3.5.44(typescript@5.9.3))
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
       vite:
         specifier: 'catalog:'
-        version: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)
+        version: 8.3.4(@types/node@26.6.5)
       vue-tsc:
         specifier: ^3.3.13
         version: 3.3.13(typescript@5.9.3)
@@ -692,12 +686,6 @@ packages:
     engines: {node: '>=20'}
     peerDependencies:
       hono: ^4 || ^5.0.0-0
-
-  '@hono/vite-build@1.11.1':
-    resolution: {integrity: sha512-EQJmFL7G+71MXZQ/mmywNl4qW6DSyjTdC30cq7mlDS451a1/jE86old0M2DCWzNGCO50sv7CzQDYkz4L5dq5VQ==}
-    engines: {node: '>=18.14.1'}
-    peerDependencies:
-      hono: '*'
 
   '@hono/vite-dev-server@0.26.1':
     resolution: {integrity: sha512-OlcWoXjNogKiJhVwV/ftMK87UcsJmIBfmImSdI4e8to/ZdwNHrW9ddKw2OGHjXI5/uS2RaZr+2y+l8T9VFbCmw==}
@@ -3413,17 +3401,11 @@ snapshots:
     dependencies:
       hono: 4.13.13
 
-  '@hono/vite-build@1.11.1(hono@4.13.13)':
-    dependencies:
-      hono: 4.13.13
-
-  '@hono/vite-dev-server@0.26.1(hono@4.13.13)(wrangler@4.151.0(@types/node@26.6.5))':
+  '@hono/vite-dev-server@0.26.1(hono@4.13.13)':
     dependencies:
       '@hono/node-server': 1.19.17(hono@4.13.13)
       hono: 4.13.13
       minimatch: 9.0.9
-    optionalDependencies:
-      wrangler: 4.151.0(@types/node@26.6.5)
 
   '@humanfs/core@0.19.2':
     dependencies:
@@ -3570,6 +3552,16 @@ snapshots:
       magic-string: 0.30.21
       tinyglobby: 0.2.17
       vite: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)
+    transitivePeerDependencies:
+      - axios
+
+  '@inertiajs/vite@3.9.1(vite@8.3.4(@types/node@26.6.5))':
+    dependencies:
+      '@inertiajs/core': 3.9.1
+      '@jridgewell/remapping': 2.3.5
+      magic-string: 0.30.21
+      tinyglobby: 0.2.17
+      vite: 8.3.4(@types/node@26.6.5)
     transitivePeerDependencies:
       - axios
 
@@ -4065,15 +4057,21 @@ snapshots:
   '@unrs/resolver-binding-win32-x64-msvc@1.12.2':
     optional: true
 
-  '@vitejs/plugin-react@6.1.2(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))':
+  '@vitejs/plugin-react@6.1.2(vite@8.3.4(@types/node@26.6.5))':
     dependencies:
       '@rolldown/pluginutils': 1.0.1
-      vite: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)
+      vite: 8.3.4(@types/node@26.6.5)
 
   '@vitejs/plugin-vue@6.0.10(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))(vue@3.5.44(typescript@5.9.3))':
     dependencies:
       '@rolldown/pluginutils': 1.0.1
       vite: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)
+      vue: 3.5.44(typescript@5.9.3)
+
+  '@vitejs/plugin-vue@6.0.10(vite@8.3.4(@types/node@26.6.5))(vue@3.5.44(typescript@5.9.3))':
+    dependencies:
+      '@rolldown/pluginutils': 1.0.1
+      vite: 8.3.4(@types/node@26.6.5)
       vue: 3.5.44(typescript@5.9.3)
 
   '@vitest/eslint-plugin@1.6.27(@typescript-eslint/eslint-plugin@8.71.2(@typescript-eslint/parser@8.71.2(eslint@10.12.0)(typescript@5.9.3))(eslint@10.12.0)(typescript@5.9.3))(eslint@10.12.0)(typescript@5.9.3)(vitest@3.2.4(@types/node@26.6.5)(lightningcss@1.33.0))':
@@ -5422,6 +5420,17 @@ snapshots:
       '@types/node': 26.6.5
       fsevents: 2.3.3
       lightningcss: 1.33.0
+
+  vite@8.3.4(@types/node@26.6.5):
+    dependencies:
+      lightningcss: 1.33.0
+      picomatch: 4.0.7
+      postcss: 8.5.30
+      rolldown: 1.2.13
+      tinyglobby: 0.2.17
+    optionalDependencies:
+      '@types/node': 26.6.5
+      fsevents: 2.3.3
 
   vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2):
     dependencies:

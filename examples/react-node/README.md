@@ -24,15 +24,16 @@ Vite serves the client and runs the Hono app on http://localhost:3001. Pages ren
 
 ```bash
 pnpm build
-pnpm start:server
+pnpm start
 ```
 
-`pnpm build` runs Vite twice: the browser bundle goes to `dist/client`, and the Hono server goes to `dist/server`. The Hono server renders pages itself. `src/server.ts` imports `src/ssr.tsx` and passes it to the adapter as `ssr.render`, so there is no separate SSR server to run.
+`pnpm build` runs `vite build` once. It builds the browser bundle into `dist/client`, then the Hono server from `src/main.ts` into `dist/server`. The Hono server renders pages itself. `src/server.ts` imports `src/ssr.tsx` and passes it to the adapter as `ssr.render`, so there is no separate SSR server to run.
 
 ## Key files
 
-- `vite.config.ts` sets up one build per mode, runs Hono inside Vite in dev, and adds `honoInertia()`, which gives `src/server.ts` the asset tags and version
+- `vite.config.ts` sets up the client and server builds, runs Hono inside Vite in dev, and adds `honoInertia()`, which gives `src/server.ts` the asset tags and version
 - `src/server.ts` is the Hono app: the adapter setup, the routes and the flash cookie
+- `src/main.ts` is the production entry: it serves the app and the client assets on Node
 - `src/client.tsx` boots Inertia in the browser
 - `src/ssr.tsx` renders a page to HTML. `src/server.ts` calls it for every initial visit
 - `src/Layout.tsx` is the default layout with navigation and the flash message

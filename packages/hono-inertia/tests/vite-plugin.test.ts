@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { ResolvedConfig } from 'vite';
+import type { BuildEnvironment, ResolvedConfig, ViteBuilder } from 'vite';
 import { describe, expect, it } from 'vitest';
 import { manifestVersion } from '../src/vite.js';
 import type { ViteManifest } from '../src/vite.js';
@@ -144,7 +144,7 @@ describe('pages', () => {
     root: string,
     pages: Parameters<typeof honoInertia>[0]['pages'],
   ) => {
-    const plugin = honoInertia({ entry: 'src/client.ts', pages });
+    const [plugin] = honoInertia({ entry: 'src/client.ts', pages });
     const hook = plugin.configResolved;
     if (typeof hook !== 'function') throw new TypeError('no configResolved');
     // Only root is read
@@ -222,5 +222,77 @@ describe('pages', () => {
     expect(generated).toContain(
       "export type { PageProps } from '@brachkow/hono-inertia';",
     );
+  });
+});
+
+describe('honoInertia build order', () => {
+  // A builder with the named environments, recording the order it builds them
+  const createBuilder = (names: string[]) => {
+    const built: string[] = [];
+    const environments = Object.fromEntries(
+      names.map((name) => [name, { name, isBuilt: false } as BuildEnvironment]),
+    );
+    const builder = {
+      environments,
+      build: (environment: BuildEnvironment) => {
+        built.push(environment.name);
+        environment.isBuilt = true;
+        return Promise.resolve();
+      },
+    } as unknown as ViteBuilder;
+    return { builder, built };
+  };
+
+  // Runs the plugins' buildApp hooks the way Vite does: pre hooks, then the
+  // config's buildApp, then post hooks
+  const buildApp = async (
+    builder: ViteBuilder,
+    configBuildApp: (builder: ViteBuilder) => Promise<void> = () =>
+      Promise.resolve(),
+  ) => {
+    const hooks = honoInertia({ entry: 'src/client.ts' }).flatMap((plugin) =>
+      plugin.buildApp && typeof plugin.buildApp === 'object'
+        ? [plugin.buildApp]
+        : [],
+    );
+    const run = (order: 'pre' | 'post') =>
+      Promise.all(
+        hooks
+          .filter((hook) => hook.order === order)
+          .map((hook) => hook.handler.call(undefined as never, builder)),
+      );
+    await run('pre');
+    await configBuildApp(builder);
+    await run('post');
+  };
+
+  it('builds the client before the server', async () => {
+    const { builder, built } = createBuilder(['ssr', 'client']);
+
+    await buildApp(builder);
+
+    expect(built).toEqual(['client', 'ssr']);
+  });
+
+  it('leaves the rest to a config buildApp that builds the server', async () => {
+    // Like @cloudflare/vite-plugin's default, which builds the Worker and then
+    // the client again
+    const { builder, built } = createBuilder(['client', 'worker']);
+    const configBuildApp = async (configured: ViteBuilder) => {
+      await configured.build(configured.environments.worker);
+      await configured.build(configured.environments.client);
+    };
+
+    await buildApp(builder, configBuildApp);
+
+    expect(built).toEqual(['client', 'worker', 'client']);
+  });
+
+  it('builds a lone environment once', async () => {
+    const { builder, built } = createBuilder(['ssr']);
+
+    await buildApp(builder);
+
+    expect(built).toEqual(['ssr']);
   });
 });

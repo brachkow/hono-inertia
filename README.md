@@ -27,7 +27,7 @@ You may be wondering why this package exists when Hono has a first-party adapter
 - Hono 4.8.0 or newer, including Hono 5
 - An Inertia v3 client: `@inertiajs/vue3`, `@inertiajs/react` or `@inertiajs/svelte`. BigInt props need client 3.8 or newer, and server-provided head elements need 3.5 or newer
 - Node.js 22.12 or newer when running on Node.js. On Cloudflare Workers, no Node.js compatibility flag is needed
-- Vite 6 or newer, only for the optional Vite plugin
+- Vite 7 or newer, only for the optional Vite plugin
 - ESM. The package has no CommonJS build
 
 ## Install
@@ -426,11 +426,12 @@ Add `/// <reference types="@brachkow/hono-inertia/vite-plugin/client" />` to a `
 
 - In production, `assetTags` holds the client entry's script, `modulepreload` links for the chunks it imports, and the stylesheets of all of them. URLs follow Vite's `base`. `version` is the same hash `manifestVersion` computes (see below).
 - Under `vite dev`, `assetTags` is whatever Vite's own HTML transform adds, such as `/@vite/client` and the React Refresh preamble, followed by the entry script. `version` is `'dev'`.
-- The plugin turns on the client build's manifest and sets the entry as its input, unless you set either yourself. Once the client build is written, the plugin moves the manifest to `node_modules/.hono-inertia/`. The manifest lists every page and source path, and static hosts such as Workers would otherwise serve it to anyone. Build the client before the server, which then reads the manifest from there.
+- The plugin turns on the client build's manifest and sets the entry as its input, unless you set either yourself. Once the client build is written, the plugin moves the manifest to `node_modules/.hono-inertia/`. The manifest lists every page and source path, and static hosts such as Workers would otherwise serve it to anyone. The server build reads it from there.
+- In an app build (`builder` in the Vite config, as Cloudflare's plugin sets), the plugin builds the client before the other environments, because they inline its asset tags. In separate `vite build` runs, build the client first.
 - Pass `versionSalt` to change the version without a client change, as with the salt argument below.
 - Pass `pages` to generate the types for [typed page props](#typed-page-props).
 
-Vite 6 or newer is required.
+Vite 7 or newer is required.
 
 ### Without the plugin
 
@@ -720,52 +721,59 @@ app.get('/', (c) => c.var.inertia.render('Home', { name: 'Hono' }));
 export default app;
 ```
 
-Vite builds the server too, so the server can import `.vue` files. Pass `ssr: false` to `@inertiajs/vite`. Otherwise it wraps `src/ssr.ts` in code that starts Inertia's SSR server. The client has to build before the server, because the server inlines the client's asset tags. The two runtimes differ only in the Vite config.
+Vite builds the server too, so the server can import `.vue` files. Pass `ssr: false` to `@inertiajs/vite`. Otherwise it wraps `src/ssr.ts` in code that starts Inertia's SSR server. The server inlines the client's asset tags, so `honoInertia()` builds the client first. The two runtimes differ only in the Vite config.
 
 #### Node.js
 
-`@hono/vite-dev-server` runs the app inside Vite in dev, and `@hono/vite-build` builds it into a Node server:
+`@hono/vite-dev-server` runs the app inside Vite in dev. For production, Vite builds a small entry that serves the app with `@hono/node-server`:
 
 ```bash
-pnpm add -D @hono/vite-dev-server @hono/vite-build
+pnpm add @hono/node-server
+pnpm add -D @hono/vite-dev-server
 ```
+
+```ts
+// src/main.ts
+import { serve } from '@hono/node-server';
+import { serveStatic } from '@hono/node-server/serve-static';
+import { Hono } from 'hono';
+import app from './server';
+
+const main = new Hono()
+  .use('/assets/*', serveStatic({ root: './dist/client' }))
+  .route('/', app);
+
+serve({ fetch: main.fetch, port: Number(process.env.PORT ?? 3000) });
+```
+
+`builder: {}` makes `vite build` build every environment, the client and the server's `ssr` environment:
 
 ```ts
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import inertia from '@inertiajs/vite';
 import devServer from '@hono/vite-dev-server';
-import build from '@hono/vite-build/node';
 import { honoInertia } from '@brachkow/hono-inertia/vite-plugin';
 
-export default defineConfig(({ mode }) => {
-  const shared = [
+export default defineConfig({
+  plugins: [
     vue(),
     inertia({ ssr: false }),
     honoInertia({ entry: 'src/client.ts' }),
-  ];
-
-  if (mode === 'client') {
-    return { plugins: shared, build: { outDir: 'dist/client' } };
-  }
-
-  return {
-    plugins: [
-      ...shared,
-      // assetTags already holds /@vite/client in dev
-      devServer({ entry: 'src/server.ts', injectClientScript: false }),
-      build({
-        entry: 'src/server.ts',
-        outputDir: 'dist/server',
-        staticPaths: ['/assets/*'],
-        staticRoot: './dist/client',
-      }),
-    ],
-  };
+    // assetTags already holds /@vite/client in dev
+    devServer({ entry: 'src/server.ts', injectClientScript: false }),
+  ],
+  builder: {},
+  build: { outDir: 'dist/client' },
+  environments: {
+    ssr: {
+      build: { outDir: 'dist/server', rollupOptions: { input: 'src/main.ts' } },
+    },
+  },
 });
 ```
 
-`vite dev` runs the app. `vite build --mode client && vite build` builds the client, then the server, and `node dist/server/index.js` starts it.
+`vite dev` runs the app, `vite build` builds the client and then the server, and `node dist/server/main.js` starts it.
 
 #### Cloudflare Workers
 
@@ -774,8 +782,6 @@ export default defineConfig(({ mode }) => {
 ```bash
 pnpm add -D @cloudflare/vite-plugin wrangler
 ```
-
-The Cloudflare plugin names the Worker's environment after the `name` in your Wrangler config, with dashes replaced by underscores (`my-app` becomes `my_app`):
 
 ```ts
 import { defineConfig } from 'vite';
@@ -791,16 +797,10 @@ export default defineConfig({
     honoInertia({ entry: 'src/client.ts' }),
     cloudflare(),
   ],
-  builder: {
-    async buildApp(builder) {
-      await builder.build(builder.environments.client);
-      await builder.build(builder.environments.my_app);
-    },
-  },
 });
 ```
 
-`wrangler.jsonc` points `main` at `src/server.ts`. `vite dev` runs the app, `vite build` builds both environments, and `wrangler deploy` deploys the output.
+`wrangler.jsonc` points `main` at `src/server.ts`. `vite dev` runs the app, `vite build` builds the client and the Worker, and `wrangler deploy` deploys the output. The Cloudflare plugin builds the client a second time after the Worker, with the same file names, to move the files the Worker imports into the client's output.
 
 ### With an Inertia SSR server
 

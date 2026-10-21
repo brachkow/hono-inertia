@@ -4,12 +4,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build --mode client && vite build",
-    "start:server": "node dist/server/index.js",
+    "build": "vite build",
+    "start": "node dist/server/main.js",
     "typecheck": "vue-tsc --noEmit"
   },
   "devDependencies": {
-    "@hono/vite-build": "^1.11.1",
     "@hono/vite-dev-server": "^0.26.1",
     "@inertiajs/vite": "^3.9.1",
     "@types/node": "^26.6.5",
