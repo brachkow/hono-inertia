@@ -7,12 +7,9 @@ import {
   optional,
   serializePage,
 } from '@brachkow/hono-inertia';
-import type { SsrConfig } from '@brachkow/hono-inertia';
-import type { Page } from '@inertiajs/core';
 import { assetTags, version } from 'virtual:hono-inertia/assets';
+import renderPage from './ssr';
 
-// Must match SSR_PORT in src/ssr.ts
-const SSR_URL = 'http://127.0.0.1:13716';
 const FLASH_COOKIE = 'flash';
 const PAGE_SIZE = 3;
 
@@ -28,19 +25,6 @@ const USERS = [
   'Frances Allen',
 ].map((name, index) => ({ id: index + 1, name }));
 
-// Production posts pages to the SSR server that `start:ssr` runs. Dev renders
-// in-process: Vite loads src/ssr.ts with hot reload, so no second process.
-const ssr: SsrConfig = import.meta.env.PROD
-  ? { url: SSR_URL }
-  : {
-      render: async (page) => {
-        const { default: renderPage } = await import('./ssr');
-        // Inertia's Page type also requires client-only state (rememberedState)
-        // that no server sends
-        return renderPage(page as Page);
-      },
-    };
-
 // Routes are chained so the app's type records what each one renders.
 // src/pages.gen.ts reads it to type every page's props (see PageProps).
 const app = new Hono()
@@ -48,7 +32,8 @@ const app = new Hono()
     inertia({
       // Both come from honoInertia() in vite.config.ts
       version,
-      ssr,
+      // Renders in this process. No separate SSR server to run
+      ssr: { render: renderPage },
       share: () => ({ appName: 'Vue + Node' }),
       render: (page, _viewData, ssrResult) =>
         ssrResult

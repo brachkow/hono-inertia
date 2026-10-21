@@ -16,19 +16,13 @@ const EXAMPLES: Example[] = [
   {
     name: 'react-node',
     port: 3001,
-    processes: [
-      { command: 'pnpm start:ssr', url: 'http://127.0.0.1:13715/health' },
-      { command: 'pnpm start:server', url: 'http://localhost:3001' },
-    ],
+    processes: [{ command: 'pnpm start:server', url: 'http://localhost:3001' }],
     homePage: 'src/pages/Home.tsx',
   },
   {
     name: 'vue-node',
     port: 3002,
-    processes: [
-      { command: 'pnpm start:ssr', url: 'http://127.0.0.1:13716/health' },
-      { command: 'pnpm start:server', url: 'http://localhost:3002' },
-    ],
+    processes: [{ command: 'pnpm start:server', url: 'http://localhost:3002' }],
     homePage: 'src/pages/Home.vue',
   },
   {

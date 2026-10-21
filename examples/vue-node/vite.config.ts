@@ -8,10 +8,13 @@ import { honoInertia } from '@brachkow/hono-inertia/vite-plugin';
 const PORT = 3002;
 
 // `vite build` runs once per mode (see the build script in package.json):
-// client → the browser bundle, ssr → Inertia's SSR server, production → Hono.
+// client → the browser bundle, production → the Hono server, which also
+// renders pages on the server. The client builds first, so the server can
+// inline its asset tags.
 export default defineConfig(({ mode }) => {
-  // ssr: false: src/ssr.ts starts its own server, so @inertiajs/vite must not
-  // wrap it. The plugin still expands the `pages` shorthand.
+  // ssr: false: otherwise @inertiajs/vite wraps src/ssr.ts in code that
+  // starts Inertia's SSR server, and src/server.ts calls it directly instead.
+  // The plugin still expands the `pages` shorthand.
   // honoInertia() hands src/server.ts the asset tags and version, and keeps
   // the client manifest out of the public build output
   const shared = [
@@ -28,14 +31,6 @@ export default defineConfig(({ mode }) => {
     return {
       plugins: shared,
       build: { outDir: 'dist/client' },
-    };
-  }
-
-  if (mode === 'ssr') {
-    // Inertia's SSR server, run with `pnpm start:ssr`
-    return {
-      plugins: shared,
-      build: { ssr: 'src/ssr.ts', outDir: 'dist/ssr' },
     };
   }
 

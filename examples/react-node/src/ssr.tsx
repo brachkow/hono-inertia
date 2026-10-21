@@ -1,30 +1,25 @@
 import { createInertiaApp } from '@inertiajs/react';
-import createServer from '@inertiajs/react/server';
 import type { Page } from '@inertiajs/core';
+import type { PageObject } from '@brachkow/hono-inertia';
 import type { ComponentType } from 'react';
 import { renderToString } from 'react-dom/server';
 import { Layout } from './Layout';
-
-// Must match SSR_URL in src/server.ts
-const SSR_PORT = 13_715;
 
 const pages = import.meta.glob<ComponentType>('./pages/**/*.tsx', {
   import: 'default',
 });
 
-const renderPage = (page: Page) =>
+// src/server.ts passes this to the adapter as ssr.render, so pages render in
+// the server's own process, in dev and in production
+const renderPage = (page: PageObject) =>
   createInertiaApp({
-    page,
+    // Inertia's Page type also requires client-only state (rememberedState)
+    // that no server sends
+    page: page as Page,
     render: renderToString,
     resolve: (name) => pages[`./pages/${name}.tsx`](),
     layout: () => Layout,
     setup: ({ App, props }) => <App {...props} />,
   });
-
-// Production runs this file as Inertia's SSR server (`pnpm start:ssr`). In dev,
-// src/server.ts imports renderPage and renders in-process instead.
-if (import.meta.env.PROD) {
-  createServer(renderPage, { port: SSR_PORT });
-}
 
 export default renderPage;

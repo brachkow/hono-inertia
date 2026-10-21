@@ -74,7 +74,7 @@ export default app;
 
 Complete apps with Vite, server-side rendering and production builds:
 
-- [React on Node.js](https://github.com/brachkow/hono-inertia/tree/main/examples/react-node) runs Inertia's SSR server next to the Hono app
+- [React on Node.js](https://github.com/brachkow/hono-inertia/tree/main/examples/react-node) renders pages inside the Node server
 - [Vue on Node.js](https://github.com/brachkow/hono-inertia/tree/main/examples/vue-node) has the same setup with Vue
 - [Vue on Cloudflare Workers](https://github.com/brachkow/hono-inertia/tree/main/examples/vue-workers) renders pages inside the Worker
 
@@ -110,7 +110,7 @@ inertia({
   resolveUrl: (c) => c.req.url,
 
   // Optional. Posts the page object to an Inertia SSR server, or pass
-  // { render } to render in the same process (see SSR below)
+  // { render } to render in the same process, as SSR below recommends
   ssr: {
     url: 'http://127.0.0.1:13714',
     enabled: true,
@@ -646,7 +646,7 @@ createInertiaApp({
 
 ## SSR
 
-The adapter server-renders initial visits in one of two ways. It posts the page object to an Inertia SSR server, or it calls an SSR render function in the same process. It never server-renders Inertia requests, which are in-app navigations. Either way, your `render` function receives the result as `ssr`, with `ssr.head` already joined into one string. When SSR fails, `ssr` is `undefined` and the page renders client-side:
+The adapter server-renders initial visits. It never server-renders Inertia requests, which are in-app navigations. Your `render` function receives the result as `ssr`, with `ssr.head` already joined into one string. When SSR fails, `ssr` is `undefined` and the page renders client-side:
 
 ```ts
 render: (page, viewData, ssr) => {
@@ -657,58 +657,18 @@ render: (page, viewData, ssr) => {
 },
 ```
 
-### With an Inertia SSR server
+The setup below is the same on Node.js and Cloudflare Workers. The server imports your SSR entry and passes it to the adapter as `ssr.render`, so pages render in the server's own process, with no second process to run or deploy. The adapter also supports [an Inertia SSR server](#with-an-inertia-ssr-server) in a separate process.
 
-This works with the Node server that `@inertiajs/vite` builds from your SSR entry (`createServer` from `@inertiajs/vue3/server`, `@inertiajs/react/server` or `@inertiajs/svelte/server`):
+### Setup
 
-```ts
-inertia({
-  ssr: {
-    url: 'http://127.0.0.1:13714', // default
-    timeout: 5000, // ms before falling back to client-side rendering (default 5000)
-    maxResponseBytes: 2_000_000, // default
-  },
-  render,
-});
-```
-
-### In the same process (Cloudflare Workers)
-
-Workers can't run Inertia's Node SSR server, so the Worker imports the SSR entry and the adapter calls it directly. `ssr.render` receives the page object and returns `{ head: string[], body: string }`, the same result an Inertia SSR entry returns. The setup below uses Vue and `@cloudflare/vite-plugin`. The plugin runs the Worker in workerd during `vite dev` and builds it with Vite, so the Worker can import `.vue` files.
+The examples use Vue. With React, the SSR entry calls `renderToString` from `react-dom/server` instead, as in the [React example](https://github.com/brachkow/hono-inertia/tree/main/examples/react-node).
 
 ```bash
 pnpm add vue @inertiajs/vue3 @inertiajs/core
-pnpm add -D vite @vitejs/plugin-vue @inertiajs/vite @cloudflare/vite-plugin wrangler
+pnpm add -D vite @vitejs/plugin-vue @inertiajs/vite
 ```
 
-Configure Vite in `vite.config.ts`. The Cloudflare plugin names the Worker's environment after the `name` in your Wrangler config, with dashes replaced by underscores (`my-app` becomes `my_app`):
-
-```ts
-import { defineConfig } from 'vite';
-import vue from '@vitejs/plugin-vue';
-import inertia from '@inertiajs/vite';
-import { cloudflare } from '@cloudflare/vite-plugin';
-import { honoInertia } from '@brachkow/hono-inertia/vite-plugin';
-
-export default defineConfig({
-  plugins: [
-    vue(),
-    // ssr: false stops @inertiajs/vite from bundling its Node SSR server into the Worker
-    inertia({ ssr: false }),
-    honoInertia({ entry: 'src/client.ts' }),
-    cloudflare(),
-  ],
-  builder: {
-    // The Worker inlines the client's asset tags, so the client has to build first
-    async buildApp(builder) {
-      await builder.build(builder.environments.client);
-      await builder.build(builder.environments.my_app);
-    },
-  },
-});
-```
-
-The SSR entry, `src/ssr.ts`, resolves pages with `import.meta.glob` instead of the `pages` shorthand. When the Worker transforms an entry that uses `pages`, `@inertiajs/vite` warms up the page files for the browser before Vite has pre-bundled the client's dependencies. The browser then loads two copies of `@inertiajs/vue3` in dev. The `pages` shorthand is fine in `src/client.ts`.
+The SSR entry, `src/ssr.ts`, renders a page object to `{ head: string[], body: string }`, the same result an Inertia SSR entry returns. It resolves pages with `import.meta.glob` instead of the `pages` shorthand. On Workers, when the Worker transforms an entry that uses `pages`, `@inertiajs/vite` warms up the page files for the browser before Vite has pre-bundled the client's dependencies, and the browser loads two copies of `@inertiajs/vue3` in dev. The `pages` shorthand is fine in `src/client.ts`.
 
 ```ts
 import { createInertiaApp } from '@inertiajs/vue3';
@@ -733,7 +693,7 @@ export default (page: PageObject) =>
   });
 ```
 
-The Worker, `src/worker.ts`, takes the asset tags and the version from the [Vite plugin](#vite-plugin):
+The server imports it and takes the asset tags and the version from the [Vite plugin](#vite-plugin):
 
 ```ts
 import { Hono } from 'hono';
@@ -755,12 +715,107 @@ app.use(
   }),
 );
 
-app.get('/', (c) => c.var.inertia.render('Home', { name: 'Workers' }));
+app.get('/', (c) => c.var.inertia.render('Home', { name: 'Hono' }));
 
 export default app;
 ```
 
-`wrangler.jsonc` points `main` at `src/worker.ts`. `vite dev` runs the app, `vite build` builds both environments, and `wrangler deploy` deploys the output.
+Vite builds the server too, so the server can import `.vue` files. Pass `ssr: false` to `@inertiajs/vite`. Otherwise it wraps `src/ssr.ts` in code that starts Inertia's SSR server. The client has to build before the server, because the server inlines the client's asset tags. The two runtimes differ only in the Vite config.
+
+#### Node.js
+
+`@hono/vite-dev-server` runs the app inside Vite in dev, and `@hono/vite-build` builds it into a Node server:
+
+```bash
+pnpm add -D @hono/vite-dev-server @hono/vite-build
+```
+
+```ts
+import { defineConfig } from 'vite';
+import vue from '@vitejs/plugin-vue';
+import inertia from '@inertiajs/vite';
+import devServer from '@hono/vite-dev-server';
+import build from '@hono/vite-build/node';
+import { honoInertia } from '@brachkow/hono-inertia/vite-plugin';
+
+export default defineConfig(({ mode }) => {
+  const shared = [
+    vue(),
+    inertia({ ssr: false }),
+    honoInertia({ entry: 'src/client.ts' }),
+  ];
+
+  if (mode === 'client') {
+    return { plugins: shared, build: { outDir: 'dist/client' } };
+  }
+
+  return {
+    plugins: [
+      ...shared,
+      // assetTags already holds /@vite/client in dev
+      devServer({ entry: 'src/server.ts', injectClientScript: false }),
+      build({
+        entry: 'src/server.ts',
+        outputDir: 'dist/server',
+        staticPaths: ['/assets/*'],
+        staticRoot: './dist/client',
+      }),
+    ],
+  };
+});
+```
+
+`vite dev` runs the app. `vite build --mode client && vite build` builds the client, then the server, and `node dist/server/index.js` starts it.
+
+#### Cloudflare Workers
+
+`@cloudflare/vite-plugin` runs the Worker in workerd during `vite dev` and builds it with Vite:
+
+```bash
+pnpm add -D @cloudflare/vite-plugin wrangler
+```
+
+The Cloudflare plugin names the Worker's environment after the `name` in your Wrangler config, with dashes replaced by underscores (`my-app` becomes `my_app`):
+
+```ts
+import { defineConfig } from 'vite';
+import vue from '@vitejs/plugin-vue';
+import inertia from '@inertiajs/vite';
+import { cloudflare } from '@cloudflare/vite-plugin';
+import { honoInertia } from '@brachkow/hono-inertia/vite-plugin';
+
+export default defineConfig({
+  plugins: [
+    vue(),
+    inertia({ ssr: false }),
+    honoInertia({ entry: 'src/client.ts' }),
+    cloudflare(),
+  ],
+  builder: {
+    async buildApp(builder) {
+      await builder.build(builder.environments.client);
+      await builder.build(builder.environments.my_app);
+    },
+  },
+});
+```
+
+`wrangler.jsonc` points `main` at `src/server.ts`. `vite dev` runs the app, `vite build` builds both environments, and `wrangler deploy` deploys the output.
+
+### With an Inertia SSR server
+
+An Inertia SSR server renders in a separate process, so a crash or memory leak in page rendering doesn't take the app down with it. This works with the Node server that `@inertiajs/vite` builds from your SSR entry (`createServer` from `@inertiajs/vue3/server`, `@inertiajs/react/server` or `@inertiajs/svelte/server`). Leave out `ssr: false` for it, and pass the server's URL:
+
+```ts
+inertia({
+  ssr: {
+    url: 'http://127.0.0.1:13714', // default
+    timeout: 5000, // ms before falling back to client-side rendering (default 5000)
+    maxResponseBytes: 2_000_000, // default
+  },
+  render,
+});
+```
 
 ### When SSR fails
 
@@ -782,7 +837,7 @@ The fallback looks the same to people, because the client renders the page after
 
 ### Module state is shared between requests
 
-An in-process SSR entry stays loaded across requests in the same isolate. Module-level state in client code, such as a store created at import time, carries over from one request to the next. Create request-scoped state inside components or `setup`, not at module level.
+An in-process SSR entry stays loaded across requests in the same Node process or Workers isolate. Module-level state in client code, such as a store created at import time, carries over from one request to the next. Create request-scoped state inside components or `setup`, not at module level.
 
 ## Security
 

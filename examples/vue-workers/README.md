@@ -2,9 +2,9 @@
 
 A Hono app on Cloudflare Workers that serves Vue pages through `@brachkow/hono-inertia`, with server-side rendering. It has the same pages as the other examples: client-side navigation, deferred, optional and merge props, a form with validation errors, and a flash message after a redirect.
 
-## Why SSR runs in the Worker
+## How SSR works
 
-Inertia's usual SSR server is a separate Node process. Workers can't run one, so the Worker imports `src/ssr.ts` and passes its `renderPage` to the adapter as `ssr.render`. Every request renders in the same isolate, in dev and in production.
+The Worker imports `src/ssr.ts` and passes its `renderPage` to the adapter as `ssr.render`, as the Node examples do. Every request renders in the same isolate, in dev and in production.
 
 ## Commands
 
