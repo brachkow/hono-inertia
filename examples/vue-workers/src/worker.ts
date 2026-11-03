@@ -1,8 +1,10 @@
 import { Hono } from 'hono';
-import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
+import { z } from 'zod';
 import {
+  cookieSession,
   deferred,
   inertia,
+  inertiaValidator,
   merge,
   optional,
   serializePage,
@@ -11,8 +13,18 @@ import type { Page } from '@inertiajs/core';
 import { assetTags, version } from 'virtual:hono-inertia/assets';
 import renderPage from './ssr';
 
-const FLASH_COOKIE = 'flash';
 const PAGE_SIZE = 3;
+
+// Signs the session cookie that carries errors and flash messages across
+// redirects. Anyone can read this fallback, and with it forge those messages,
+// so set SESSION_SECRET in production.
+const INSECURE_EXAMPLE_SECRET = 'example-only-secret-set-SESSION_SECRET';
+
+// One schema checks the submitted form and the fields precognition asks about
+const contactSchema = z.object({
+  name: z.string().trim().min(1, 'Name is required'),
+  email: z.email('Enter a valid email'),
+});
 
 const USERS = [
   'Ada Lovelace',
@@ -41,22 +53,18 @@ const app = new Hono()
         render: (page) => renderPage(page as Page),
       },
       share: () => ({ appName: 'Vue + Workers' }),
+      // Workers secrets live in c.env, which exists only per request
+      session: cookieSession({
+        secret: (c) =>
+          (c.env as { SESSION_SECRET?: string }).SESSION_SECRET ??
+          INSECURE_EXAMPLE_SECRET,
+      }),
       render: (page, _viewData, ssrResult) =>
         ssrResult
           ? `<!DOCTYPE html><html><head><meta charset="utf-8">${ssrResult.head}${assetTags}</head><body>${ssrResult.body}</body></html>`
           : `<!DOCTYPE html><html><head><meta charset="utf-8">${assetTags}</head><body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body></html>`,
     }),
   )
-  // The adapter has no session, so flash data survives the POST → redirect →
-  // GET round trip in a short-lived cookie.
-  .use(async (c, next) => {
-    const flash = getCookie(c, FLASH_COOKIE);
-    if (flash) {
-      deleteCookie(c, FLASH_COOKIE);
-      c.var.inertia.flash(JSON.parse(flash) as Record<string, unknown>);
-    }
-    await next();
-  })
   .get('/', (c) => c.var.inertia.render('Home', { framework: 'Vue' }))
   .get('/users', (c) => {
     const page = Number(c.req.query('page') ?? 1);
@@ -76,21 +84,11 @@ const app = new Hono()
     });
   })
   .get('/contact', (c) => c.var.inertia.render('Contact'))
-  .post('/contact', async (c) => {
-    // Inertia forms submit JSON
-    const body = await c.req.json<{ name?: unknown }>();
-    const name = typeof body.name === 'string' ? body.name.trim() : '';
-    if (name === '') {
-      return c.var.inertia.render('Contact', {
-        errors: { name: 'Name is required' },
-      });
-    }
-    setCookie(c, FLASH_COOKIE, JSON.stringify({ message: `Thanks, ${name}` }), {
-      httpOnly: true,
-      maxAge: 60,
-      path: '/',
-      sameSite: 'Lax',
-    });
+  // A failed submit goes back to the form with the errors, and a precognition
+  // request gets its answer without reaching the handler
+  .post('/contact', inertiaValidator('json', contactSchema), (c) => {
+    const { name } = c.req.valid('json');
+    c.var.inertia.flash({ message: `Thanks, ${name}` });
     return c.redirect('/');
   });
 

@@ -96,12 +96,63 @@ test.describe('props', () => {
 });
 
 test.describe('forms', () => {
-  test('shows validation errors', async ({ page }) => {
+  test('shows validation errors after a failed submit', async ({ page }) => {
     await page.goto('/contact');
 
     await page.getByRole('button', { name: 'Send' }).click();
 
-    await expect(page.getByTestId('error')).toHaveText('Name is required');
+    await expect(page.getByTestId('name-error')).toHaveText('Name is required');
+    await expect(page.getByTestId('email-error')).toHaveText(
+      'Enter a valid email',
+    );
+    await expect(page).toHaveURL('/contact');
+  });
+
+  test('keeps the typed values after a failed submit', async ({ page }) => {
+    await page.goto('/contact');
+
+    await page.getByLabel('Name').fill('Ada');
+    await page.getByRole('button', { name: 'Send' }).click();
+
+    await expect(page.getByTestId('email-error')).toBeVisible();
+    await expect(page.getByLabel('Name')).toHaveValue('Ada');
+    await expect(page.getByTestId('name-error')).toHaveCount(0);
+  });
+
+  test('shows errors only once', async ({ page }) => {
+    await page.goto('/contact');
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect(page.getByTestId('name-error')).toBeVisible();
+
+    await page.reload();
+
+    await expect(page.getByTestId('name-error')).toHaveCount(0);
+  });
+
+  test('validates a field when it loses focus', async ({ page }) => {
+    await page.goto('/contact');
+
+    await page.getByLabel('Email').fill('nope');
+    await page.getByLabel('Email').blur();
+
+    await expect(page.getByTestId('email-error')).toHaveText(
+      'Enter a valid email',
+    );
+    // Precognition validated only the email field, so the empty name passes
+    await expect(page.getByTestId('name-error')).toHaveCount(0);
+    await expect(page).toHaveURL('/contact');
+  });
+
+  test('clears a field error once the field is valid', async ({ page }) => {
+    await page.goto('/contact');
+    await page.getByLabel('Email').fill('nope');
+    await page.getByLabel('Email').blur();
+    await expect(page.getByTestId('email-error')).toBeVisible();
+
+    await page.getByLabel('Email').fill('ada@example.com');
+    await page.getByLabel('Email').blur();
+
+    await expect(page.getByTestId('email-error')).toHaveCount(0);
   });
 
   test('redirects with a flash message after a valid submit', async ({
@@ -110,6 +161,7 @@ test.describe('forms', () => {
     await page.goto('/contact');
 
     await page.getByLabel('Name').fill('Ada');
+    await page.getByLabel('Email').fill('ada@example.com');
     await page.getByRole('button', { name: 'Send' }).click();
 
     await expect(page).toHaveURL('/');
@@ -119,6 +171,7 @@ test.describe('forms', () => {
   test('shows a flash message only once', async ({ page }) => {
     await page.goto('/contact');
     await page.getByLabel('Name').fill('Ada');
+    await page.getByLabel('Email').fill('ada@example.com');
     await page.getByRole('button', { name: 'Send' }).click();
     await expect(page.getByTestId('flash')).toBeVisible();
 

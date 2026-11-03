@@ -1,6 +1,6 @@
 # Hono + Vue on Cloudflare Workers
 
-A Hono app on Cloudflare Workers that serves Vue pages through `@brachkow/hono-inertia`, with server-side rendering. It has the same pages as the other examples: client-side navigation, deferred, optional and merge props, a form with validation errors, and a flash message after a redirect.
+A Hono app on Cloudflare Workers that serves Vue pages through `@brachkow/hono-inertia`, with server-side rendering. It has the same pages as the other examples: client-side navigation, deferred, optional and merge props, a form validated with a Zod schema, live validation with precognition, and a flash message after a redirect.
 
 ## How SSR works
 
@@ -17,7 +17,7 @@ The Worker imports `src/ssr.ts` and passes its `renderPage` to the adapter as `s
 
 - `wrangler.jsonc` names the Worker and points `main` at `src/worker.ts`
 - `vite.config.ts` adds the Vue, Inertia and Cloudflare plugins and builds the client before the Worker
-- `src/worker.ts` is the Hono app: the adapter setup, routes, and the flash cookie
+- `src/worker.ts` is the Hono app: the adapter setup with a cookie session, routes, and the form schema
 - `src/ssr.ts` renders a page to HTML for the Worker
 - `src/client.ts` boots Inertia in the browser
 - `src/Layout.vue` is the layout every page renders in

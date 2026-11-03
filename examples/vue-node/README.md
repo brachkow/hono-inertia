@@ -7,7 +7,8 @@ A Hono app on Node.js that serves Vue pages through `@brachkow/hono-inertia`, wi
 - Partial reloads of an `optional()` prop
 - A `deferred()` prop that loads after the page renders
 - A `merge()` prop that appends the next page of users
-- A form with validation errors, and a flash message after the redirect
+- A form validated with a Zod schema, with errors after a redirect and live validation with precognition
+- A flash message after the redirect
 
 The same pages exist in the other examples, and one Playwright suite in `e2e/` runs against all of them.
 
@@ -39,7 +40,7 @@ The Hono server renders pages itself. `src/server.ts` imports `src/ssr.ts` and p
 
 ## Key files
 
-- `src/server.ts` is the Hono app: the `inertia()` middleware, routes, and the flash cookie
+- `src/server.ts` is the Hono app: the `inertia()` middleware with a cookie session, routes, and the form schema
 - `src/main.ts` is the production entry: it serves the app and the client assets on Node
 - `src/client.ts` boots Inertia in the browser
 - `src/ssr.ts` renders a page to HTML. `src/server.ts` calls it for every initial visit

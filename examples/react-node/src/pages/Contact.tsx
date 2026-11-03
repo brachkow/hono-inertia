@@ -2,7 +2,12 @@ import { useForm } from '@inertiajs/react';
 import type { FormEvent } from 'react';
 
 const Contact = () => {
-  const form = useForm({ name: '' });
+  // withPrecognition lets validate() check a field against the server's
+  // schema while the user fills in the form
+  const form = useForm({ name: '', email: '' }).withPrecognition(
+    'post',
+    '/contact',
+  );
   const submit = (event: FormEvent) => {
     event.preventDefault();
     form.post('/contact');
@@ -18,9 +23,22 @@ const Contact = () => {
             name="name"
             value={form.data.name}
             onChange={(event) => form.setData('name', event.target.value)}
+            onBlur={() => form.validate('name')}
           />
         </label>
-        {form.errors.name && <p data-testid="error">{form.errors.name}</p>}
+        {form.errors.name && <p data-testid="name-error">{form.errors.name}</p>}
+        <label>
+          Email
+          <input
+            name="email"
+            value={form.data.email}
+            onChange={(event) => form.setData('email', event.target.value)}
+            onBlur={() => form.validate('email')}
+          />
+        </label>
+        {form.errors.email && (
+          <p data-testid="email-error">{form.errors.email}</p>
+        )}
         <button type="submit" disabled={form.processing}>
           Send
         </button>

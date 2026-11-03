@@ -7,8 +7,8 @@ A Hono app on Node that serves React pages through `@brachkow/hono-inertia`, wit
 - A merge prop with a "Load more" button
 - An optional prop loaded by a partial reload
 - A deferred prop
-- A form with validation errors
-- A flash message carried across a redirect in a cookie
+- A form validated with a Zod schema, with errors after a redirect and live validation with precognition
+- A flash message carried across a redirect in the session
 
 The repo's Playwright suite in `e2e/` runs against this example's production build.
 
@@ -32,7 +32,7 @@ pnpm start
 ## Key files
 
 - `vite.config.ts` sets up the client and server builds, runs Hono inside Vite in dev, and adds `honoInertia()`, which gives `src/server.ts` the asset tags and version
-- `src/server.ts` is the Hono app: the adapter setup, the routes and the flash cookie
+- `src/server.ts` is the Hono app: the adapter setup with a cookie session, the routes and the form schema
 - `src/main.ts` is the production entry: it serves the app and the client assets on Node
 - `src/client.tsx` boots Inertia in the browser
 - `src/ssr.tsx` renders a page to HTML. `src/server.ts` calls it for every initial visit

@@ -14,7 +14,8 @@
     "@inertiajs/core": "^3.9.1",
     "@inertiajs/svelte": "^3.9.1",
     "hono": "catalog:",
-    "svelte": "^5.57.2"
+    "svelte": "^5.57.2",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@hono/vite-dev-server": "^0.26.1",

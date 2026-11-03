@@ -15,7 +15,8 @@
     "@inertiajs/react": "^3.9.1",
     "hono": "catalog:",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@hono/vite-dev-server": "^0.26.1",
