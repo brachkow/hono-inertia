@@ -1035,37 +1035,21 @@ describe('clearHistory across redirects', () => {
 // 19. Error bag support
 // =========================================================================
 describe('Error bag', () => {
-  it('scopes errors to bag name', async () => {
+  // The client scopes errors by bag itself (props.errors[bag]), so an errors
+  // prop the handler passes must reach it unchanged
+  it('passes an explicit errors prop through when a bag is requested', async () => {
     const app = createApp();
-    app.get('/test', (c) =>
-      c.var.inertia.render('Test', {
-        errors: {
-          createUser: { name: 'Required' },
-          updateUser: { email: 'Invalid' },
-        },
-      }),
-    );
+    const errors = {
+      createUser: { name: 'Required' },
+      updateUser: { email: 'Invalid' },
+    };
+    app.get('/test', (c) => c.var.inertia.render('Test', { errors }));
 
     const response = await app.request('/test', {
       headers: inertiaHeaders({ 'X-Inertia-Error-Bag': 'createUser' }),
     });
     const page = await getPage(response);
-    expect(page.props.errors).toEqual({ name: 'Required' });
-  });
-
-  it('returns empty errors when bag is not found', async () => {
-    const app = createApp();
-    app.get('/test', (c) =>
-      c.var.inertia.render('Test', {
-        errors: { createUser: { name: 'Required' } },
-      }),
-    );
-
-    const response = await app.request('/test', {
-      headers: inertiaHeaders({ 'X-Inertia-Error-Bag': 'nonexistent' }),
-    });
-    const page = await getPage(response);
-    expect(page.props.errors).toEqual({});
+    expect(page.props.errors).toEqual(errors);
   });
 });
 

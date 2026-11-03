@@ -5,14 +5,17 @@ import type {
   DeferredProperty,
   InertiaConfig,
   InertiaContext,
+  LivePropertyMetadata,
   MergeProperty,
   MergeStrategy,
   OnceProperty,
   OptionalProperty,
   PageObject,
   ScrollProperty,
+  SessionData,
   SsrResult,
   TaggedProperty,
+  ValidationErrors,
 } from './types.js';
 import { isTaggedProp } from './properties.js';
 import { renderSsr } from './ssr.js';
@@ -37,6 +40,8 @@ export class InertiaResponse implements InertiaContext {
   private sharedProps: Record<string, unknown> = {};
   private viewDataStore: Record<string, unknown> = {};
   private flashStore: Record<string, unknown> = {};
+  private errorStore: Record<string, ValidationErrors> = {};
+  private didRender = false;
   private shouldEncryptHistory = false;
   private shouldClearHistory = false;
   private clearHistoryWasConsumed = false;
@@ -48,6 +53,8 @@ export class InertiaResponse implements InertiaContext {
     private c: Context,
     private config: InertiaConfig,
     private version: () => Promise<string | null>,
+    // What the previous request left in the session (null without one)
+    private incomingSession: SessionData | null = null,
   ) {}
 
   share(data: Record<string, unknown>): void {
@@ -60,6 +67,56 @@ export class InertiaResponse implements InertiaContext {
 
   flash(data: Record<string, unknown>): void {
     Object.assign(this.flashStore, data);
+  }
+
+  withErrors(errors: ValidationErrors, bag = 'default'): void {
+    this.errorStore[bag] = { ...this.errorStore[bag], ...errors };
+  }
+
+  back(fallback = '/'): Response {
+    return this.c.redirect(this.backUrl(fallback), 302);
+  }
+
+  // Only the Referer's path, query and hash: an absolute Referer could point
+  // at another origin, and behind a proxy the request's own origin is internal.
+  // Also used by the middleware for empty 200 responses.
+  backUrl(fallback = '/'): string {
+    const referer = this.c.req.header('Referer');
+    if (!referer) return fallback;
+    try {
+      return toPageUrl(this.c, referer);
+    } catch {
+      return fallback;
+    }
+  }
+
+  socketId(): string | null {
+    return this.c.req.header('X-Socket-Id') ?? null;
+  }
+
+  // What the session should hold after this request, or undefined to leave it
+  // alone. A rendered page used the incoming data. Anything else (a redirect,
+  // a 409, JSON) keeps it for the next page, adding what this request flashed.
+  // Read by the middleware. Not part of the public InertiaContext interface.
+  get sessionAfter(): SessionData | null | undefined {
+    if (this.didRender) return this.incomingSession ? null : undefined;
+
+    const hasErrors = Object.keys(this.errorStore).length > 0;
+    const hasFlash = Object.keys(this.flashStore).length > 0;
+    if (!hasErrors && !hasFlash) return undefined;
+
+    // Only the first message per field, the one pages show, so the data
+    // stays small enough for a cookie
+    const errors = Object.fromEntries(
+      Object.entries(this.errorStore).map(([bag, fields]) => [
+        bag,
+        firstMessages(fields),
+      ]),
+    );
+    return mergeSessionData(this.incomingSession, {
+      ...(hasErrors && { errors }),
+      ...(hasFlash && { flash: this.flashStore }),
+    });
   }
 
   encryptHistory(encrypt = true): void {
@@ -148,13 +205,22 @@ export class InertiaResponse implements InertiaContext {
     extraViewData: Record<string, unknown>,
   ): Promise<Response> {
     const mergedViewData = { ...this.viewDataStore, ...extraViewData };
+    this.didRender = true;
+
+    // Errors and flash from the previous request, plus any this handler added
+    // before rendering
+    const session = mergeSessionData(this.incomingSession, {
+      errors: this.errorStore,
+      flash: this.flashStore,
+    });
+    const flash = session.flash ?? {};
 
     // 1. Capture shared prop keys before merging (for v3 instant visits)
     const sharedKeys = Object.keys(this.sharedProps);
 
     // 2. Merge shared + render props. Render props win. Ensure errors exists.
     const allProperties: Record<string, unknown> = {
-      errors: {},
+      errors: resolveSessionErrors(session.errors, getErrorBag(this.c)),
       ...this.sharedProps,
       ...properties,
     };
@@ -167,7 +233,6 @@ export class InertiaResponse implements InertiaContext {
     const isPartialRequest =
       isPartialForThis && (partialData.size > 0 || partialExcept.size > 0);
     const exceptOnceProperties = getExceptOnceProperties(this.c);
-    const errorBag = getErrorBag(this.c);
     const resetProperties = getResetProperties(this.c);
     const scrollMergeIntent = getScrollMergeIntent(this.c);
     // No merge-intent header => a fresh load, so the client should reset the
@@ -220,6 +285,11 @@ export class InertiaResponse implements InertiaContext {
       string,
       (key: string, tagged: TaggedProperty) => void
     > = {
+      live: (key, tagged) => {
+        if (isFilteredOut(key)) return;
+        included[key] = tagged.value;
+      },
+
       always: (key, tagged) => {
         included[key] = (tagged as AlwaysProperty).value;
       },
@@ -352,6 +422,17 @@ export class InertiaResponse implements InertiaContext {
       propertyHandlers[propertyType]?.(key, value);
     }
 
+    // Live listeners go on the first visit even for props left out of it, so
+    // the client knows what to subscribe to. A partial response only carries
+    // the props it refreshed; the client keeps the rest.
+    const liveMetadata: Record<string, LivePropertyMetadata> = {};
+    for (const [key, value] of Object.entries(allProperties)) {
+      if (!isTaggedProp(value) || !('liveMetadata' in value)) continue;
+      if (!value.liveMetadata) continue;
+      if (isPartialRequest && !(key in included)) continue;
+      liveMetadata[key] = value.liveMetadata;
+    }
+
     // 4. Resolve lazy values (functions and async functions). A rescuable
     // deferred prop that throws is sent as null and reported instead of
     // failing the whole response (mirrors Laravel's `defer(..., rescue: true)`).
@@ -385,13 +466,7 @@ export class InertiaResponse implements InertiaContext {
       rescued.has(key),
     );
 
-    // 5. Handle error bag scoping
-    if (errorBag && resolved.errors && typeof resolved.errors === 'object') {
-      const errors = resolved.errors as Record<string, unknown>;
-      resolved.errors = errors[errorBag] ?? {};
-    }
-
-    // 6. Build page object
+    // 5. Build page object
     const page: PageObject = {
       component,
       props: resolved,
@@ -415,8 +490,8 @@ export class InertiaResponse implements InertiaContext {
     if (sharedKeys.length > 0) {
       page.sharedProps = sharedKeys;
     }
-    if (Object.keys(this.flashStore).length > 0) {
-      page.flash = this.flashStore;
+    if (Object.keys(flash).length > 0) {
+      page.flash = flash;
     }
     if (Object.keys(deferredGroups).length > 0) {
       page.deferredProps = deferredGroups;
@@ -442,6 +517,9 @@ export class InertiaResponse implements InertiaContext {
     if (rescuedProperties.length > 0) {
       page.rescuedProps = rescuedProperties;
     }
+    if (Object.keys(liveMetadata).length > 0) {
+      page.liveProps = liveMetadata;
+    }
 
     this.devtoolsPayloadStore = {
       component,
@@ -457,7 +535,7 @@ export class InertiaResponse implements InertiaContext {
       sharedKeys,
     };
 
-    // 7. Return response. Built through the Hono context so c.status() and
+    // 6. Return response. Built through the Hono context so c.status() and
     // c.header() set by the handler apply to both JSON and HTML responses.
     // newResponse, not json(): the page goes through stringifyPage, not
     // JSON.stringify.
@@ -532,4 +610,46 @@ function collectMergeMetadata(
   if (matchOn) {
     matchOnKeys.push(`${key}.${matchOn}`);
   }
+}
+
+function mergeSessionData(
+  base: SessionData | null,
+  added: SessionData,
+): SessionData {
+  const errors: Record<string, ValidationErrors> = { ...base?.errors };
+  for (const [bag, fields] of Object.entries(added.errors ?? {})) {
+    errors[bag] = { ...errors[bag], ...fields };
+  }
+  const flash = { ...base?.flash, ...added.flash };
+  return {
+    ...(Object.keys(errors).length > 0 && { errors }),
+    ...(Object.keys(flash).length > 0 && { flash }),
+  };
+}
+
+// Laravel's rules, which the client's error bag handling expects: the default
+// bag goes under the name the request asked for with X-Inertia-Error-Bag, or
+// unwrapped without the header. Named bags show under their own names only
+// when there is no default bag. Pages get each field's first message.
+function resolveSessionErrors(
+  bags: Record<string, ValidationErrors> | undefined,
+  errorBag: string | null,
+): Record<string, unknown> {
+  if (!bags) return {};
+  if (bags.default) {
+    const defaultBag = firstMessages(bags.default);
+    return errorBag ? { [errorBag]: defaultBag } : defaultBag;
+  }
+  return Object.fromEntries(
+    Object.entries(bags).map(([bag, fields]) => [bag, firstMessages(fields)]),
+  );
+}
+
+function firstMessages(fields: ValidationErrors): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(fields).map(([field, messages]) => [
+      field,
+      Array.isArray(messages) ? (messages[0] ?? '') : messages,
+    ]),
+  );
 }

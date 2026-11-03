@@ -4,6 +4,19 @@ export { inertia, CLEAR_HISTORY_COOKIE } from './middleware.js';
 // Serialization helpers
 export { serializePage, escapeHtml } from './serialize.js';
 
+// Session store
+export { cookieSession } from './session.js';
+export type { CookieSecret, CookieSessionOptions } from './session.js';
+
+// Validation and precognition
+export { inertiaValidator, ROOT_ERROR_KEY } from './validator.js';
+export type {
+  StandardSchema,
+  StandardSchemaIssue,
+  StandardSchemaPathSegment,
+  StandardSchemaResult,
+} from './validator.js';
+
 // DevTools
 export { createMemoryDevtoolsStore } from './devtools.js';
 
@@ -17,6 +30,8 @@ export {
   deepMerge,
   once,
   scroll,
+  live,
+  broadcastProperties,
   isTaggedProp,
 } from './properties.js';
 
@@ -31,6 +46,12 @@ export type {
   InertiaConfig,
   InertiaContext,
   InertiaEnv,
+  InertiaSession,
+  LiveChannel,
+  LiveChannelType,
+  LiveListener,
+  LiveOptions,
+  LivePropertyMetadata,
   PageObject,
   RenderFunction,
   ScrollMetadata,
@@ -39,6 +60,8 @@ export type {
   SsrRenderConfig,
   SsrRenderResult,
   SsrResult,
+  SessionData,
+  ValidationErrors,
 } from './types.js';
 
 // Typed page props

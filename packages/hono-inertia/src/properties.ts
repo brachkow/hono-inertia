@@ -2,6 +2,10 @@ import { PROP_TYPE } from './symbols.js';
 import type {
   AlwaysProperty,
   DeferredProperty,
+  LiveChannel,
+  LiveOptions,
+  LivePropertyMetadata,
+  LiveProperty,
   MergeProperty,
   OnceProperty,
   OptionalProperty,
@@ -26,6 +30,10 @@ export function isTaggedProp(value: unknown): value is TaggedProperty {
 // Chainable return types
 // ---------------------------------------------------------------------------
 
+// Laravel's adapter refuses this combination, and the Inertia docs say merge
+// props cannot be live.
+const MERGE_LIVE_ERROR = 'A merge prop cannot be live';
+
 // A prop value, or a function that returns it, called only when the prop is sent
 type Lazy<T> = T | (() => T | Promise<T>);
 
@@ -33,11 +41,25 @@ type Lazy<T> = T | (() => T | Promise<T>);
 type Resolved<V> = V extends () => infer R ? Awaited<R> : V;
 
 export type OptionalChain<T = unknown> = OptionalProperty<T> & {
-  once(key?: string, expiresAt?: number | null): OptionalProperty<T>;
+  once(key?: string, expiresAt?: number | null): OptionalChain<T>;
+  live(options: LiveOptions): OptionalChain<T>;
+};
+
+export type AlwaysChain<T = unknown> = AlwaysProperty<T> & {
+  live(options: LiveOptions): AlwaysChain<T>;
+};
+
+export type OnceChain<T = unknown> = OnceProperty<T> & {
+  live(options: LiveOptions): OnceChain<T>;
+};
+
+export type LiveChain<T = unknown> = LiveProperty<T> & {
+  live(options: LiveOptions): LiveChain<T>;
 };
 
 export type DeferredChain<T = unknown> = DeferredProperty<T> & {
   rescue(): DeferredChain<T>;
+  live(options: LiveOptions): DeferredChain<T>;
   merge(): DeferredChain<T>;
   prepend(): DeferredChain<T>;
   deepMerge(): DeferredChain<T>;
@@ -68,22 +90,43 @@ export function optional<T>(function_: () => T | Promise<T>): OptionalChain<T> {
     expiresAt: null,
   };
 
-  return Object.assign(property, {
-    once(key?: string, expiresAt?: number | null): OptionalProperty<T> {
+  const chain = {
+    once(key?: string, expiresAt?: number | null): OptionalChain<T> {
       property.isOnce = true;
       property.onceKey = key ?? null;
       property.expiresAt = expiresAt ?? null;
-      return property;
+      return result;
     },
-  });
+    live(options: LiveOptions): OptionalChain<T> {
+      property.liveMetadata = addLiveListeners(property.liveMetadata, options);
+      return result;
+    },
+  };
+
+  const result: OptionalChain<T> = Object.assign(property, chain);
+  return result;
 }
 
 // ---------------------------------------------------------------------------
 // always(value) — always included, even in partial reloads
 // ---------------------------------------------------------------------------
 
-export function always<V>(value: V): AlwaysProperty<Resolved<V>> {
-  return { [PROP_TYPE]: 'always', value: value as Lazy<Resolved<V>> };
+export function always<V>(value: V): AlwaysChain<Resolved<V>> {
+  type T = Resolved<V>;
+  const property: AlwaysProperty<T> = {
+    [PROP_TYPE]: 'always',
+    value: value as Lazy<T>,
+  };
+
+  const chain = {
+    live(options: LiveOptions): AlwaysChain<T> {
+      property.liveMetadata = addLiveListeners(property.liveMetadata, options);
+      return result;
+    },
+  };
+
+  const result: AlwaysChain<T> = Object.assign(property, chain);
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -112,17 +155,25 @@ export function deferred<T>(
       property.shouldRescue = true;
       return result;
     },
+    live(options: LiveOptions): DeferredChain<T> {
+      if (property.isMerge) throw new Error(MERGE_LIVE_ERROR);
+      property.liveMetadata = addLiveListeners(property.liveMetadata, options);
+      return result;
+    },
     merge(): DeferredChain<T> {
+      if (property.liveMetadata) throw new Error(MERGE_LIVE_ERROR);
       property.isMerge = true;
       property.mergeStrategy = 'append';
       return result;
     },
     prepend(): DeferredChain<T> {
+      if (property.liveMetadata) throw new Error(MERGE_LIVE_ERROR);
       property.isMerge = true;
       property.mergeStrategy = 'prepend';
       return result;
     },
     deepMerge(): DeferredChain<T> {
+      if (property.liveMetadata) throw new Error(MERGE_LIVE_ERROR);
       property.isMerge = true;
       property.mergeStrategy = 'deep';
       return result;
@@ -199,13 +250,23 @@ export function once<T>(
   function_: () => T | Promise<T>,
   key?: string,
   expiresAt?: number | null,
-): OnceProperty<T> {
-  return {
+): OnceChain<T> {
+  const property: OnceProperty<T> = {
     [PROP_TYPE]: 'once',
     value: function_,
     onceKey: key ?? null,
     expiresAt: expiresAt ?? null,
   };
+
+  const chain = {
+    live(options: LiveOptions): OnceChain<T> {
+      property.liveMetadata = addLiveListeners(property.liveMetadata, options);
+      return result;
+    },
+  };
+
+  const result: OnceChain<T> = Object.assign(property, chain);
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -236,4 +297,80 @@ export function scroll<V>(
 
   const result: ScrollChain<T> = Object.assign(property, chain);
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// live(value, options) — refreshed when a broadcast event arrives
+// ---------------------------------------------------------------------------
+
+export function live<V>(
+  value: V,
+  options: LiveOptions,
+): LiveChain<Resolved<V>> {
+  type T = Resolved<V>;
+  const property: LiveProperty<T> = {
+    [PROP_TYPE]: 'live',
+    value: value as Lazy<T>,
+    liveMetadata: addLiveListeners(undefined, options),
+  };
+
+  const chain = {
+    live(more: LiveOptions): LiveChain<T> {
+      property.liveMetadata = addLiveListeners(property.liveMetadata, more);
+      return result;
+    },
+  };
+
+  const result: LiveChain<T> = Object.assign(property, chain);
+  return result;
+}
+
+// Wraps values for a broadcast event payload, so listening pages write them
+// directly instead of each making a partial reload. Every subscriber gets the
+// same payload, so send only what all of them may see.
+export function broadcastProperties(properties: Record<string, unknown>): {
+  __inertia: { props: Record<string, unknown> };
+} {
+  return { __inertia: { props: properties } };
+}
+
+const toChannel = (channel: string | LiveChannel): LiveChannel =>
+  typeof channel === 'string' ? { name: channel, type: 'public' } : channel;
+
+// Each .live() call pairs its channels with its own events, so the client
+// does not subscribe to every channel for every event. Events for a channel
+// that is already listed join its listener.
+function addLiveListeners(
+  current: LivePropertyMetadata | undefined,
+  options: LiveOptions,
+): LivePropertyMetadata {
+  const channels = (
+    Array.isArray(options.channel) ? options.channel : [options.channel]
+  ).map(toChannel);
+  const events = Array.isArray(options.on) ? options.on : [options.on];
+  if (channels.length === 0 || events.length === 0) {
+    throw new Error('A live prop needs at least one channel and one event');
+  }
+
+  const listeners = (current?.listeners ?? []).map((listener) => ({
+    channel: listener.channel,
+    events: [...listener.events],
+  }));
+  for (const channel of channels) {
+    const existing = listeners.find(
+      (listener) =>
+        listener.channel.type === channel.type &&
+        listener.channel.name === channel.name,
+    );
+    if (existing) {
+      for (const event of events) {
+        if (!existing.events.includes(event)) existing.events.push(event);
+      }
+    } else {
+      listeners.push({ channel, events: [...events] });
+    }
+  }
+
+  const throttle = options.throttle ?? current?.throttle;
+  return throttle === undefined ? { listeners } : { listeners, throttle };
 }

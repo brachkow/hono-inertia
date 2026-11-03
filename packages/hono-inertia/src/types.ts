@@ -34,6 +34,67 @@ export interface PageObject {
       reset: boolean;
     }
   >;
+  liveProps?: Record<string, LivePropertyMetadata>;
+}
+
+// ---------------------------------------------------------------------------
+// Live props (client 3.10+)
+// ---------------------------------------------------------------------------
+
+export type LiveChannelType =
+  'public' | 'private' | 'presence' | 'encrypted-private';
+
+// Names go to the client unprefixed: the client's transport adds whatever
+// prefix its broadcaster expects (e.g. Pusher's `private-`).
+export interface LiveChannel {
+  name: string;
+  type: LiveChannelType;
+  // Passed to the client transport untouched
+  params?: Record<string, unknown>;
+}
+
+export interface LiveOptions {
+  // A bare string is a public channel
+  channel: string | LiveChannel | Array<string | LiveChannel>;
+  // Broadcast event names that refresh the prop
+  on: string | string[];
+  // Refresh at most once per this many ms. The client default is 1000.
+  throttle?: number;
+}
+
+export interface LiveListener {
+  channel: LiveChannel;
+  events: string[];
+}
+
+export interface LivePropertyMetadata {
+  listeners: LiveListener[];
+  throttle?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Session (validation errors and flash data across redirects)
+// ---------------------------------------------------------------------------
+
+// Error messages for one field. Precognition responses send every message;
+// pages get the first one, as Laravel's adapter does by default.
+export type ValidationErrors = Record<string, string | string[]>;
+
+export interface SessionData {
+  // Keyed by error bag name. withErrors() without a bag writes `default`.
+  errors?: Record<string, ValidationErrors>;
+  flash?: Record<string, unknown>;
+}
+
+// Holds what one request leaves for the next: validation errors and flash
+// data. get() must not clear anything, because the middleware decides when the
+// data was used and calls set(c, null) then. cookieSession() is the built-in
+// store.
+export interface InertiaSession {
+  get(
+    c: Context,
+  ): SessionData | null | undefined | Promise<SessionData | null | undefined>;
+  set(c: Context, data: SessionData | null): void | Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +179,11 @@ export interface InertiaConfig<
   // Record requests for the Inertia DevTools browser extension. Off by default;
   // enable in development only. See README → DevTools.
   devtools?: boolean | DevtoolsConfig;
+  // Carries validation errors and flash data across redirects. Without it,
+  // flash() applies to the current response only, and withErrors() works only
+  // when the handler renders a page afterwards.
+  // See README → Validation and sessions.
+  session?: InertiaSession;
 }
 
 // ---------------------------------------------------------------------------
@@ -173,6 +239,7 @@ export interface DevtoolsPropMeta {
   mergeDirection?: 'append' | 'prepend';
   deepMerge?: boolean;
   rescued?: boolean;
+  live?: boolean;
 }
 
 export interface DevtoolsEntry {
@@ -227,7 +294,17 @@ export interface InertiaContext {
   clearHistory(clear?: boolean): void;
   preserveFragment(preserve?: boolean): void;
   viewData(data: Record<string, unknown>): void;
+  // On the page when this request renders one, otherwise kept in the session
+  // for the next page.
   flash(data: Record<string, unknown>): void;
+  // Validation errors for this page when the handler renders after calling
+  // it, or for the next page otherwise, which needs the `session` option
+  withErrors(errors: ValidationErrors, bag?: string): void;
+  // Redirects to the Referer's path, or to `fallback` without one
+  back(fallback?: string): Response;
+  // The client's broadcaster connection id from `X-Socket-Id`, so a broadcast
+  // can skip the connection that caused it
+  socketId(): string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -264,11 +341,15 @@ export interface OptionalProperty<T = unknown> {
   isOnce: boolean;
   onceKey: string | null;
   expiresAt: number | null;
+  // Set by .live()
+  liveMetadata?: LivePropertyMetadata;
 }
 
 export interface AlwaysProperty<T = unknown> {
   __hono_inertia_prop_type__: 'always';
   value: T | (() => T | Promise<T>);
+  // Set by .live()
+  liveMetadata?: LivePropertyMetadata;
 }
 
 export interface DeferredProperty<T = unknown> {
@@ -282,6 +363,8 @@ export interface DeferredProperty<T = unknown> {
   isOnce: boolean;
   onceKey: string | null;
   expiresAt: number | null;
+  // Set by .live()
+  liveMetadata?: LivePropertyMetadata;
 }
 
 export interface MergeProperty<T = unknown> {
@@ -296,6 +379,8 @@ export interface OnceProperty<T = unknown> {
   value: () => T | Promise<T>;
   onceKey: string | null;
   expiresAt: number | null;
+  // Set by .live()
+  liveMetadata?: LivePropertyMetadata;
 }
 
 export interface ScrollProperty<T = unknown> {
@@ -308,7 +393,15 @@ export interface ScrollProperty<T = unknown> {
   matchOn: string | null;
 }
 
+// A plain prop that refreshes on broadcast events
+export interface LiveProperty<T = unknown> {
+  __hono_inertia_prop_type__: 'live';
+  value: T | (() => T | Promise<T>);
+  liveMetadata: LivePropertyMetadata;
+}
+
 export type TaggedProperty =
+  | LiveProperty
   | OptionalProperty
   | AlwaysProperty
   | DeferredProperty

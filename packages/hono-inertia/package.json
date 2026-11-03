@@ -24,6 +24,12 @@
         "default": "./dist/vite-plugin.js"
       }
     },
+    "./testing": {
+      "import": {
+        "types": "./dist/testing.d.ts",
+        "default": "./dist/testing.js"
+      }
+    },
     "./vite-plugin/client": {
       "types": "./client.d.ts"
     }
@@ -67,7 +73,8 @@
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-7.0.0": "npm:vite@7.0.0",
-    "vitest": "^3.1.0"
+    "vitest": "^3.1.0",
+    "zod": "^4.6.7"
   },
   "license": "MIT",
   "keywords": [

@@ -108,8 +108,21 @@ async function handle<V extends Record<string, unknown>>(
     }
   }
 
+  // Read after the version check, so a 409 leaves the session for the full
+  // reload that follows. Prefetches skip it: the client may discard a
+  // prefetched page, which would swallow errors and flash data unseen.
+  const incomingSession =
+    config.session && !isPrefetch(c)
+      ? ((await config.session.get(c)) ?? null)
+      : null;
+
   // Create response builder and attach to context
-  const response = new InertiaResponse(c, config, currentVersion);
+  const response = new InertiaResponse(
+    c,
+    config,
+    currentVersion,
+    incomingSession,
+  );
   c.set('inertia', response);
 
   // Apply global shared props
@@ -134,11 +147,45 @@ async function handle<V extends Record<string, unknown>>(
 
   await next();
 
-  // Post-handler: convert 302 → 303 for PUT/PATCH/DELETE on Inertia requests
+  // An empty 200 means the handler had nothing to show, e.g. it saved a form
+  // and returned c.body(null). Laravel's adapter redirects back then.
+  if (isInertiaRequest(c) && c.res.status === 200 && c.res.body === null) {
+    // The c.res setter carries over the headers the handler set
+    c.res = new Response(null, {
+      status: 302,
+      headers: { Location: response.backUrl() },
+    });
+  }
+
+  // A redirect to a URL with a fragment: the client cannot read the fragment
+  // of a redirect its HTTP client followed, so it is told to visit the full
+  // URL itself. Prefetches get the redirect unchanged, per the protocol.
+  const redirectTarget = c.res.headers.get('Location');
+  if (
+    isInertiaRequest(c) &&
+    !isPrefetch(c) &&
+    REDIRECT_STATUSES.has(c.res.status) &&
+    redirectTarget?.includes('#')
+  ) {
+    const cacheControl = cacheControlValue(config);
+    // Hono's c.res setter copies the old response's headers onto the new one,
+    // so Location goes from the old response first
+    c.res.headers.delete('Location');
+    c.res = new Response(null, {
+      status: 409,
+      headers: {
+        'X-Inertia-Redirect': redirectTarget,
+        ...(cacheControl !== undefined && { 'Cache-Control': cacheControl }),
+      },
+    });
+  }
+
+  // Post-handler: convert 302 → 303 after PUT/PATCH/DELETE/QUERY on Inertia
+  // requests, so the browser follows with GET
   if (
     isInertiaRequest(c) &&
     c.res.status === 302 &&
-    ['PUT', 'PATCH', 'DELETE'].includes(c.req.method)
+    ['PUT', 'PATCH', 'DELETE', 'QUERY'].includes(c.req.method)
   ) {
     const location = c.res.headers.get('Location') || '/';
     const headers = new Headers(c.res.headers);
@@ -173,6 +220,19 @@ async function handle<V extends Record<string, unknown>>(
     (response.clearHistoryConsumed || !response.clearHistoryPending)
   ) {
     deleteCookie(c, CLEAR_HISTORY_COOKIE, { path: '/' });
+  }
+
+  const sessionAfter = response.sessionAfter;
+  if (config.session) {
+    if (sessionAfter !== undefined) {
+      await config.session.set(c, sessionAfter);
+    }
+  } else if (sessionAfter?.errors) {
+    // Errors that no page showed would be lost. Flash data without a session
+    // stays limited to the current response, as it always was.
+    throw new Error(
+      '[hono-inertia] withErrors() before a redirect needs the `session` option to keep the errors for the next page',
+    );
   }
 
   // Ensure Vary: X-Inertia on all responses

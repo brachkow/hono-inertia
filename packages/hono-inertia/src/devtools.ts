@@ -423,6 +423,7 @@ function buildPropertyMeta(
     TaggedProperty[typeof PROP_TYPE],
     (tag: TaggedProperty) => Partial<DevtoolsPropMeta>
   > = {
+    live: () => ({}),
     always: () => ({ inertiaType: 'always' }),
     optional: (tag) => ({
       inertiaType: 'optional',
@@ -460,6 +461,7 @@ function buildPropertyMeta(
       ...(tag && classifiers[tag[PROP_TYPE]](tag)),
       ...(resetProperties.has(key) && { reset: true }),
       ...(rescued.has(key) && { rescued: true }),
+      ...(tag && 'liveMetadata' in tag && tag.liveMetadata && { live: true }),
     };
   }
   return properties;
