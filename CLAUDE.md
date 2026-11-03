@@ -35,7 +35,7 @@ Run a single unit test file with `pnpm --filter @brachkow/hono-inertia exec vite
 
 The library is a Hono middleware + prop helpers. Request flow:
 
-1. **`inertia()` middleware** (`src/middleware.ts`) — factory that returns a Hono middleware. Resolves asset version, checks version conflicts (409), creates `InertiaResponse`, applies shared props, and post-handler converts 302→303 for PUT/PATCH/DELETE.
+1. **`inertia()` middleware** (`src/middleware.ts`) — factory that returns a Hono middleware. Resolves asset version, checks version conflicts (409), creates `InertiaResponse`, applies shared props, and post-handler redirects an empty 200 back, turns redirects to a URL with `#` into a 409 `X-Inertia-Redirect`, converts 302→303 for PUT/PATCH/DELETE/QUERY, and writes the session.
 
 2. **`InertiaResponse`** (`src/response.ts`) — attached to Hono context as `c.get('inertia')`. Its `render(component, props)` method does the heavy lifting: classifies props by tag type, resolves partial/deferred/merge/once logic against Inertia request headers, resolves lazy functions in parallel, builds the `PageObject`, and returns either JSON (Inertia request) or HTML (initial visit, optionally via SSR).
 
@@ -46,6 +46,12 @@ The library is a Hono middleware + prop helpers. Request flow:
 5. **SSR** (`src/ssr.ts`) — renders the page object via an external SSR server (HTTP POST to `ssr.url`) or an in-process `ssr.render` function, validates the `{ head, body }` result, and rejects on failure. `InertiaResponse.render` catches the rejection, reports it via `onSsrError`, and falls back to CSR.
 
 6. **Typed page props** (`src/page-properties.ts`), types only. `render()` returns a `TypedResponse` recording the component and its resolved props, and the middleware records `share()`'s type in the app's Env. `PageProps<C>` reads both from the app registered in `AppRegistry`. The Vite plugin's `pages` option writes the `*.gen.ts` file that fills `AppRegistry` and `InertiaPages`, and checks with `VuePage` that every `.vue` page declares the props its routes pass. `tests/page-properties.test.ts` holds the type assertions; `pnpm typecheck` checks them.
+
+7. **Session** (`src/session.ts`) — the `session` option (`InertiaSession`: `get` reads without clearing, `set(c, null)` clears) carries `withErrors()` errors and `flash()` data across redirects. `InertiaResponse.sessionAfter` decides what to write: a rendered page clears it, anything else keeps it and adds what the handler set. `cookieSession()` is the built-in signed-cookie store.
+
+8. **Validator** (`src/validator.ts`) — `inertiaValidator(target, schema)` wraps `hono/validator` with a Standard Schema: precognition requests get 204/422 without running the handler, failed submits go back with errors in the session.
+
+9. **Testing helpers** (`src/testing.ts`) — the `./testing` entry: `inertiaRequest()`, `inertiaHeaders()`, `getPage()`.
 
 Key type: `InertiaEnv` (`src/types.ts`) — Hono env binding that types `c.get('inertia')`.
 

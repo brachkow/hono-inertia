@@ -9,6 +9,7 @@ Full-featured Inertia.js v3 server-side adapter for [Hono](https://hono.dev).
 - [Features](#features)
 - [Differences from `@hono/inertia`](#differences-from-honoinertia)
 - [Requirements](#requirements)
+- [Protocol support](#protocol-support)
 - [Install](#install)
 - [Quick start](#quick-start)
 - [Examples](#examples)
@@ -24,9 +25,16 @@ Full-featured Inertia.js v3 server-side adapter for [Hono](https://hono.dev).
   - [`merge(value)` / `prepend(value)` / `deepMerge(value)`](#mergevalue--prependvalue--deepmergevalue)
   - [`scroll(value, metadata)`](#scrollvalue-metadata)
   - [`once(fn, key?, expiresAt?)`](#oncefn-key-expiresat)
+  - [`live(value, options)`](#livevalue-options)
   - [Chaining](#chaining)
 - [Status codes](#status-codes)
 - [External redirects](#external-redirects)
+- [Fragment redirects](#fragment-redirects)
+- [Redirecting back](#redirecting-back)
+- [Sessions](#sessions)
+- [Validation](#validation)
+  - [Error bags](#error-bags)
+  - [Precognition](#precognition)
 - [Asset versioning](#asset-versioning)
   - [Vite plugin](#vite-plugin)
   - [Without the plugin](#without-the-plugin)
@@ -48,6 +56,7 @@ Full-featured Inertia.js v3 server-side adapter for [Hono](https://hono.dev).
   - [Redirects](#redirects)
   - [Caching](#caching)
   - [SSR](#ssr-1)
+- [Testing](#testing)
 - [TypeScript](#typescript)
   - [Typed page props](#typed-page-props)
   - [Typing `c.var.inertia`](#typing-cvarinertia)
@@ -78,6 +87,53 @@ You may be wondering why this package exists when Hono has a first-party adapter
 - Node.js 22.12 or newer when running on Node.js. On Cloudflare Workers, no Node.js compatibility flag is needed
 - Vite 7 or newer, only for the optional Vite plugin
 - ESM. The package has no CommonJS build
+
+## Protocol support
+
+The adapter implements the Inertia.js v3 protocol, and the lists below say which parts.
+
+### Core protocol
+
+- HTML on the first visit and JSON on Inertia visits, both from [`c.var.inertia.render()`](#rendering-pages)
+- Lazy function props that run only when the response includes them
+- `Vary: X-Inertia` on every response
+- Asset versioning with a 409 and `X-Inertia-Location` on a version mismatch for GET requests, using the Vite plugin or [`manifestVersion`](#asset-versioning)
+- 302 to 303 conversion after PUT, PATCH, DELETE and QUERY on Inertia requests
+- A redirect back to the `Referer` when a handler returns an empty 200, and [`c.var.inertia.back()`](#redirecting-back) for doing it yourself
+- Shared props with the `share` option and per request with [`c.var.inertia.share()`](#shared-data)
+- Partial reloads with `X-Inertia-Partial-Data` and `X-Inertia-Partial-Except`. Excluded props never run, and `errors` is always included
+- [Validation errors from the session](#validation) with `withErrors()`, shared as `errors` and encoded as `{}` when empty
+- [Error bags](#error-bags) with `X-Inertia-Error-Bag`, following Laravel's rules
+- [Flash data kept across redirects and version mismatches](#sessions) with the `session` option
+- Prop reset with `X-Inertia-Reset`
+- [Fragment redirects](#fragment-redirects). A redirect to a URL with `#` becomes a 409 with `X-Inertia-Redirect`, and `preserveFragment()` keeps the request's fragment
+- Custom status codes with [`c.status()`](#status-codes) before rendering
+- XSS-safe page embedding with [`serializePage`](#embedding-the-page-object-xss)
+
+### Optional features
+
+- [Always props](#alwaysvalue) with `always`
+- [Optional props](#optionalfn) with `optional`
+- [Deferred props](#deferredfn-group) with `deferred`, including groups
+- Rescued deferred props with `deferred(fn).rescue()`, which reports errors to `onRescue`
+- [Merge props](#mergevalue--prependvalue--deepmergevalue) with `merge`, `prepend` and `deepMerge`
+- Match keys for merged props with `setMatchOn`
+- [Infinite scroll](#scrollvalue-metadata) with `scroll` and `X-Inertia-Infinite-Scroll-Merge-Intent`
+- [Once props](#oncefn-key-expiresat) with `once`, including keys, expiry and `X-Inertia-Except-Once-Props`
+- [Combined prop types](#chaining), such as `deferred(fn).merge().once()`
+- [Live props](#livevalue-options) with `live()` or `.live()`, `broadcastProperties()` and `socketId()` (client 3.10+)
+- [Precognition](#precognition) with `inertiaValidator()`, which takes any Standard Schema such as Zod, Valibot or ArkType
+- [External redirects](#external-redirects) with `c.var.inertia.location()`
+- [Flash data](#flash-messages) with `c.var.inertia.flash()`
+- [History encryption](#history-encryption) with `encryptHistory()`
+- History clearing with `clearHistory()`, which also works when the handler redirects
+- [Server-side rendering](#ssr) in the same process or through an Inertia SSR server, with a fallback to client rendering reported to `onSsrError`
+- [BigInt props](#bigint-props) with `preserveBigIntegers`
+- [Server-provided head elements](#server-provided-head-elements) with the `head` prop
+- [View data](#view-data) for the root template that stays out of the page object, with `viewData()`
+- [DevTools protocol](#devtools) with the `devtools` option
+- `Cache-Control` on adapter responses with the [`cacheControl`](#caching) option
+- [Testing helpers](#testing) in `@brachkow/hono-inertia/testing`
 
 ## Install
 
@@ -166,7 +222,7 @@ Complete apps with Vite, server-side rendering and production builds:
 - [Svelte on Node.js](https://github.com/brachkow/hono-inertia/tree/main/examples/svelte-node) has the same setup with Svelte 5
 - [Vue on Cloudflare Workers](https://github.com/brachkow/hono-inertia/tree/main/examples/vue-workers) renders pages inside the Worker
 
-Each example has the same pages: navigation, shared props, partial reloads, deferred and merge props, a form with validation errors, and a flash message after a redirect. One Playwright suite runs against all of them in CI.
+Each example has the same pages: navigation, shared props, partial reloads, deferred and merge props, a form validated with `inertiaValidator()` and precognition, and a flash message after a redirect through `cookieSession()`. One Playwright suite runs against all of them in CI.
 
 ## Configuration
 
@@ -216,6 +272,10 @@ inertia({
   // Called when a deferred(fn).rescue() prop throws (see deferred under Prop types).
   // Defaults to console.error.
   onRescue: (error, prop) => logger.error({ error, prop }),
+
+  // Optional. Keeps validation errors and flash data for the page after a
+  // redirect (see Sessions below)
+  session: cookieSession({ secret: env.SESSION_SECRET }),
 });
 ```
 
@@ -447,6 +507,53 @@ c.var.inertia.render('Pricing', {
 });
 ```
 
+### `live(value, options)`
+
+Refreshes the prop when a broadcast event arrives (client 3.10+). The client subscribes to the channels in `page.liveProps` and makes a partial reload for the props that listen to an event:
+
+```ts
+import { live } from '@brachkow/hono-inertia';
+
+c.var.inertia.render('Orders/Show', {
+  order: live(() => db.orders.find(id), {
+    channel: { name: `orders.${id}`, type: 'private' },
+    on: 'OrderUpdated',
+    throttle: 5000, // optional, in ms. The client default is 1000
+  }),
+});
+```
+
+A bare string `channel` is a public channel. The other types are `private`, `presence` and `encrypted-private`. Pass the name without a broadcaster prefix such as `private-`, because the client transport adds it. `channel` and `on` also take arrays, and every `.live()` call pairs its channels with its own events:
+
+```ts
+live(() => fetchOrders(), { channel: 'orders', on: 'OrderCreated' }).live({
+  channel: { name: 'admin', type: 'private' },
+  on: ['OrderRefunded', 'OrderDeleted'],
+});
+```
+
+`always`, `optional`, `deferred` and `once` props become live with `.live(options)`. Their listeners go on the first visit even when the prop itself does not, and the client refreshes an optional prop only after it loaded it. A merge prop cannot be live, so `deferred(fn).merge().live()` throws.
+
+The adapter only describes the subscriptions. Your app sends the events through a broadcaster, such as Pusher, a Pusher-compatible server like Soketi or Reverb, or Action Cable. The client needs a matching transport in `createInertiaApp({ live })`. See [Live props](https://inertiajs.com/docs/v3/data-props/live-props) in the Inertia docs.
+
+An event can carry the new values, so listening pages write them without a request. Every subscriber gets the same payload, so put in it only what all of them may see:
+
+```ts
+import { broadcastProperties } from '@brachkow/hono-inertia';
+
+await pusher.trigger(`private-orders.${id}`, 'OrderUpdated', {
+  ...broadcastProperties({ order }),
+});
+```
+
+The client sends its connection id as `X-Socket-Id`. Read it with `c.var.inertia.socketId()` to skip the connection that caused the change:
+
+```ts
+await pusher.trigger(channel, 'OrderUpdated', payload, {
+  socket_id: c.var.inertia.socketId() ?? undefined,
+});
+```
+
 ### Chaining
 
 You can combine prop types:
@@ -468,6 +575,9 @@ deepMerge(() => fetchItems()).setMatchOn('id');
 
 // Infinite scroll matching rows by id
 scroll(rows, metadata).setMatchOn('id');
+
+// Deferred + live
+deferred(() => fetchStats()).live({ channel: 'stats', on: 'StatsChanged' });
 ```
 
 ## Status codes
@@ -492,6 +602,148 @@ app.get('/download', (c) => {
 ```
 
 Validate any user-supplied URL before passing it to `location()` or `redirect()` to avoid open redirects (see [Security](#security)).
+
+## Fragment redirects
+
+The client cannot read the fragment of a redirect that its HTTP client followed. So on an Inertia request, the middleware turns a redirect to a URL with `#` into a 409 with `X-Inertia-Redirect`, and the client visits the full URL itself. Prefetch requests get the redirect unchanged:
+
+```ts
+app.post('/posts/:id/comments', async (c) => {
+  const comment = await createComment(c);
+  return c.redirect(`/posts/${c.req.param('id')}#comment-${comment.id}`);
+});
+```
+
+`c.var.inertia.redirect(url)` sends the same 409 for any URL. To keep the fragment of the URL the user came from after an ordinary redirect, call `c.var.inertia.preserveFragment()`.
+
+## Redirecting back
+
+`c.var.inertia.back()` redirects to the path of the `Referer` header, or to `/` without one. Pass another fallback as the argument. It keeps only the path, query and fragment of the `Referer`, so it never leaves your origin:
+
+```ts
+app.post('/settings', async (c) => {
+  await saveSettings(c);
+  return c.var.inertia.back('/settings');
+});
+```
+
+An Inertia request whose handler returns an empty 200, such as `c.body(null)`, is redirected back the same way. After PUT, PATCH, DELETE and QUERY requests, the middleware turns the 302 into a 303, so the browser follows it with GET.
+
+## Sessions
+
+Validation errors and flash data have to survive a redirect, but the adapter keeps no state of its own. The `session` option stores them between the request that sets them and the next page. `cookieSession()` keeps them in a signed, `HttpOnly` cookie, which also works on Cloudflare Workers:
+
+```ts
+import { cookieSession, inertia } from '@brachkow/hono-inertia';
+
+app.use(
+  inertia({
+    render,
+    session: cookieSession({ secret: env.SESSION_SECRET }),
+  }),
+);
+```
+
+The `secret` signs the cookie, so a client cannot plant errors or flash data. Use at least 32 random bytes and keep it out of the repository.
+
+To rotate the secret, pass a list. The first secret signs new cookies, and every secret in the list verifies, so cookies signed with the old secret keep working until they expire. On Cloudflare Workers, where secrets live in `c.env`, pass a function that reads them per request:
+
+```ts
+cookieSession({ secret: [env.SESSION_SECRET, env.OLD_SESSION_SECRET] });
+
+cookieSession({ secret: (c) => c.env.SESSION_SECRET });
+```
+
+The signature stops changes, not reading. Anyone who has the cookie can decode the JSON in it, so do not put secrets or personal data in `flash()` or in error messages. Pass your own server-side store if you need to.
+
+The other options are `name` (default `inertia_session`), `maxAge` in seconds (default 300), `path`, `domain`, `sameSite` (default `Lax`) and `secure` (default `true` on HTTPS requests).
+
+A cookie holds about 4 KB. The session keeps only the first message per field, the one pages show, so the data stays small. When it is larger anyway, `cookieSession()` throws instead of letting the browser drop the cookie. For large forms, pass your own store. It reads and writes one value per request, for example in KV, Redis or the session of another middleware:
+
+```ts
+import type { InertiaSession } from '@brachkow/hono-inertia';
+
+// sessionId(c) is your own helper, e.g. reading a session id cookie
+const kvSession: InertiaSession = {
+  // Must not clear the data. The middleware calls set(c, null) once a page used it.
+  get: (c) => c.env.SESSIONS.get(sessionId(c), 'json'),
+  set: (c, data) =>
+    data === null
+      ? c.env.SESSIONS.delete(sessionId(c))
+      : c.env.SESSIONS.put(sessionId(c), JSON.stringify(data)),
+};
+```
+
+The middleware reads the session on each request and decides what to keep:
+
+- A rendered page shows the stored errors and flash data, and the middleware clears them
+- A redirect keeps them for the next page and adds what the handler flashed, so they survive redirect chains
+- A version mismatch 409 and a prefetch leave the session untouched, so a full reload or a discarded prefetch loses nothing
+- Any other response, such as JSON or a 204, keeps the stored data and adds what the handler flashed
+
+## Validation
+
+`c.var.inertia.withErrors(errors)` stores validation errors for the next page, which gets them in the `errors` prop. Each field takes a message or an array of messages, and the page gets the first one. Keeping errors across a redirect needs the [`session`](#sessions) option, and the middleware fails the request when it would lose them:
+
+```ts
+app.post('/users', async (c) => {
+  const body = await c.req.json();
+  if (await emailTaken(body.email)) {
+    c.var.inertia.withErrors({ email: 'This email is taken' });
+    return c.var.inertia.back();
+  }
+  await createUser(body);
+  return c.redirect('/users');
+});
+```
+
+When the handler renders a page after `withErrors()` instead of redirecting, that page shows the errors and nothing goes to the session, so this works without the `session` option. An `errors` prop passed to `render()` wins over stored errors.
+
+`inertiaValidator(target, schema)` does this for any [Standard Schema](https://standardschema.dev) library, such as Zod, Valibot or ArkType, and adds no dependency:
+
+```ts
+import { z } from 'zod';
+import { inertiaValidator } from '@brachkow/hono-inertia';
+
+const userSchema = z.object({
+  name: z.string().min(1),
+  email: z.email(),
+});
+
+app.post('/users', inertiaValidator('json', userSchema), async (c) => {
+  const user = c.req.valid('json'); // typed from the schema
+  await createUser(user);
+  return c.redirect('/users');
+});
+```
+
+When validation fails, it passes the errors to `withErrors()` and redirects back. A request that is not an Inertia request and accepts JSON gets a 422 with `{ message, errors }` instead. Fields are keyed by their dotted path, such as `items.1.qty`. An issue without a path, such as a refinement over the whole object, goes under `root`. `inertiaValidator()` must run after the `inertia()` middleware.
+
+### Error bags
+
+A page with two forms can keep their errors apart. The client sends the form's bag name in `X-Inertia-Error-Bag` and reads `errors[bag]`:
+
+```ts
+form.post('/login', { errorBag: 'login' });
+```
+
+The adapter follows Laravel's rules for stored errors. With the header, the errors from `withErrors()` arrive under the requested name. Without it, they arrive unwrapped. Errors stored with an explicit bag, `withErrors(errors, 'login')`, arrive under their own names only when there are no errors in the default bag.
+
+### Precognition
+
+[Precognition](https://inertiajs.com/docs/v3/the-basics/forms#precognition-2) validates a form as the user fills it in, with the same rules as the real submit. `inertiaValidator()` answers precognition requests itself and never runs the handler for them. It responds with 204 when the fields in `Precognition-Validate-Only` pass, or with 422 and their errors. On the client, enable it with `withPrecognition()` and call `validate()`:
+
+```ts
+const form = useForm({ name: '', email: '' }).withPrecognition(
+  'post',
+  '/users',
+);
+
+// On blur
+form.validate('email');
+```
+
+Precognition responses and real responses for one URL differ, so `inertiaValidator()` adds `Vary: Precognition` to both.
 
 ## Asset versioning
 
@@ -673,15 +925,17 @@ app.post('/users', async (c) => {
 
 `flash()` accumulates across calls, and later keys win. Flash data is a top-level field and never mixes into your props.
 
-The adapter has no session, so `flash()` applies to the current response only. To show a message after a redirect (POST, then redirect, then GET), persist it across the redirect yourself, for example in a short-lived cookie, and apply it again in middleware:
+With the [`session`](#sessions) option, flash data set before a redirect shows on the next page:
 
 ```ts
-app.use(async (c, next) => {
-  const flash = readFlashCookie(c); // your own helper
-  if (flash) c.var.inertia.flash(flash);
-  await next();
+app.post('/users', async (c) => {
+  await createUser(c);
+  c.var.inertia.flash({ success: 'User created' });
+  return c.redirect('/users');
 });
 ```
+
+Without it, `flash()` applies to the current response only.
 
 ## DevTools
 
@@ -1014,6 +1268,8 @@ Enable `encryptHistory` on authenticated pages. If bfcache restoration matters t
 
 `location()` and `redirect()` send the URL you pass straight to the browser. Never pass unvalidated user input, such as a `?next=` parameter, to them. Validate it against an allowlist or restrict it to same-origin paths first, or you create an open redirect.
 
+`back()` and the redirect after an empty 200 use only the path, query and fragment of the `Referer`, so a forged `Referer` cannot send users to another origin.
+
 ### Caching
 
 Responses the adapter emits (Inertia JSON, initial HTML, 409s) carry `Cache-Control: private, no-cache, must-revalidate` by default:
@@ -1046,6 +1302,31 @@ When testing, keep in mind that Chromium automation (`page.goBack()` in Playwrig
 ### SSR
 
 The SSR server is a trust boundary. Your `render` function inserts its `head` and `body` into the HTML as-is, because they are rendered HTML and escaping them would break the page. Only point `ssr.url` at a server you control, such as loopback or an authenticated internal host over HTTPS, and never take it from untrusted input. `ssr.timeout` and `ssr.maxResponseBytes` limit the responses. With `ssr.render`, the HTML comes from your own SSR entry, and the adapter checks only its shape.
+
+## Testing
+
+`@brachkow/hono-inertia/testing` sends requests the way the Inertia client does and reads the page object back. It works with any test runner:
+
+```ts
+import { getPage, inertiaRequest } from '@brachkow/hono-inertia/testing';
+
+it('lists users', async () => {
+  const page = await getPage(await inertiaRequest(app, '/users'));
+
+  expect(page.component).toBe('Users/Index');
+  expect(page.props.users).toHaveLength(3);
+});
+
+it('loads deferred stats', async () => {
+  const response = await inertiaRequest(app, '/users', {
+    partial: { component: 'Users/Index', only: ['stats'] },
+  });
+
+  expect((await getPage(response)).props.stats).toEqual({ total: 3 });
+});
+```
+
+`inertiaRequest(app, path, options)` takes `method`, `json` or `body`, `headers`, `version`, `partial`, `reset`, `errorBag` and `exceptOnceProps`. Pass `inertia: false` for a first visit, which gets HTML. It sends no `X-Inertia-Version` unless you pass `version`, so tests never hit a version 409 by accident. `getPage(response)` reads the page from JSON or from the first visit's HTML, and throws when the response is neither. `inertiaHeaders(options)` returns just the headers.
 
 ## TypeScript
 
