@@ -65,7 +65,7 @@ Full-featured Inertia.js v3 server-side adapter for [Hono](https://hono.dev).
 
 - Full support of the Inertia v3 protocol
 - [Typed page props](#typed-page-props) for React, Vue and Svelte
-- Simple SSR [setup](#ssr)
+- Simple SSR [setup](#ssr), with examples for [Vue](https://github.com/brachkow/hono-inertia/tree/main/examples/vue-node), [React](https://github.com/brachkow/hono-inertia/tree/main/examples/react-node) and [Svelte](https://github.com/brachkow/hono-inertia/tree/main/examples/svelte-node), plus [Vue on Cloudflare Workers](https://github.com/brachkow/hono-inertia/tree/main/examples/vue-workers)
 - [Inertia DevTools](#devtools) support
 - Runs on Cloudflare Workers as well as Node.js
 - Works with Hono 4.8+ and Hono 5
