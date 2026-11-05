@@ -76,6 +76,20 @@ describe('Empty 200 responses', () => {
     expect(response.headers.get('Location')).toBe('/');
   });
 
+  it('keeps a protocol-relative Referer path on this origin', async () => {
+    const app = createApp();
+    app.post('/users', (c) => c.body(null));
+
+    const response = await app.request('/users', {
+      method: 'POST',
+      headers: inertiaHeaders({
+        Referer: 'https://evil.example//evil.example/phish',
+      }),
+    });
+
+    expect(response.headers.get('Location')).toBe('/evil.example/phish');
+  });
+
   it('keeps only the path of a Referer from another origin', async () => {
     const app = createApp();
     app.post('/users', (c) => c.body(null));
@@ -191,6 +205,32 @@ describe('back()', () => {
     expect(response.headers.get('Location')).toBe('/users');
   });
 
+  it.each([
+    ['https://evil.example//evil.example/phish', '/evil.example/phish'],
+    [String.raw`https://evil.example/\evil.example`, '/evil.example'],
+    ['https://evil.example///evil.example', '/evil.example'],
+  ])('keeps a Referer of %s on this origin', async (referer, location) => {
+    const app = createApp();
+    app.get('/back', (c) => c.var.inertia.back());
+
+    const response = await app.request('/back', {
+      headers: { Referer: referer },
+    });
+
+    expect(response.headers.get('Location')).toBe(location);
+  });
+
+  it('uses the fallback for a Referer that is not http or https', async () => {
+    const app = createApp();
+    app.get('/back', (c) => c.var.inertia.back('/home'));
+
+    const response = await app.request('/back', {
+      headers: { Referer: String.raw`foo://x/\evil.example` },
+    });
+
+    expect(response.headers.get('Location')).toBe('/home');
+  });
+
   it('uses the fallback for a malformed Referer', async () => {
     const app = createApp();
     app.post('/users', (c) => c.var.inertia.back('/users'));
@@ -240,5 +280,19 @@ describe('Fragment redirects', () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get('Location')).toBe('/posts/1#comment-5');
+  });
+});
+
+describe('Version mismatch location', () => {
+  it('keeps a request path that starts with // on this origin', async () => {
+    const app = createApp();
+    app.get('*', (c) => c.var.inertia.render('Home'));
+
+    const response = await app.request('http://localhost//evil.example/x', {
+      headers: inertiaHeaders({ 'X-Inertia-Version': 'old' }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(response.headers.get('X-Inertia-Location')).toBe('/evil.example/x');
   });
 });

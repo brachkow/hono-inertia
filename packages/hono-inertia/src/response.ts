@@ -80,9 +80,10 @@ export class InertiaResponse implements InertiaContext {
     return this.c.redirect(this.backUrl(rest), status);
   }
 
-  // Only the Referer's path, query and hash: an absolute Referer could point
-  // at another origin, and behind a proxy the request's own origin is internal.
-  // Also used by the middleware for empty 200 responses.
+  // Only the Referer's path, query and hash, so the redirect stays on this
+  // origin. Comparing origins instead would reject every Referer behind a
+  // proxy, where the request's own origin is an internal one. Also used by the
+  // middleware for empty 200 responses.
   backUrl({
     fallback = '/',
     removeQuery,
@@ -95,6 +96,9 @@ export class InertiaResponse implements InertiaContext {
     } catch {
       return fallback;
     }
+    // Other schemes keep backslashes in the path, which browsers read as
+    // slashes, so only a page's own http(s) URL counts
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return fallback;
     if (removeQuery === true) {
       url.search = '';
     } else {

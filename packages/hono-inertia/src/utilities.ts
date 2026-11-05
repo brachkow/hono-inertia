@@ -73,14 +73,22 @@ export function hasScrollMergeIntent(c: Context): boolean {
   return c.req.header('X-Inertia-Infinite-Scroll-Merge-Intent') !== undefined;
 }
 
+// A Location of `//host/path` or `/\host/path` is protocol-relative, and
+// browsers follow it to another origin. Collapsing the leading slashes keeps
+// every URL built here on the current origin.
+const LEADING_SLASHES = /^[/\\]+/;
+
+const sameOriginPath = (url: URL): string =>
+  url.pathname.replace(LEADING_SLASHES, '/');
+
 // Relative to the request URL, without the origin: behind a proxy the
 // request's origin can be an internal one
 export function toPageUrl(c: Context, url: string): string {
   const resolved = new URL(url, c.req.url);
-  return resolved.pathname + resolved.search + resolved.hash;
+  return sameOriginPath(resolved) + resolved.search + resolved.hash;
 }
 
 export function resolveUrl(c: Context): string {
   const url = new URL(c.req.url);
-  return url.pathname + url.search;
+  return sameOriginPath(url) + url.search;
 }
