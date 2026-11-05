@@ -427,6 +427,39 @@ describe('pages', () => {
     );
   });
 
+  it('declares the shared props for the client with sharedPageProps', async () => {
+    const root = await createProject(['src/pages/Home.tsx']);
+
+    await generate(root, {
+      directory: 'src/pages',
+      server: 'src/server.ts',
+      sharedPageProps: true,
+    });
+
+    const generated = await readFile(
+      path.join(root, 'src/pages.gen.ts'),
+      'utf8',
+    );
+    expect(generated).toContain(
+      "import type { SharedProps } from '@brachkow/hono-inertia';",
+    );
+    expect(generated).toContain(
+      "declare module '@inertiajs/core' {\n  interface InertiaConfig {\n    sharedPageProps: SharedProps<typeof app>;\n  }\n}",
+    );
+  });
+
+  it('leaves the client types alone by default', async () => {
+    const root = await createProject(['src/pages/Home.tsx']);
+
+    await generate(root, { directory: 'src/pages', server: 'src/server.ts' });
+
+    const generated = await readFile(
+      path.join(root, 'src/pages.gen.ts'),
+      'utf8',
+    );
+    expect(generated).not.toContain('@inertiajs/core');
+  });
+
   it('registers the app and re-exports PageProps', async () => {
     const root = await createProject(['src/pages/Home.tsx']);
 
