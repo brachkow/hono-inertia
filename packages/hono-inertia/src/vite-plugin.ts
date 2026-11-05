@@ -449,17 +449,21 @@ const PAGE_NAME_PLACEHOLDER = '[name]';
 const REGEXP_SPECIAL = /[$()*+.?[\\\]^{|}]/g;
 
 // 'src/pages/[name].vue' → a pattern that captures the name from a manifest
-// key such as 'src/pages/Users/Index.vue'
+// key such as 'src/pages/Users/Index.vue'. Every later [name] has to repeat
+// the first, so 'src/views/[name]/[name].vue' matches 'src/views/Home/Home.vue'.
 const pageSourcePattern = (template: string): RegExp => {
-  const [before, after, ...rest] = template.split(PAGE_NAME_PLACEHOLDER);
-  if (after === undefined || rest.length > 0) {
+  const [first, ...rest] = template.split(PAGE_NAME_PLACEHOLDER);
+  if (rest.length === 0) {
     throw new Error(
-      `[hono-inertia] pageSource "${template}" must contain ${PAGE_NAME_PLACEHOLDER} once`,
+      `[hono-inertia] pageSource "${template}" must contain ${PAGE_NAME_PLACEHOLDER}`,
     );
   }
   const escape = (part: string) =>
     part.replaceAll(REGEXP_SPECIAL, String.raw`\$&`);
-  return new RegExp(`^${escape(before)}(.+)${escape(after)}$`);
+  const [afterFirst, ...others] = rest;
+  return new RegExp(
+    `^${escape(first)}(.+)${escape(afterFirst)}${others.map((part) => String.raw`\1` + escape(part)).join('')}$`,
+  );
 };
 
 const HEAD_CONTENT = /<head>([\S\s]*)<\/head>/;

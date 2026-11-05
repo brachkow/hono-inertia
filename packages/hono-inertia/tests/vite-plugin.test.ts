@@ -678,6 +678,27 @@ describe('virtual assets module', () => {
     expect(assets.assetTagsFor('Settings')).toContain('Settings-atoOrKTF.js');
   });
 
+  it('matches a pageSource that repeats [name]', async () => {
+    const root = await createBuild({
+      ...manifest,
+      'src/views/Landing/Landing.vue': {
+        file: 'assets/Landing-Hj4kL5mN.js',
+        isDynamicEntry: true,
+      },
+      'src/views/Landing/Other.vue': {
+        file: 'assets/Other-Pq6rS7tU.js',
+        isDynamicEntry: true,
+      },
+    });
+
+    const assets = await loadModule(root, {
+      pageSource: 'src/views/[name]/[name].vue',
+    });
+
+    expect(assets.assetTagsFor('Landing')).toContain('Landing-Hj4kL5mN.js');
+    expect(assets.assetTagsFor('Landing')).not.toContain('Other-Pq6rS7tU.js');
+  });
+
   it('returns the entry tags for a page it does not know', async () => {
     const root = await createBuild(manifest);
 
@@ -710,6 +731,6 @@ describe('virtual assets module', () => {
 
     await expect(
       loadModule(root, { pageSource: 'src/pages/Home.vue' }),
-    ).rejects.toThrow('must contain [name] once');
+    ).rejects.toThrow('must contain [name]');
   });
 });
