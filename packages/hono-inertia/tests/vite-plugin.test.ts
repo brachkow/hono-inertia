@@ -12,6 +12,8 @@ import {
   versionFromManifest,
 } from '../src/vite-plugin.js';
 
+const FOLDER_PAGE = /^([^/]+)\/\1\.vue$/;
+
 const manifest: ViteManifest = {
   'src/client.ts': {
     file: 'assets/client-B2xL9qKd.js',
@@ -29,8 +31,28 @@ const manifest: ViteManifest = {
   },
   'src/pages/Settings.vue': {
     file: 'assets/Settings-atoOrKTF.js',
+    isDynamicEntry: true,
     css: ['assets/Settings-Lm9nOp0Q.css'],
+    imports: ['_vendor-DkT3mNfA.js', '_form-Qw8eRt5y.js'],
   },
+  '_form-Qw8eRt5y.js': {
+    file: 'assets/form-Qw8eRt5y.js',
+    css: ['assets/form-Zx3cVb6n.css', 'assets/vendor-Xy7pQ2rS.css'],
+  },
+};
+
+// What Vite writes with build.cssCodeSplit: false. No chunk lists the CSS.
+const singleCssManifest: ViteManifest = {
+  'src/client.ts': {
+    file: 'assets/client-DW7c_mi_.js',
+    isEntry: true,
+    dynamicImports: ['src/pages/Home.vue'],
+  },
+  'src/pages/Home.vue': {
+    file: 'assets/Home-DgF8xpXQ.js',
+    isDynamicEntry: true,
+  },
+  'style.css': { file: 'assets/style-CYnB7E3U.css', src: 'style.css' },
 };
 
 describe('renderAssetTags', () => {
@@ -38,7 +60,7 @@ describe('renderAssetTags', () => {
     const tags = renderAssetTags(manifest, 'src/client.ts');
 
     expect(tags).toContain(
-      '<script type="module" src="/assets/client-B2xL9qKd.js"></script>',
+      '<script type="module" crossorigin src="/assets/client-B2xL9qKd.js"></script>',
     );
   });
 
@@ -46,10 +68,10 @@ describe('renderAssetTags', () => {
     const tags = renderAssetTags(manifest, 'src/client.ts');
 
     expect(tags).toContain(
-      '<link rel="stylesheet" href="/assets/client-Cq1zR8pW.css">',
+      '<link rel="stylesheet" crossorigin href="/assets/client-Cq1zR8pW.css">',
     );
     expect(tags).toContain(
-      '<link rel="stylesheet" href="/assets/vendor-Xy7pQ2rS.css">',
+      '<link rel="stylesheet" crossorigin href="/assets/vendor-Xy7pQ2rS.css">',
     );
   });
 
@@ -58,10 +80,10 @@ describe('renderAssetTags', () => {
 
     expect(tags.match(/rel="modulepreload"/g)).toHaveLength(2);
     expect(tags).toContain(
-      '<link rel="modulepreload" href="/assets/vendor-DkT3mNfA.js">',
+      '<link rel="modulepreload" crossorigin href="/assets/vendor-DkT3mNfA.js">',
     );
     expect(tags).toContain(
-      '<link rel="modulepreload" href="/assets/shared-Ab12Cd34.js">',
+      '<link rel="modulepreload" crossorigin href="/assets/shared-Ab12Cd34.js">',
     );
   });
 
@@ -89,10 +111,100 @@ describe('renderAssetTags', () => {
     expect(tags).toContain('src="/a&quot;b/assets/client-B2xL9qKd.js"');
   });
 
+  it('sets crossorigin on every tag, as Vite does', () => {
+    const tags = renderAssetTags(manifest, 'src/client.ts');
+
+    expect(tags.match(/<(link|script) /g)).toHaveLength(
+      tags.match(/ crossorigin /g)?.length ?? 0,
+    );
+  });
+
+  it('links the single CSS file of a build without CSS code splitting', () => {
+    const tags = renderAssetTags(singleCssManifest, 'src/client.ts', '/', {
+      cssCodeSplit: false,
+    });
+
+    expect(tags).toContain(
+      '<link rel="stylesheet" crossorigin href="/assets/style-CYnB7E3U.css">',
+    );
+  });
+
+  it('leaves unlinked CSS out when CSS code splitting is on', () => {
+    const tags = renderAssetTags(singleCssManifest, 'src/client.ts');
+
+    expect(tags).not.toContain('style-CYnB7E3U.css');
+  });
+
+  it('does not link a CSS file that a chunk lists as an asset', () => {
+    const tags = renderAssetTags(
+      {
+        ...singleCssManifest,
+        'src/client.ts': {
+          ...singleCssManifest['src/client.ts'],
+          assets: ['assets/style-CYnB7E3U.css'],
+        },
+      },
+      'src/client.ts',
+      '/',
+      { cssCodeSplit: false },
+    );
+
+    expect(tags).not.toContain('stylesheet');
+  });
+
   it('throws when the entry is not in the manifest', () => {
     expect(() => renderAssetTags(manifest, 'src/main.ts')).toThrow(
       '"src/main.ts" is not in the client manifest',
     );
+  });
+});
+
+describe('renderAssetTags with a page', () => {
+  const pageTags = () =>
+    renderAssetTags(manifest, 'src/client.ts', '/', {
+      page: 'src/pages/Settings.vue',
+    });
+
+  it("preloads the page's chunk and the chunks it imports", () => {
+    const tags = pageTags();
+
+    expect(tags).toContain(
+      '<link rel="modulepreload" crossorigin href="/assets/Settings-atoOrKTF.js">',
+    );
+    expect(tags).toContain(
+      '<link rel="modulepreload" crossorigin href="/assets/form-Qw8eRt5y.js">',
+    );
+  });
+
+  it("links the page's CSS", () => {
+    const tags = pageTags();
+
+    expect(tags).toContain('href="/assets/Settings-Lm9nOp0Q.css"');
+    expect(tags).toContain('href="/assets/form-Zx3cVb6n.css"');
+  });
+
+  it('adds nothing the entry already loads', () => {
+    const tags = pageTags();
+
+    expect(tags.match(/vendor-DkT3mNfA\.js/g)).toHaveLength(1);
+    expect(tags.match(/vendor-Xy7pQ2rS\.css/g)).toHaveLength(1);
+  });
+
+  it('keeps styles first and the entry script last', () => {
+    const tags = pageTags();
+
+    expect(tags.lastIndexOf('stylesheet')).toBeLessThan(
+      tags.indexOf('modulepreload'),
+    );
+    expect(tags.endsWith('</script>')).toBe(true);
+  });
+
+  it('returns the entry tags for a page that is not in the manifest', () => {
+    const tags = renderAssetTags(manifest, 'src/client.ts', '/', {
+      page: 'src/pages/Missing.vue',
+    });
+
+    expect(tags).toBe(renderAssetTags(manifest, 'src/client.ts'));
   });
 });
 
@@ -238,6 +350,80 @@ describe('pages', () => {
     );
     expect(generated).toContain(
       '  interface InertiaPages {\n    Home: true;\n  }',
+    );
+  });
+
+  it('names pages with the name option and skips files it returns null for', async () => {
+    const root = await createProject([
+      'src/views/Landing/Landing.vue',
+      'src/views/Landing/components/HeroSection.vue',
+      'src/views/Settings/Settings.vue',
+    ]);
+
+    await generate(root, {
+      directory: 'src/views',
+      server: 'src/server.ts',
+      name: (relativePath) => FOLDER_PAGE.exec(relativePath)?.[1] ?? null,
+    });
+
+    const generated = await readFile(
+      path.join(root, 'src/views.gen.ts'),
+      'utf8',
+    );
+    expect(generated).toContain(
+      '  interface InertiaPages {\n    Landing: true;\n    Settings: true;\n  }',
+    );
+    expect(generated).toContain(
+      "import type LandingPage from './views/Landing/Landing.vue';",
+    );
+  });
+
+  it('fails when two files get the same name', async () => {
+    const root = await createProject([
+      'src/pages/Home.vue',
+      'src/pages/Home.tsx',
+    ]);
+
+    await expect(
+      generate(root, {
+        directory: 'src/pages',
+        server: 'src/server.ts',
+        name: () => 'Home',
+      }),
+    ).rejects.toThrow('are both named "Home"');
+  });
+
+  it('imports a named export as the app', async () => {
+    const root = await createProject(['src/pages/Home.tsx']);
+
+    await generate(root, {
+      directory: 'src/pages',
+      server: 'src/worker.ts',
+      export: 'app',
+    });
+
+    const generated = await readFile(
+      path.join(root, 'src/pages.gen.ts'),
+      'utf8',
+    );
+    expect(generated).toContain("import type { app } from './worker';");
+  });
+
+  it('renames another named export to app', async () => {
+    const root = await createProject(['src/pages/Home.tsx']);
+
+    await generate(root, {
+      directory: 'src/pages',
+      server: 'src/worker.ts',
+      export: 'honoApp',
+    });
+
+    const generated = await readFile(
+      path.join(root, 'src/pages.gen.ts'),
+      'utf8',
+    );
+    expect(generated).toContain(
+      "import type { honoApp as app } from './worker';",
     );
   });
 
@@ -400,5 +586,130 @@ describe('honoInertia server bundle check', () => {
     });
 
     expect(build).not.toThrow();
+  });
+});
+
+describe('virtual assets module', () => {
+  // The client build's manifest as the plugin stores it, plus page files
+  const createBuild = async (
+    buildManifest: ViteManifest,
+    files: string[] = [],
+  ) => {
+    const root = await mkdtemp(path.join(tmpdir(), 'hono-inertia-assets-'));
+    const store = path.join(root, 'node_modules/.hono-inertia');
+    await mkdir(store, { recursive: true });
+    await writeFile(
+      path.join(store, 'manifest.json'),
+      JSON.stringify(buildManifest),
+    );
+    for (const file of files) {
+      await mkdir(path.dirname(path.join(root, file)), { recursive: true });
+      await writeFile(path.join(root, file), '');
+    }
+    return root;
+  };
+
+  // Runs the plugin's configResolved and load hooks, then imports the code
+  const loadModule = async (
+    root: string,
+    options: Partial<Parameters<typeof honoInertia>[0]> = {},
+    cssCodeSplit = true,
+  ) => {
+    const [plugin] = honoInertia({ entry: 'src/client.ts', ...options });
+    const configResolved = plugin.configResolved;
+    const load = plugin.load;
+    if (typeof configResolved !== 'function' || typeof load !== 'function') {
+      throw new TypeError('no hooks');
+    }
+    await configResolved.call(
+      undefined as never,
+      {
+        root,
+        base: '/',
+        environments: { client: { build: { cssCodeSplit } } },
+      } as unknown as ResolvedConfig,
+    );
+    const code = (await load.call(
+      {
+        error: (message: string) => {
+          throw new Error(message);
+        },
+      } as never,
+      '\0virtual:hono-inertia/assets',
+    )) as string;
+    return (await import(
+      `data:text/javascript,${encodeURIComponent(code)}`
+    )) as {
+      assetTags: string;
+      assetTagsFor: (component: string) => string;
+      manifest: ViteManifest | null;
+    };
+  };
+
+  it('exports the manifest', async () => {
+    const root = await createBuild(manifest);
+
+    const assets = await loadModule(root);
+
+    expect(assets.manifest).toEqual(manifest);
+  });
+
+  it("adds a page's tags for a page from the pages folder", async () => {
+    const root = await createBuild(manifest, ['src/pages/Settings.vue']);
+
+    const assets = await loadModule(root, {
+      pages: { directory: 'src/pages', server: 'src/server.ts' },
+    });
+
+    expect(assets.assetTagsFor('Settings')).toBe(
+      renderAssetTags(manifest, 'src/client.ts', '/', {
+        page: 'src/pages/Settings.vue',
+      }),
+    );
+  });
+
+  it('finds pages with a pageSource pattern', async () => {
+    const root = await createBuild(manifest);
+
+    const assets = await loadModule(root, {
+      pageSource: 'src/pages/[name].vue',
+    });
+
+    expect(assets.assetTagsFor('Settings')).toContain('Settings-atoOrKTF.js');
+  });
+
+  it('returns the entry tags for a page it does not know', async () => {
+    const root = await createBuild(manifest);
+
+    const assets = await loadModule(root, {
+      pageSource: 'src/pages/[name].vue',
+    });
+
+    expect(assets.assetTagsFor('Missing')).toBe(assets.assetTags);
+    expect(assets.assetTagsFor('constructor')).toBe(assets.assetTags);
+  });
+
+  it('returns the entry tags without pages or pageSource', async () => {
+    const root = await createBuild(manifest);
+
+    const assets = await loadModule(root);
+
+    expect(assets.assetTagsFor('Settings')).toBe(assets.assetTags);
+  });
+
+  it("links the single CSS file when the client build doesn't split CSS", async () => {
+    const root = await createBuild(singleCssManifest);
+
+    const assets = await loadModule(root, {}, false);
+
+    expect(assets.assetTags).toContain('href="/assets/style-CYnB7E3U.css"');
+  });
+
+  it('rejects a pageSource without [name]', async () => {
+    const root = await createBuild(manifest);
+
+    await expect(
+      loadModule(root, { pageSource: 'src/pages/Home.vue' }),
+    ).rejects.toThrow('must contain [name] once');
   });
 });

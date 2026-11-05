@@ -29,16 +29,27 @@ export interface HonoInertiaPluginOptions {
   // type, so render() only accepts known pages and PageProps<'Home'> gives
   // the props the routes pass to Home
   pages?: PagesOptions;
+  // Without `pages`, where assetTagsFor() finds a page component: its path
+  // relative to the Vite root with [name] for the page name, e.g.
+  // 'src/pages/[name].vue'. Several patterns for several extensions.
+  pageSource?: string | string[];
 }
 
 export interface PagesOptions {
   // The folder with the page components, relative to the Vite root,
   // e.g. 'src/pages'. A page's name is its path in it without the extension.
   directory: string;
-  // The module whose default export is the Hono app, relative to the Vite
-  // root, e.g. 'src/server.ts'. Routes must be chained on the app
+  // The module that exports the Hono app, relative to the Vite root, e.g.
+  // 'src/server.ts'. Routes must be chained on the app
   // (`new Hono().use(...).get(...)`) for their types to reach PageProps.
   server: string;
+  // The export of `server` that holds the app. Defaults to 'default'. Use a
+  // named export when the default export is a Workers handler object.
+  export?: string;
+  // Names a page from its path in `directory`, e.g. 'Landing/Landing.vue',
+  // or returns null for a file that is not a page. Defaults to the path
+  // without the extension.
+  name?: (relativePath: string) => string | null | undefined;
   // Where to write the file, relative to the Vite root.
   // Defaults to the directory's path plus '.gen.ts', e.g. 'src/pages.gen.ts'
   output?: string;
@@ -70,37 +81,137 @@ const collectChunks = (
   }
 };
 
-// The tags a page needs for the client entry: its CSS and the CSS of every
-// chunk it statically imports, modulepreload for those chunks so the browser
-// fetches them in parallel, then the entry script.
-export const renderAssetTags = (
-  manifest: ViteManifest,
-  entry: string,
-  base = '/',
-): string => {
-  const entryChunk = manifest[entry];
-  if (!entryChunk) {
+export interface AssetTagOptions {
+  // The client build's build.cssCodeSplit. With false, Vite writes all CSS to
+  // one file that no chunk lists, so the tags link it on its own.
+  cssCodeSplit?: boolean;
+  // The manifest key of a lazily loaded page, e.g. 'src/pages/Home.vue'. Adds
+  // its CSS and preloads its chunks, so the browser fetches them together
+  // with the entry instead of after it.
+  page?: string;
+}
+
+interface TagParts {
+  styles: string;
+  preloads: string;
+}
+
+// crossorigin as in Vite's own HTML output: a preload is only reused when its
+// credentials mode matches the request that follows, which matters once
+// `base` points at another origin such as a CDN
+const tagsFor = (
+  styles: string[],
+  preloads: string[],
+  url: (file: string) => string,
+): TagParts => ({
+  styles: Array.from(
+    new Set(styles),
+    (file) => `<link rel="stylesheet" crossorigin href="${url(file)}">`,
+  ).join(''),
+  preloads: Array.from(
+    new Set(preloads),
+    (file) => `<link rel="modulepreload" crossorigin href="${url(file)}">`,
+  ).join(''),
+});
+
+const assetUrl = (base: string) => (file: string) =>
+  escapeAttribute(`${base}${file}`);
+
+// CSS files that no chunk lists under `css` or `assets`, such as the single
+// style.css of a build with cssCodeSplit off
+const unlinkedStyles = (manifest: ViteManifest): string[] => {
+  const linked = new Set(
+    Object.values(manifest).flatMap((chunk) => [
+      ...(chunk.css ?? []),
+      ...(chunk.assets ?? []),
+    ]),
+  );
+  return Object.values(manifest)
+    .filter(
+      (chunk) =>
+        chunk.file.endsWith('.css') &&
+        !chunk.isEntry &&
+        !linked.has(chunk.file),
+    )
+    .map((chunk) => chunk.file);
+};
+
+const entryChunks = (manifest: ViteManifest, entry: string): Set<string> => {
+  if (!manifest[entry]) {
     throw new Error(
       `[hono-inertia] "${entry}" is not in the client manifest. Pass the same entry the client build uses.`,
     );
   }
   const chunks = new Set<string>();
   collectChunks(manifest, entry, chunks);
-  const url = (file: string) => escapeAttribute(`${base}${file}`);
+  return chunks;
+};
 
-  const styles = [...chunks].flatMap((key) => manifest[key].css ?? []);
-  const preloads = [...chunks]
-    .filter((key) => key !== entry)
-    .map((key) => manifest[key].file);
+// The tags for the client entry: its CSS and the CSS of every chunk it
+// statically imports, modulepreload for those chunks, and the entry script
+const entryTagParts = (
+  manifest: ViteManifest,
+  entry: string,
+  base: string,
+  cssCodeSplit: boolean,
+): TagParts & { script: string } => {
+  const chunks = entryChunks(manifest, entry);
+  const url = assetUrl(base);
+  const parts = tagsFor(
+    [
+      ...[...chunks].flatMap((key) => manifest[key].css ?? []),
+      ...(cssCodeSplit ? [] : unlinkedStyles(manifest)),
+    ],
+    [...chunks].filter((key) => key !== entry).map((key) => manifest[key].file),
+    url,
+  );
+  return {
+    ...parts,
+    script: `<script type="module" crossorigin src="${url(manifest[entry].file)}"></script>`,
+  };
+};
 
-  return [
-    ...Array.from(
-      new Set(styles),
-      (file) => `<link rel="stylesheet" href="${url(file)}">`,
-    ),
-    ...preloads.map((file) => `<link rel="modulepreload" href="${url(file)}">`),
-    `<script type="module" src="${url(entryChunk.file)}"></script>`,
-  ].join('');
+// What a page adds to the entry's tags: the CSS and chunks of the page and its
+// static imports that the entry does not load already
+const pageTagParts = (
+  manifest: ViteManifest,
+  entry: string,
+  page: string,
+  base: string,
+): TagParts => {
+  const loaded = entryChunks(manifest, entry);
+  const loadedStyles = new Set(
+    [...loaded].flatMap((key) => manifest[key].css ?? []),
+  );
+  const chunks = new Set<string>();
+  collectChunks(manifest, page, chunks);
+  const added = [...chunks].filter((key) => !loaded.has(key));
+  return tagsFor(
+    added
+      .flatMap((key) => manifest[key].css ?? [])
+      .filter((file) => !loadedStyles.has(file)),
+    added.map((key) => manifest[key].file),
+    assetUrl(base),
+  );
+};
+
+export const renderAssetTags = (
+  manifest: ViteManifest,
+  entry: string,
+  base = '/',
+  options: AssetTagOptions = {},
+): string => {
+  const head = entryTagParts(
+    manifest,
+    entry,
+    base,
+    options.cssCodeSplit ?? true,
+  );
+  const page =
+    options.page && manifest[options.page]
+      ? pageTagParts(manifest, entry, options.page, base)
+      : { styles: '', preloads: '' };
+  return `${head.styles}${page.styles}${head.preloads}${page.preloads}${head.script}`;
 };
 
 // The same value manifestVersion() returns at runtime, computed once at build
@@ -189,14 +300,33 @@ const renderVueChecks = (pages: PageFile[]) => {
 };
 
 // Matches the repository's Prettier style, so formatting it changes nothing
-export const renderPagesFile = (pages: PageFile[], serverImport: string) => {
+// `import type app` for the default export, `import type { name as app }`
+// for a named one
+const appImport = (serverImport: string, exportName = 'default') => {
+  if (exportName === 'default')
+    return `import type app from '${serverImport}';`;
+  if (!IDENTIFIER.test(exportName)) {
+    throw new Error(
+      `[hono-inertia] pages.export must be an identifier, got "${exportName}"`,
+    );
+  }
+  return exportName === 'app'
+    ? `import type { app } from '${serverImport}';`
+    : `import type { ${exportName} as app } from '${serverImport}';`;
+};
+
+export const renderPagesFile = (
+  pages: PageFile[],
+  serverImport: string,
+  exportName?: string,
+) => {
   const entries = pages.map(
     ({ name }) => `    ${IDENTIFIER.test(name) ? name : `'${name}'`}: true;`,
   );
   const vue = renderVueChecks(pages);
   return [
     `// Generated by ${PACKAGE_NAME}/vite-plugin from the pages folder. Do not edit.`,
-    `import type app from '${serverImport}';`,
+    appImport(serverImport, exportName),
     ...vue.imports,
     '',
     `declare module '${PACKAGE_NAME}' {`,
@@ -235,22 +365,44 @@ const createPagesFile = (root: string, options: PagesOptions) => {
     '',
   );
 
-  const isPage = (file: string) =>
-    file.startsWith(directory + path.sep) && extensions.has(path.extname(file));
-
-  const pageName = (file: string) => {
+  const pageName = (file: string): string | null => {
     const relative = normalizePath(path.relative(directory, file));
-    return relative.slice(0, relative.length - path.extname(file).length);
+    const name = options.name
+      ? options.name(relative)
+      : relative.slice(0, relative.length - path.extname(file).length);
+    return name && !exclude.has(name) ? name : null;
   };
 
-  const write = async () => {
+  const isPage = (file: string) =>
+    file.startsWith(directory + path.sep) &&
+    extensions.has(path.extname(file)) &&
+    pageName(file) !== null;
+
+  // Every page with its name and absolute path, sorted by name
+  const list = async () => {
     const files = await listFiles(directory);
     const pages = files
       .filter((file) => isPage(file))
-      .map((file) => ({ name: pageName(file), importPath: importPath(file) }))
-      .filter((page) => !exclude.has(page.name))
+      .map((file) => ({ name: pageName(file) ?? '', file }))
       .toSorted((a, b) => (a.name < b.name ? -1 : 1));
-    const contents = renderPagesFile(pages, serverImport);
+    for (const [index, page] of pages.entries()) {
+      const previous = pages[index - 1];
+      if (previous?.name === page.name) {
+        throw new Error(
+          `[hono-inertia] ${previous.file} and ${page.file} are both named "${page.name}"`,
+        );
+      }
+    }
+    return pages;
+  };
+
+  const write = async () => {
+    const listed = await list();
+    const pages = listed.map(({ name, file }) => ({
+      name,
+      importPath: importPath(file),
+    }));
+    const contents = renderPagesFile(pages, serverImport, options.export);
     // Rewriting an unchanged file would trigger the watcher and a reload
     const current = await readFile(output, 'utf8').catch(() => '');
     if (current === contents) return;
@@ -258,11 +410,57 @@ const createPagesFile = (root: string, options: PagesOptions) => {
     await writeFile(output, contents);
   };
 
-  return { isPage, write };
+  return { isPage, list, write };
 };
 
-const assetsModule = (version: string, assetTags: string): string =>
-  `export const version = ${JSON.stringify(version)};\nexport const assetTags = ${JSON.stringify(assetTags)};\n`;
+interface AssetsModule {
+  version: string;
+  assetTags: string;
+  manifest: ViteManifest | null;
+  // The entry's tags in their three groups, so a page's tags slot in between
+  head?: TagParts & { script: string };
+  // Page name → what the page adds to the entry's tags
+  pages?: Record<string, TagParts>;
+}
+
+// The page tags are kept apart from the entry's and joined per call, so the
+// server bundle holds the entry's tags once instead of once per page
+const assetsModule = ({
+  version,
+  assetTags,
+  manifest,
+  head,
+  pages = {},
+}: AssetsModule): string =>
+  [
+    `export const version = ${JSON.stringify(version)};`,
+    `export const assetTags = ${JSON.stringify(assetTags)};`,
+    `export const manifest = ${JSON.stringify(manifest)};`,
+    `const head = ${JSON.stringify(head ?? null)};`,
+    `const pages = ${JSON.stringify(pages)};`,
+    'export const assetTagsFor = (component) => {',
+    '  const page = head && Object.hasOwn(pages, component) ? pages[component] : undefined;',
+    '  return page ? head.styles + page.styles + head.preloads + page.preloads + head.script : assetTags;',
+    '};',
+    '',
+  ].join('\n');
+
+const PAGE_NAME_PLACEHOLDER = '[name]';
+const REGEXP_SPECIAL = /[$()*+.?[\\\]^{|}]/g;
+
+// 'src/pages/[name].vue' → a pattern that captures the name from a manifest
+// key such as 'src/pages/Users/Index.vue'
+const pageSourcePattern = (template: string): RegExp => {
+  const [before, after, ...rest] = template.split(PAGE_NAME_PLACEHOLDER);
+  if (after === undefined || rest.length > 0) {
+    throw new Error(
+      `[hono-inertia] pageSource "${template}" must contain ${PAGE_NAME_PLACEHOLDER} once`,
+    );
+  }
+  const escape = (part: string) =>
+    part.replaceAll(REGEXP_SPECIAL, String.raw`\$&`);
+  return new RegExp(`^${escape(before)}(.+)${escape(after)}$`);
+};
 
 const HEAD_CONTENT = /<head>([\S\s]*)<\/head>/;
 // @inertiajs/react/server and the like, as an external import or bundled
@@ -390,7 +588,12 @@ export const honoInertia = (options: HonoInertiaPluginOptions): Plugin[] => {
         );
         const head = HEAD_CONTENT.exec(html)?.[1] ?? '';
         const entry = `<script type="module" src="${escapeAttribute(`${config.base}${manifestKey(config.root, options.entry)}`)}"></script>`;
-        return assetsModule('dev', `${head}${entry}`);
+        // Vite serves modules on demand in dev, so there is nothing to preload
+        return assetsModule({
+          version: 'dev',
+          assetTags: `${head}${entry}`,
+          manifest: null,
+        });
       }
 
       const contents = await readFile(storePath(), 'utf8').catch(() => {
@@ -399,14 +602,47 @@ export const honoInertia = (options: HonoInertiaPluginOptions): Plugin[] => {
         );
       });
       const manifest = JSON.parse(contents) as ViteManifest;
-      return assetsModule(
-        versionFromManifest(manifest, options.versionSalt),
-        renderAssetTags(
-          manifest,
-          manifestKey(config.root, options.entry),
-          config.base,
+      const entry = manifestKey(config.root, options.entry);
+      // The client environment's setting, also when this is the server build
+      const cssCodeSplit =
+        config.environments.client?.build.cssCodeSplit ?? true;
+      const head = entryTagParts(manifest, entry, config.base, cssCodeSplit);
+      // [page name, manifest key] for every page assetTagsFor() knows
+      const pageSources = async (): Promise<Array<[string, string]>> => {
+        if (pagesFile) {
+          const listed = await pagesFile.list();
+          return listed.map(({ name, file }) => [
+            name,
+            manifestKey(config.root, file),
+          ]);
+        }
+        const patterns = [options.pageSource ?? []]
+          .flat()
+          .map((template) => pageSourcePattern(template));
+        return Object.keys(manifest).flatMap((key) => {
+          for (const pattern of patterns) {
+            const name = pattern.exec(key)?.[1];
+            if (name) return [[name, key] as [string, string]];
+          }
+          return [];
+        });
+      };
+
+      const sources = await pageSources();
+      const pages = Object.fromEntries(
+        sources.flatMap(([name, key]) =>
+          manifest[key]
+            ? [[name, pageTagParts(manifest, entry, key, config.base)]]
+            : [],
         ),
       );
+      return assetsModule({
+        version: versionFromManifest(manifest, options.versionSalt),
+        assetTags: `${head.styles}${head.preloads}${head.script}`,
+        manifest,
+        head,
+        pages,
+      });
     },
   };
 

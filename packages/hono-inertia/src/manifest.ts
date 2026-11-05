@@ -1,7 +1,14 @@
+// The fields of Vite's ManifestChunk that the adapter reads or exposes
 export interface ViteManifestChunk {
   file: string;
+  src?: string;
+  name?: string;
+  isEntry?: boolean;
+  isDynamicEntry?: boolean;
   css?: string[];
+  assets?: string[];
   imports?: string[];
+  dynamicImports?: string[];
 }
 
 export type ViteManifest = Record<string, ViteManifestChunk>;
