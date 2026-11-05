@@ -9,7 +9,7 @@ import {
   optional,
   serializePage,
 } from '@brachkow/hono-inertia';
-import { assetTags, version } from 'virtual:hono-inertia/assets';
+import { assetTagsFor, version } from 'virtual:hono-inertia/assets';
 import renderPage from './ssr';
 
 const PAGE_SIZE = 3;
@@ -50,10 +50,12 @@ const app = new Hono()
       session: cookieSession({
         secret: process.env.SESSION_SECRET ?? INSECURE_EXAMPLE_SECRET,
       }),
+      // assetTagsFor() also preloads the page's own chunks, so the browser
+      // fetches them with the entry instead of after it
       render: (page, _viewData, ssrResult) =>
         ssrResult
-          ? `<!DOCTYPE html><html><head><meta charset="utf-8">${ssrResult.head}${assetTags}</head><body>${ssrResult.body}</body></html>`
-          : `<!DOCTYPE html><html><head><meta charset="utf-8">${assetTags}</head><body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body></html>`,
+          ? `<!DOCTYPE html><html><head><meta charset="utf-8">${ssrResult.head}${assetTagsFor(page.component)}</head><body>${ssrResult.body}</body></html>`
+          : `<!DOCTYPE html><html><head><meta charset="utf-8">${assetTagsFor(page.component)}</head><body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body></html>`,
     }),
   )
   .get('/', (c) => c.var.inertia.render('Home', { framework: 'Svelte' }))
