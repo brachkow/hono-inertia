@@ -15,6 +15,7 @@ import type {
   SessionData,
   SsrResult,
   TaggedProperty,
+  BackOptions,
   ValidationErrors,
 } from './types.js';
 import { isTaggedProp } from './properties.js';
@@ -73,21 +74,33 @@ export class InertiaResponse implements InertiaContext {
     this.errorStore[bag] = { ...this.errorStore[bag], ...errors };
   }
 
-  back(fallback = '/'): Response {
-    return this.c.redirect(this.backUrl(fallback), 302);
+  back(options: string | BackOptions = {}): Response {
+    const { status = 302, ...rest } =
+      typeof options === 'string' ? { fallback: options } : options;
+    return this.c.redirect(this.backUrl(rest), status);
   }
 
   // Only the Referer's path, query and hash: an absolute Referer could point
   // at another origin, and behind a proxy the request's own origin is internal.
   // Also used by the middleware for empty 200 responses.
-  backUrl(fallback = '/'): string {
+  backUrl({
+    fallback = '/',
+    removeQuery,
+  }: Omit<BackOptions, 'status'> = {}): string {
     const referer = this.c.req.header('Referer');
     if (!referer) return fallback;
+    let url: URL;
     try {
-      return toPageUrl(this.c, referer);
+      url = new URL(referer, this.c.req.url);
     } catch {
       return fallback;
     }
+    if (removeQuery === true) {
+      url.search = '';
+    } else {
+      for (const name of removeQuery ?? []) url.searchParams.delete(name);
+    }
+    return toPageUrl(this.c, url.href);
   }
 
   socketId(): string | null {

@@ -37,6 +37,7 @@ export {
 
 // Types
 export type {
+  BackOptions,
   DevtoolsBodyCapture,
   DevtoolsConfig,
   DevtoolsEntry,

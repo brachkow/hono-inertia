@@ -300,11 +300,23 @@ export interface InertiaContext {
   // Validation errors for this page when the handler renders after calling
   // it, or for the next page otherwise, which needs the `session` option
   withErrors(errors: ValidationErrors, bag?: string): void;
-  // Redirects to the Referer's path, or to `fallback` without one
-  back(fallback?: string): Response;
+  // Redirects to the Referer's path, or to the fallback without one. A string
+  // is the fallback.
+  back(options?: string | BackOptions): Response;
   // The client's broadcaster connection id from `X-Socket-Id`, so a broadcast
   // can skip the connection that caused it
   socketId(): string | null;
+}
+
+export interface BackOptions {
+  // Where to go without a usable Referer. Defaults to '/'.
+  fallback?: string;
+  // Defaults to 302, as in Laravel. After PUT, PATCH, DELETE and QUERY the
+  // middleware turns a 302 into a 303 either way.
+  status?: 301 | 302 | 303 | 307 | 308;
+  // Query parameters to drop from the Referer, e.g. ['modal'], or true for
+  // all of them
+  removeQuery?: string[] | true;
 }
 
 // ---------------------------------------------------------------------------

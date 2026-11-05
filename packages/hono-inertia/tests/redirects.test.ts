@@ -145,6 +145,63 @@ describe('back()', () => {
 
     expect(response.headers.get('Location')).toBe('/users');
   });
+
+  it('takes the fallback in an options object', async () => {
+    const app = createApp();
+    app.post('/users', (c) => c.var.inertia.back({ fallback: '/users' }));
+
+    const response = await app.request('/users', { method: 'POST' });
+
+    expect(response.headers.get('Location')).toBe('/users');
+  });
+
+  it('answers with the status it is given', async () => {
+    const app = createApp();
+    app.post('/users', (c) => c.var.inertia.back({ status: 303 }));
+
+    const response = await app.request('/users', {
+      method: 'POST',
+      headers: inertiaHeaders({ Referer: 'http://localhost/users/new' }),
+    });
+
+    expect(response.status).toBe(303);
+  });
+
+  it('drops the named query parameters from the Referer', async () => {
+    const app = createApp();
+    app.post('/users', (c) => c.var.inertia.back({ removeQuery: ['modal'] }));
+
+    const response = await app.request('/users', {
+      method: 'POST',
+      headers: { Referer: 'http://localhost/users?modal=edit&page=2#top' },
+    });
+
+    expect(response.headers.get('Location')).toBe('/users?page=2#top');
+  });
+
+  it('drops every query parameter with removeQuery: true', async () => {
+    const app = createApp();
+    app.post('/users', (c) => c.var.inertia.back({ removeQuery: true }));
+
+    const response = await app.request('/users', {
+      method: 'POST',
+      headers: { Referer: 'http://localhost/users?modal=edit&page=2' },
+    });
+
+    expect(response.headers.get('Location')).toBe('/users');
+  });
+
+  it('uses the fallback for a malformed Referer', async () => {
+    const app = createApp();
+    app.post('/users', (c) => c.var.inertia.back('/users'));
+
+    const response = await app.request('/users', {
+      method: 'POST',
+      headers: { Referer: 'http://[bad' },
+    });
+
+    expect(response.headers.get('Location')).toBe('/users');
+  });
 });
 
 describe('Fragment redirects', () => {
