@@ -24,6 +24,10 @@ export default defineConfig(
             PagePropsFor: true,
             MissingVuePagePropsFor: true,
             InertiaSharedEnv: true,
+            // Pairs with PageProps, and named after the sharedPageProps key
+            // of @inertiajs/core's InertiaConfig that it fills
+            SharedProps: true,
+            sharedPageProps: true,
           },
           replacements: {
             res: { response: true, resource: false, result: false },

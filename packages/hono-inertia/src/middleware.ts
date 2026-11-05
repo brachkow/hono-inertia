@@ -1,6 +1,6 @@
 import { createMiddleware } from 'hono/factory';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
-import type { Context, MiddlewareHandler, Next } from 'hono';
+import type { Context, Env, MiddlewareHandler, Next } from 'hono';
 import type { InertiaConfig, InertiaEnv } from './types.js';
 import type { InertiaSharedEnv } from './page-properties.js';
 import { InertiaResponse } from './response.js';
@@ -245,3 +245,28 @@ async function handle<V extends Record<string, unknown>>(
 
   return response;
 }
+
+// Shares props from a middleware that runs after inertia(), such as one that
+// needs the session loaded first, and records their type for PageProps.
+// Annotate the context with the app's Env to read what earlier middlewares
+// set. Return undefined to share nothing, on routes that render no page, such
+// as proxied or asset paths: PageProps still lists these props.
+export const inertiaShare = <
+  V extends Record<string, unknown>,
+  E extends Env = Env,
+>(
+  share: (c: Context<E>) => V | undefined | Promise<V | undefined>,
+): MiddlewareHandler<E & InertiaSharedEnv<V>> =>
+  createMiddleware<E & InertiaSharedEnv<V>>(async (c, next) => {
+    // The middleware's Env need not mention the inertia variable
+    const response = (c as unknown as Context<InertiaEnv>).var.inertia as
+      InertiaEnv['Variables']['inertia'] | undefined;
+    if (!response) {
+      throw new Error(
+        '[hono-inertia] inertiaShare() runs after the inertia() middleware',
+      );
+    }
+    const data = await share(c as unknown as Context<E>);
+    if (data) response.share(data);
+    await next();
+  });

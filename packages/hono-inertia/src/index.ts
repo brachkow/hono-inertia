@@ -1,5 +1,5 @@
 // Middleware factory
-export { inertia, CLEAR_HISTORY_COOKIE } from './middleware.js';
+export { inertia, inertiaShare, CLEAR_HISTORY_COOKIE } from './middleware.js';
 
 // Serialization helpers
 export { serializePage, escapeHtml } from './serialize.js';
@@ -70,6 +70,7 @@ export type {
   AppRegistry,
   InertiaPages,
   InertiaSharedEnv,
+  SharedProps,
   PageName,
   PageProps,
   PagePropsFor,

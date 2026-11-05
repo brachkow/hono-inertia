@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import { inertia } from '../src/middleware.js';
+import { inertia, inertiaShare } from '../src/middleware.js';
 import {
   always,
   deferred,
@@ -13,6 +13,7 @@ import {
 import type {
   MissingVuePagePropsFor,
   PagePropsFor,
+  SharedProps,
 } from '../src/page-properties.js';
 import type { PageObject, ScrollMetadata } from '../src/types.js';
 
@@ -150,6 +151,129 @@ describe('PageProps', () => {
     }>();
     expect(await firstVisitProperties(app, '/')).toEqual({
       user: 'Ada',
+      errors: {},
+    });
+  });
+
+  it('adds what inertiaShare() shares after the middleware', async () => {
+    const app = new Hono()
+      .use(inertia({ render }))
+      .use(inertiaShare(() => ({ locale: 'en' })))
+      .get('/', (c) => c.var.inertia.render('Home', { framework: 'Vue' }));
+
+    expectTypeOf<PagePropsFor<typeof app, 'Home'>>().toEqualTypeOf<{
+      locale: string;
+      framework: string;
+      errors: Errors;
+    }>();
+    expect(await firstVisitProperties(app, '/')).toEqual({
+      locale: 'en',
+      framework: 'Vue',
+      errors: {},
+    });
+  });
+
+  it('merges inertiaShare() with the share option', async () => {
+    const app = new Hono()
+      .use(inertia({ render, share: () => ({ appName: 'Demo' }) }))
+      .use(inertiaShare(() => ({ locale: 'en' })))
+      .get('/', (c) => c.var.inertia.render('Home'));
+
+    expectTypeOf<PagePropsFor<typeof app, 'Home'>>().toEqualTypeOf<{
+      appName: string;
+      locale: string;
+      errors: Errors;
+    }>();
+    expect(await firstVisitProperties(app, '/')).toEqual({
+      appName: 'Demo',
+      locale: 'en',
+      errors: {},
+    });
+  });
+
+  it('keeps typed shared props next to an untyped share option', async () => {
+    const untyped = (): Record<string, unknown> => ({ anything: true });
+    const app = new Hono()
+      .use(inertia({ render, share: untyped }))
+      .use(inertiaShare(() => ({ locale: 'en' })))
+      .get('/', (c) => c.var.inertia.render('Home'));
+
+    expectTypeOf<PagePropsFor<typeof app, 'Home'>>().toEqualTypeOf<{
+      locale: string;
+      errors: Errors;
+    }>();
+    expect(await firstVisitProperties(app, '/')).toEqual({
+      anything: true,
+      locale: 'en',
+      errors: {},
+    });
+  });
+
+  it('reads earlier middlewares through an annotated context', async () => {
+    interface SessionEnvironment {
+      Variables: { session: { user: string } };
+    }
+    const app = new Hono<SessionEnvironment>()
+      .use(inertia({ render }))
+      .use(async (c, next) => {
+        c.set('session', { user: 'Ada' });
+        await next();
+      })
+      .use(
+        inertiaShare((c: Context<SessionEnvironment>) => ({
+          user: c.get('session').user,
+        })),
+      )
+      .get('/', (c) => c.var.inertia.render('Home'));
+
+    expectTypeOf<PagePropsFor<typeof app, 'Home'>>().toEqualTypeOf<{
+      user: string;
+      errors: Errors;
+    }>();
+    expect(await firstVisitProperties(app, '/')).toEqual({
+      user: 'Ada',
+      errors: {},
+    });
+  });
+
+  it('shares nothing when inertiaShare() returns undefined', async () => {
+    const app = new Hono()
+      .use(inertia({ render }))
+      .use(
+        inertiaShare((c) =>
+          c.req.path.startsWith('/assets') ? undefined : { locale: 'en' },
+        ),
+      )
+      .get('/assets/page', (c) => c.var.inertia.render('Home'));
+
+    expect(await firstVisitProperties(app, '/assets/page')).toEqual({
+      errors: {},
+    });
+  });
+
+  it('fails when inertiaShare() runs before inertia()', async () => {
+    const app = new Hono()
+      .use(inertiaShare(() => ({ locale: 'en' })))
+      .get('/', (c) => c.text('ok'));
+
+    const response = await app.request('/');
+
+    expect(response.status).toBe(500);
+  });
+
+  it('gives the shared props without errors as SharedProps', async () => {
+    const app = new Hono()
+      .use(inertia({ render, share: () => ({ appName: 'Demo' }) }))
+      .use(inertiaShare(() => ({ locale: 'en' })))
+      .get('/', (c) => c.var.inertia.render('Home'));
+
+    expectTypeOf<SharedProps<typeof app>>().toEqualTypeOf<{
+      appName: string;
+      locale: string;
+    }>();
+    expect(await firstVisitProperties(app, '/')).toEqual({
+      appName: 'Demo',
+      locale: 'en',
       errors: {},
     });
   });

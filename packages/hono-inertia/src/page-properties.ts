@@ -67,14 +67,32 @@ export interface InertiaSharedEnv<V> {
 // first is matched
 type AppEnvironment<App> = App extends Hono<infer E> ? E : never;
 
-// Without a typed share(), V is the Record<string, unknown> default, which
-// says nothing about the keys
+// An index signature, such as an untyped share() returning
+// Record<string, unknown>, says nothing about the keys, so only named keys
+// are kept. Dropping the whole type instead would also drop what typed
+// middlewares on the same chain share.
+type KnownKeys<V> = {
+  [
+    K in keyof V as string extends K
+      ? never
+      : number extends K
+        ? never
+        : symbol extends K
+          ? never
+          : K
+  ]: V[K];
+};
+
+// Several middlewares record their shared props as an intersection, which
+// infer V merges
 type SharedProperties<App> =
   AppEnvironment<App> extends InertiaSharedEnv<infer V>
-    ? string extends keyof V
-      ? object
-      : ResolvedProperties<V>
+    ? ResolvedProperties<KnownKeys<V>>
     : object;
+
+// The props every page gets from share() and inertiaShare(), without errors.
+// The file the Vite plugin generates can declare them for the client.
+export type SharedProps<App> = SharedProperties<App>;
 
 // ---------------------------------------------------------------------------
 // PageProps
