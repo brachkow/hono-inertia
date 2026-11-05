@@ -817,6 +817,8 @@ It leaves out what the entry already loads. With the `pages` option, the plugin 
 honoInertia({ entry: 'src/client.ts', pageSource: 'src/pages/[name].vue' });
 ```
 
+`[name]` can appear more than once, and every copy has to match the same name. `'src/views/[name]/[name].vue'` finds `Landing` in `src/views/Landing/Landing.vue`.
+
 For a page the plugin does not know, and under `vite dev`, `assetTagsFor()` returns `assetTags`.
 
 ### Without the plugin
@@ -1299,7 +1301,7 @@ Enable `encryptHistory` on authenticated pages. If bfcache restoration matters t
 
 `location()` and `redirect()` send the URL you pass straight to the browser. Never pass unvalidated user input, such as a `?next=` parameter, to them. Validate it against an allowlist or restrict it to same-origin paths first, or you create an open redirect.
 
-`back()` and the redirect after an empty 200 use only the path, query and fragment of the `Referer`, so a forged `Referer` cannot send users to another origin.
+`back()` and the redirect after an empty 200 use only the path, query and fragment of the `Referer`, so a forged `Referer` cannot send users to another origin. Leading slashes and backslashes collapse to one `/`, so a path such as `//evil.example` cannot become a protocol-relative URL, and a `Referer` that is not `http:` or `https:` is ignored. The version mismatch 409 builds its `X-Inertia-Location` from the request path the same way.
 
 ### Caching
 

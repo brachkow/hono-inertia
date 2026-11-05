@@ -21,6 +21,10 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 
 - On an Inertia request, a handler that returns a 200 without a body, such as `c.body(null)`, now gets a redirect to the path of the `Referer` (or `/`). Before, the client received an empty response.
 
+### Fixes
+
+- The version mismatch 409 could send `X-Inertia-Location: //host/path`, a protocol-relative URL to another origin, when the request path started with `//`. The adapter now collapses leading slashes and backslashes in every path it builds into a `Location` or `page.url`. This also affected 3.x.
+
 ### Highlights
 
 **Sessions**
@@ -34,7 +38,7 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 
 - `c.var.inertia.withErrors(errors, bag?)` stores errors for the next page. Pages get the first message per field, and stored errors follow Laravel's error bag rules.
 - `inertiaValidator(target, schema)` validates with any Standard Schema library (Zod, Valibot, ArkType) without a runtime dependency. Failed submits redirect back with the errors, clients that ask for JSON get a 422, and precognition requests get 204 or 422 without running the handler.
-- `c.var.inertia.back()` redirects to the path of the `Referer`. It takes a fallback, or `{ fallback, status, removeQuery }`.
+- `c.var.inertia.back()` redirects to the path of the `Referer`, and never to another origin. It takes a fallback, or `{ fallback, status, removeQuery }`.
 
 **Live props** (client 3.10+)
 
@@ -54,7 +58,7 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 
 - `assetTags` links the single CSS file of a client build with `cssCodeSplit: false`. It used to have no stylesheet at all, so pages rendered unstyled.
 - Every tag carries `crossorigin`, as in Vite's own HTML output.
-- `assetTagsFor(component)` adds the stylesheets and `modulepreload` links of the rendered page and its imports. Page names map to files through `pages`, or through the new `pageSource` option (`'src/pages/[name].vue'`).
+- `assetTagsFor(component)` adds the stylesheets and `modulepreload` links of the rendered page and its imports. Page names map to files through `pages`, or through the new `pageSource` option (`'src/pages/[name].vue'`, with `[name]` allowed more than once).
 - The virtual module exports the parsed client `manifest`.
 - `pages.export` names the export that holds the app, for Workers entries that default-export a handler object. `pages.name` maps a file to a page name, or skips it with `null`.
 
