@@ -34,7 +34,7 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 
 - `c.var.inertia.withErrors(errors, bag?)` stores errors for the next page. Pages get the first message per field, and stored errors follow Laravel's error bag rules.
 - `inertiaValidator(target, schema)` validates with any Standard Schema library (Zod, Valibot, ArkType) without a runtime dependency. Failed submits redirect back with the errors, clients that ask for JSON get a 422, and precognition requests get 204 or 422 without running the handler.
-- `c.var.inertia.back(fallback?)` redirects to the path of the `Referer`.
+- `c.var.inertia.back()` redirects to the path of the `Referer`. It takes a fallback, or `{ fallback, status, removeQuery }`.
 
 **Live props** (client 3.10+)
 
@@ -49,6 +49,14 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 **Protocol**
 
 - 302 to 303 conversion also covers QUERY requests.
+
+**Vite plugin**
+
+- `assetTags` links the single CSS file of a client build with `cssCodeSplit: false`. It used to have no stylesheet at all, so pages rendered unstyled.
+- Every tag carries `crossorigin`, as in Vite's own HTML output.
+- `assetTagsFor(component)` adds the stylesheets and `modulepreload` links of the rendered page and its imports. Page names map to files through `pages`, or through the new `pageSource` option (`'src/pages/[name].vue'`).
+- The virtual module exports the parsed client `manifest`.
+- `pages.export` names the export that holds the app, for Workers entries that default-export a handler object. `pages.name` maps a file to a page name, or skips it with `null`.
 
 ### Upgrading
 

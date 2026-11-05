@@ -627,6 +627,12 @@ app.post('/settings', async (c) => {
 });
 ```
 
+An options object also takes `status` (default 302) and `removeQuery`, which drops the named query parameters from the `Referer`, or all of them with `true`. Use it, for example, to close a modal that lives in the query:
+
+```ts
+return c.var.inertia.back({ status: 303, removeQuery: ['modal'] });
+```
+
 An Inertia request whose handler returns an empty 200, such as `c.body(null)`, is redirected back the same way. After PUT, PATCH, DELETE and QUERY requests, the middleware turns the 302 into a 303, so the browser follows it with GET.
 
 ## Sessions
@@ -779,14 +785,39 @@ app.use(
 
 Add `/// <reference types="@brachkow/hono-inertia/vite-plugin/client" />` to a `.d.ts` file in your project to type the `virtual:hono-inertia/assets` import.
 
-- In production, `assetTags` holds the client entry's script, `modulepreload` links for the chunks it imports, and the stylesheets of all of them. URLs follow Vite's `base`. `version` is the same hash `manifestVersion` computes (see below).
+- In production, `assetTags` holds the client entry's script, `modulepreload` links for the chunks it imports, and the stylesheets of all of them. With `build.cssCodeSplit: false`, it links the single CSS file Vite writes instead. Every tag carries `crossorigin`, as in Vite's own HTML output. URLs follow Vite's `base`. `version` is the same hash `manifestVersion` computes (see below).
 - Under `vite dev`, `assetTags` is whatever Vite's own HTML transform adds, such as `/@vite/client` and the React Refresh preamble, followed by the entry script. `version` is `'dev'`.
 - The plugin turns on the client build's manifest and sets the entry as its input, unless you set either yourself. Once the client build is written, the plugin moves the manifest to `node_modules/.hono-inertia/`. The manifest lists every page and source path, and static hosts such as Workers would otherwise serve it to anyone. The server build reads it from there.
 - In an app build (`builder` in the Vite config, as Cloudflare's plugin sets), the plugin builds the client before the other environments, because they inline its asset tags. In separate `vite build` runs, build the client first.
 - Pass `versionSalt` to change the version without a client change, as with the salt argument below.
 - Pass `pages` to generate the types for [typed page props](#typed-page-props).
+- `manifest` is the parsed client manifest, for building your own tags. It is `null` under `vite dev`.
 
 Vite 7 or newer is required.
+
+#### Preloading the page
+
+A page component that the client loads with `import.meta.glob` starts downloading only after the entry ran and Inertia picked the component. `assetTagsFor(page.component)` returns `assetTags` plus the stylesheets and `modulepreload` links of that page and the chunks it imports, so the browser fetches them together with the entry:
+
+```ts
+import { assetTagsFor, version } from 'virtual:hono-inertia/assets';
+
+app.use(
+  inertia({
+    version,
+    render: (page) =>
+      `<!DOCTYPE html><html><head>${assetTagsFor(page.component)}</head><body>...</body></html>`,
+  }),
+);
+```
+
+It leaves out what the entry already loads. With the `pages` option, the plugin knows which file each page name stands for. Without it, pass `pageSource` with `[name]` in place of the page name, or a list of patterns for several extensions:
+
+```ts
+honoInertia({ entry: 'src/client.ts', pageSource: 'src/pages/[name].vue' });
+```
+
+For a page the plugin does not know, and under `vite dev`, `assetTagsFor()` returns `assetTags`.
 
 ### Without the plugin
 
@@ -1334,7 +1365,7 @@ it('loads deferred stats', async () => {
 
 The Vite plugin can write a file that ties each page component to the routes that render it. Page components then get their props' types from those routes, and `render()` rejects a page name that has no file.
 
-1. Point the plugin at the pages folder and the module that default-exports the app:
+1. Point the plugin at the pages folder and the module that exports the app:
 
    ```ts
    honoInertia({
@@ -1400,6 +1431,24 @@ Vue's `defineProps<T>()` can't take `PageProps` directly, because the SFC compil
 The generated file also checks each `.vue` page the other way. When a route sends a prop the page doesn't declare, `vue-tsc` fails in the generated file and names the prop (`'Missing props': "total"`). Shared props and `errors` are left out of that check, because a page declares them only if it reads them.
 
 The [examples](#examples) use this setup. Options: `output` sets the file's path (default: the directory plus `.gen.ts`), `extensions` the page file extensions (default: `tsx`, `jsx`, `vue`, `svelte`), and `exclude` page names to leave out.
+
+`export` names the export of `server` that holds the app, for a Workers entry whose default export is a handler object such as `{ fetch, scheduled }`. It defaults to `'default'`:
+
+```ts
+pages: { directory: 'src/pages', server: 'src/worker.ts', export: 'app' },
+```
+
+A page's name is its path in the folder without the extension. For another layout, pass `name`, which takes the path in the folder and returns the page name, or `null` for a file that is not a page. This one fits a folder per page, `Landing/Landing.vue`, with its components in `Landing/components/`:
+
+```ts
+pages: {
+  directory: 'src/views',
+  server: 'src/server.ts',
+  name: (relativePath) => /^([^/]+)\/\1\.vue$/.exec(relativePath)?.[1] ?? null,
+},
+```
+
+Two files with the same name fail the build.
 
 ### Typing `c.var.inertia`
 
