@@ -369,7 +369,26 @@ const app = new Hono<AppEnv>().use(sessionMiddleware).use(
 );
 ```
 
-Per-request shared props via middleware:
+`share` runs inside the `inertia()` middleware, before any middleware that comes after it. To share data that a later middleware loads, such as the user from the session, use `inertiaShare()`. It shares what the function returns and records its type for `PageProps`, like `share` does:
+
+```ts
+import { inertia, inertiaShare } from '@brachkow/hono-inertia';
+
+const app = new Hono<AppEnv>()
+  .use(inertia({ render }))
+  .use(sessionMiddleware)
+  .use(
+    inertiaShare(async (c: Context<AppEnv>) => {
+      // Skips the lookup on routes that render no page
+      if (c.req.path.startsWith('/assets/')) return undefined;
+      return { locale: c.get('session').locale, user: await loadUser(c) };
+    }),
+  );
+```
+
+Return `undefined` to share nothing. `PageProps` still lists the props, so do that only on routes that render no page.
+
+`c.var.inertia.share()` also shares props per request, but records no type:
 
 ```ts
 app.use(async (c, next) => {
@@ -1451,6 +1470,14 @@ pages: {
 ```
 
 Two files with the same name fail the build.
+
+The client reads shared props through `usePage()` and its own `sharedPageProps` type, which apps usually declare by hand. Pass `sharedPageProps: true` and the generated file declares it from what `share` and `inertiaShare()` return:
+
+```ts
+pages: { directory: 'src/pages', server: 'src/server.ts', sharedPageProps: true },
+```
+
+It augments `@inertiajs/core`, so the app needs `@inertiajs/core` as a direct dependency, and a hand-written `sharedPageProps` declaration has to go. `SharedProps<typeof app>` gives the same type for your own declarations.
 
 ### Typing `c.var.inertia`
 

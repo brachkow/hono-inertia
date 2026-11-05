@@ -46,6 +46,12 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 - `broadcastProperties(props)` builds the event payload that delivers values without a reload. `c.var.inertia.socketId()` reads `X-Socket-Id`.
 - DevTools entries flag live props with `live: true`.
 
+**Shared props**
+
+- `inertiaShare(fn)` shares props from a middleware that runs after `inertia()`, for example once the session is loaded, and records their type for `PageProps`. It can return `undefined` to share nothing.
+- `PageProps` keeps the props a typed middleware shares when `inertia()` has no `share` option or an untyped one. It used to drop all shared props then.
+- `SharedProps<typeof app>` gives the shared props without `errors`. The `pages.sharedPageProps` option declares them as `@inertiajs/core`'s `sharedPageProps` in the generated file.
+
 **Testing helpers**
 
 - New `@brachkow/hono-inertia/testing` entry with `inertiaRequest()`, `inertiaHeaders()` and `getPage()`, which reads the page from JSON or from the first visit's HTML.
