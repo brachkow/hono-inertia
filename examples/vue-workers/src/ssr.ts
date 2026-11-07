@@ -1,5 +1,6 @@
 import { createInertiaApp } from '@inertiajs/vue3';
 import type { Page } from '@inertiajs/core';
+import type { SsrRenderResult } from '@brachkow/hono-inertia';
 import { createSSRApp, h } from 'vue';
 import type { DefineComponent } from 'vue';
 import { renderToString } from 'vue/server-renderer';
@@ -13,7 +14,10 @@ const pages = import.meta.glob<DefineComponent>('./pages/**/*.vue', {
 });
 
 // The Worker calls this for every page, in dev and in production
-const renderPage = (page: Page) =>
+// The return type is written out. Inferring it goes through the types of
+// createInertiaApp(), which read sharedPageProps from src/pages.gen.ts, and
+// those come from the app that holds this function, so TypeScript would loop.
+const renderPage = (page: Page): Promise<SsrRenderResult> =>
   createInertiaApp({
     page,
     render: renderToString,

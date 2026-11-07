@@ -19,7 +19,12 @@ export default defineConfig({
     honoInertia({
       entry: 'src/client.tsx',
       // Writes src/pages.gen.ts, which types each page's props
-      pages: { directory: 'src/pages', server: 'src/server.ts' },
+      pages: {
+        directory: 'src/pages',
+        server: 'src/server.ts',
+        // Also types usePage().props with the app's shared props
+        sharedPageProps: true,
+      },
     }),
     // Dev: Vite serves the client and runs the Hono app on the same port
     // src/server.ts already puts /@vite/client in <head>

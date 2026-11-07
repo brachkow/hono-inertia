@@ -2,7 +2,7 @@
   import { Link, usePage } from '@inertiajs/vue3';
   import { computed } from 'vue';
 
-  const page = usePage<{ appName: string }>();
+  const page = usePage();
   const flash = computed(() => page.flash as { message?: string });
 </script>
 

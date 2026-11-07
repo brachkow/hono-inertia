@@ -1,7 +1,7 @@
 import { createInertiaApp } from '@inertiajs/svelte';
 import type { ResolvedComponent } from '@inertiajs/svelte';
 import type { Page } from '@inertiajs/core';
-import type { PageObject } from '@brachkow/hono-inertia';
+import type { PageObject, SsrRenderResult } from '@brachkow/hono-inertia';
 import { render } from 'svelte/server';
 import Layout from './Layout.svelte';
 
@@ -10,7 +10,10 @@ const pages = import.meta.glob<ResolvedComponent>('./pages/**/*.svelte');
 
 // src/server.ts passes this to the adapter as ssr.render, so pages render in
 // the server's own process, in dev and in production
-const renderPage = async (page: PageObject) => {
+// The return type is written out. Inferring it goes through the types of
+// createInertiaApp(), which read sharedPageProps from src/pages.gen.ts, and
+// those come from the app that holds this function, so TypeScript would loop.
+const renderPage = async (page: PageObject): Promise<SsrRenderResult> => {
   const result = await createInertiaApp({
     // Inertia's Page type also requires client-only state (rememberedState)
     // that no server sends

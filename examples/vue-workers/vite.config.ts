@@ -19,7 +19,12 @@ export default defineConfig({
     honoInertia({
       entry: 'src/client.ts',
       // Writes src/pages.gen.ts, which types each page's props
-      pages: { directory: 'src/pages', server: 'src/worker.ts' },
+      pages: {
+        directory: 'src/pages',
+        server: 'src/worker.ts',
+        // Also types usePage().props with the app's shared props
+        sharedPageProps: true,
+      },
     }),
     // Runs the Worker in workerd during `vite dev` and `vite preview`
     cloudflare({ viteEnvironment: { name: 'worker' } }),

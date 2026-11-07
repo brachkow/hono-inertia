@@ -4,7 +4,7 @@
 
   const { children }: { children: Snippet } = $props();
 
-  const page = usePage<{ appName: string }>();
+  const page = usePage();
   const flash = $derived(page.flash as { message?: string } | undefined);
 </script>
 

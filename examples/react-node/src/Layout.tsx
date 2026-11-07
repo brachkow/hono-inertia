@@ -2,7 +2,7 @@ import { Link, usePage } from '@inertiajs/react';
 import type { ReactNode } from 'react';
 
 export const Layout = ({ children }: { children: ReactNode }) => {
-  const page = usePage<{ appName: string }>();
+  const page = usePage();
   const flash = page.flash as { message?: string };
 
   return (
