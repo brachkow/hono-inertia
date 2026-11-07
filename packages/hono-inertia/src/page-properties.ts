@@ -48,6 +48,72 @@ export type ResolvedProperties<P> = Simplify<
   }
 >;
 
+// ---------------------------------------------------------------------------
+// From what the server holds to what JSON.stringify sends the client
+// ---------------------------------------------------------------------------
+
+type JsonPrimitive = string | number | boolean | null;
+
+// Left out of an object, and null in an array
+type Unsendable = undefined | symbol | ((...arguments_: never[]) => unknown);
+
+type SerializedElement<V> = V extends Unsendable ? null : Serialized<V>;
+
+// Undefined in the type, so JSON leaves the key out at times. unknown counts
+// as always present, or every unknown prop would turn optional.
+type MaybeUndefined<V> = unknown extends V
+  ? false
+  : undefined extends V
+    ? true
+    : false;
+
+// A key whose value can never be sent is dropped, and one that may be
+// undefined arrives only sometimes
+type SerializedObject<T> = Simplify<
+  {
+    [
+      K in keyof T as K extends symbol
+        ? never
+        : [T[K]] extends [Unsendable]
+          ? never
+          : MaybeUndefined<T[K]> extends true
+            ? never
+            : K
+    ]: Serialized<T[K]>;
+  } & {
+    [
+      K in keyof T as K extends symbol
+        ? never
+        : [T[K]] extends [Unsendable]
+          ? never
+          : MaybeUndefined<T[K]> extends true
+            ? K
+            : never
+    ]?: Serialized<Exclude<T[K], undefined>>;
+  }
+>;
+
+// JSON.stringify's rules: toJSON() decides first, so a Date arrives as a
+// string; Map and Set have no own enumerable properties. BigInt stays, because
+// the adapter sends it as a marker the client (3.8+) turns back into a BigInt.
+export type Serialized<T> = 0 extends 1 & T
+  ? T
+  : unknown extends T
+    ? unknown
+    : T extends JsonPrimitive | bigint
+      ? T
+      : T extends Unsendable
+        ? never
+        : T extends { toJSON: (...arguments_: never[]) => infer R }
+          ? Serialized<R>
+          : T extends ReadonlyMap<unknown, unknown> | ReadonlySet<unknown>
+            ? Record<string, never>
+            : T extends readonly unknown[]
+              ? { [I in keyof T]: SerializedElement<T[I]> }
+              : T extends object
+                ? SerializedObject<T>
+                : never;
+
 // What render() returns: a Response whose type also records the component
 // and its props, so PageProps can read them from the app's routes
 export type RenderResponse<C extends string, P> = Response &
@@ -87,7 +153,7 @@ type KnownKeys<V> = {
 // infer V merges
 type SharedProperties<App> =
   AppEnvironment<App> extends InertiaSharedEnv<infer V>
-    ? ResolvedProperties<KnownKeys<V>>
+    ? Serialized<ResolvedProperties<KnownKeys<V>>>
     : object;
 
 // The props every page gets from share() and inertiaShare(), without errors.
@@ -134,6 +200,10 @@ type MergeProperties<Shared, Own> = Own extends unknown
   ? Simplify<Omit<Shared, keyof Own> & Own & { errors: Errors & ErrorBag }>
   : never;
 
+// Each route's props as the client receives them, before Normalize fills in
+// the keys other routes send
+type SerializedEach<U> = U extends unknown ? Serialized<U> : never;
+
 type RegisteredApp = AppRegistry extends { app: infer A } ? A : never;
 
 // Kept separate from PageProps so tests can pass an app without the registry
@@ -143,7 +213,9 @@ export type PagePropsFor<
 > = C extends unknown
   ? MergeProperties<
       SharedProperties<App>,
-      Normalize<Extract<RenderOutput<App>, { component: C }>['props']>
+      Normalize<
+        SerializedEach<Extract<RenderOutput<App>, { component: C }>['props']>
+      >
     >
   : never;
 

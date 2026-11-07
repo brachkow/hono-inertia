@@ -278,6 +278,69 @@ describe('PageProps', () => {
     });
   });
 
+  it('types props as JSON sends them', async () => {
+    const createdAt = new Date('2026-01-02T03:04:05.000Z');
+    const money = { toJSON: () => 12.5 };
+    const device = (): string | undefined => 'phone';
+    const app = new Hono().use(inertia({ render })).get('/', (c) =>
+      c.var.inertia.render('Settings', {
+        sessions: [{ createdAt, device: device() }],
+        price: money,
+        tags: new Set(['a']),
+        handlers: { onSave: () => 1 },
+        slots: [createdAt, undefined],
+        id: 1n,
+      }),
+    );
+
+    expectTypeOf<PagePropsFor<typeof app, 'Settings'>>().toEqualTypeOf<{
+      sessions: Array<{ createdAt: string; device?: string }>;
+      price: number;
+      tags: Record<string, never>;
+      handlers: Record<never, never>;
+      slots: Array<string | null>;
+      id: bigint;
+      errors: Errors;
+    }>();
+    const page = await firstVisitProperties(app, '/');
+    expect(page.sessions).toEqual([
+      { createdAt: '2026-01-02T03:04:05.000Z', device: 'phone' },
+    ]);
+    expect(page.price).toBe(12.5);
+    expect(page.tags).toEqual({});
+    expect(page.handlers).toEqual({});
+    expect(page.slots).toEqual(['2026-01-02T03:04:05.000Z', null]);
+  });
+
+  it('types shared props as JSON sends them', async () => {
+    const app = new Hono()
+      .use(inertia({ render, share: () => ({ now: new Date() }) }))
+      .get('/', (c) => c.var.inertia.render('Home'));
+
+    expectTypeOf<SharedProps<typeof app>>().toEqualTypeOf<{
+      now: string;
+    }>();
+    const page = await firstVisitProperties(app, '/');
+    expect(typeof page.now).toBe('string');
+  });
+
+  it('keeps unknown props unknown', async () => {
+    const app = new Hono()
+      .use(inertia({ render }))
+      .get('/', (c) =>
+        c.var.inertia.render('Home', { data: JSON.parse('{}') as unknown }),
+      );
+
+    expectTypeOf<PagePropsFor<typeof app, 'Home'>>().toEqualTypeOf<{
+      data: unknown;
+      errors: Errors;
+    }>();
+    expect(await firstVisitProperties(app, '/')).toEqual({
+      data: {},
+      errors: {},
+    });
+  });
+
   it('gives a union when routes render a page with different props', async () => {
     const app = new Hono()
       .use(inertia({ render }))
