@@ -723,8 +723,8 @@ describe('virtual assets module', () => {
     return root;
   };
 
-  // Runs the plugin's configResolved and load hooks, then imports the code
-  const loadModule = async (
+  // Runs the plugin's configResolved and load hooks
+  const loadCode = async (
     root: string,
     options: Partial<Parameters<typeof honoInertia>[0]> = {},
     cssCodeSplit = true,
@@ -751,14 +751,43 @@ describe('virtual assets module', () => {
       } as never,
       '\0virtual:hono-inertia/assets',
     )) as string;
+    return code;
+  };
+
+  // The module the plugin generates, imported
+  const loadModule = async (
+    root: string,
+    options: Partial<Parameters<typeof honoInertia>[0]> = {},
+    cssCodeSplit = true,
+  ) => {
+    const code = await loadCode(root, options, cssCodeSplit);
     return (await import(
       `data:text/javascript,${encodeURIComponent(code)}`
     )) as {
       assetTags: string;
       assetTagsFor: (component: string) => string;
       manifest: ViteManifest | null;
+      ssr: unknown;
     };
   };
+
+  it('exports no ssr function without an ssr entry', async () => {
+    const root = await createBuild(manifest);
+
+    const assets = await loadModule(root);
+
+    expect(assets.ssr).toBeNull();
+  });
+
+  it("re-exports the ssr entry's default export as ssr", async () => {
+    const root = await createBuild(manifest);
+
+    const code = await loadCode(root, { ssr: 'src/ssr.ts' });
+
+    expect(code).toContain(
+      `export { default as ssr } from ${JSON.stringify(`${root}/src/ssr.ts`)};`,
+    );
+  });
 
   it('exports the manifest', async () => {
     const root = await createBuild(manifest);

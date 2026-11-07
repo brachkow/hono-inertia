@@ -33,6 +33,10 @@ export interface HonoInertiaPluginOptions {
   // relative to the Vite root with [name] for the page name, e.g.
   // 'src/pages/[name].vue'. Several patterns for several extensions.
   pageSource?: string | string[];
+  // The SSR entry, relative to the Vite root, e.g. 'src/ssr.ts'. Its default
+  // export, a function from the page to { head, body }, becomes the virtual
+  // module's `ssr`, which inertia({ assets }) renders with.
+  ssr?: string;
 }
 
 export interface PagesOptions {
@@ -481,6 +485,8 @@ const createPagesFile = (root: string, options: PagesOptions) => {
 
 interface AssetsModule {
   version: string;
+  // The SSR entry's path, imported as the module's `ssr`
+  ssrEntry?: string;
   assetTags: string;
   manifest: ViteManifest | null;
   // The entry's tags in their three groups, so a page's tags slot in between
@@ -492,6 +498,7 @@ interface AssetsModule {
 // The page tags are kept apart from the entry's and joined per call, so the
 // server bundle holds the entry's tags once instead of once per page
 const assetsModule = ({
+  ssrEntry,
   version,
   assetTags,
   manifest,
@@ -499,6 +506,9 @@ const assetsModule = ({
   pages = {},
 }: AssetsModule): string =>
   [
+    ssrEntry
+      ? `export { default as ssr } from ${JSON.stringify(ssrEntry)};`
+      : 'export const ssr = null;',
     `export const version = ${JSON.stringify(version)};`,
     `export const assetTags = ${JSON.stringify(assetTags)};`,
     `export const manifest = ${JSON.stringify(manifest)};`,
@@ -653,6 +663,10 @@ export const honoInertia = (options: HonoInertiaPluginOptions): Plugin[] => {
 
     async load(id) {
       if (id !== RESOLVED_ASSETS_ID) return;
+      const ssrEntry = () =>
+        options.ssr === undefined
+          ? undefined
+          : normalizePath(path.resolve(config.root, options.ssr));
 
       if (server) {
         // Vite's own HTML transform adds /@vite/client and whatever framework
@@ -665,6 +679,7 @@ export const honoInertia = (options: HonoInertiaPluginOptions): Plugin[] => {
         const entry = `<script type="module" src="${escapeAttribute(`${config.base}${manifestKey(config.root, options.entry)}`)}"></script>`;
         // Vite serves modules on demand in dev, so there is nothing to preload
         return assetsModule({
+          ssrEntry: ssrEntry(),
           version: 'dev',
           assetTags: `${head}${entry}`,
           manifest: null,
@@ -712,6 +727,7 @@ export const honoInertia = (options: HonoInertiaPluginOptions): Plugin[] => {
         ),
       );
       return assetsModule({
+        ssrEntry: ssrEntry(),
         version: versionFromManifest(manifest, options.versionSalt),
         assetTags: `${head.styles}${head.preloads}${head.script}`,
         manifest,

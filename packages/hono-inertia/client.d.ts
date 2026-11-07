@@ -27,4 +27,9 @@ declare module 'virtual:hono-inertia/assets' {
   export function assetTagsFor(component: string): string;
   // The client build's manifest, or null under `vite dev`
   export const manifest: Record<string, ManifestChunk> | null;
+  // The default export of the plugin's `ssr` entry, or null without one.
+  // Typed here rather than from the entry, so the app's type doesn't depend
+  // on the SSR entry's, which reads the app's shared props.
+  export const ssr:
+    ((page: unknown) => Promise<{ head: string[]; body: string }>) | null;
 }
