@@ -45,9 +45,16 @@ export const inertiaHeaders = (
       options.json === undefined ? undefined : 'application/json',
     ],
   ];
+  // A header passed in options wins, whatever its case: Fetch would join two
+  // spellings of one name into one value
+  const overridden = new Set(
+    Object.keys(options.headers ?? {}).map((name) => name.toLowerCase()),
+  );
   const headers: Record<string, string> = {};
   for (const [name, value] of entries) {
-    if (value !== undefined) headers[name] = value;
+    if (value !== undefined && !overridden.has(name.toLowerCase())) {
+      headers[name] = value;
+    }
   }
   return { ...headers, ...options.headers };
 };

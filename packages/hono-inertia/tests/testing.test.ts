@@ -73,6 +73,12 @@ describe('inertiaHeaders()', () => {
   });
 });
 
+it('lets a passed header win over a generated one in another case', () => {
+  expect(
+    inertiaHeaders({ version: '1.0', headers: { 'x-inertia-version': '2.0' } }),
+  ).toEqual({ 'X-Inertia': 'true', 'x-inertia-version': '2.0' });
+});
+
 describe('inertiaRequest()', () => {
   it('gets the JSON page of an Inertia visit', async () => {
     const app = createApp();
