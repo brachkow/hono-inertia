@@ -19,12 +19,36 @@ import {
 } from './utilities.js';
 
 export const CLEAR_HISTORY_COOKIE = 'inertia_clear_history';
+export const PRESERVE_FRAGMENT_COOKIE = 'inertia_preserve_fragment';
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
-// clearHistory only lands on a rendered page object, but logout handlers
-// redirect or answer 204. Laravel keeps the flag in the session until the next
-// page render; this adapter is stateless, so it uses a short-lived cookie.
+// clearHistory and preserveFragment only land on a rendered page object, but
+// handlers that set them often redirect, and logout handlers answer 204.
+// Laravel keeps the flags in the session until the next page render. This
+// adapter works without a session, so each flag uses a short-lived cookie.
+interface FlashedFlag {
+  cookie: string;
+  set: (response: InertiaResponse) => void;
+  pending: (response: InertiaResponse) => boolean;
+  consumed: (response: InertiaResponse) => boolean;
+}
+
+const FLASHED_FLAGS: FlashedFlag[] = [
+  {
+    cookie: CLEAR_HISTORY_COOKIE,
+    set: (response) => response.clearHistory(),
+    pending: (response) => response.clearHistoryPending,
+    consumed: (response) => response.clearHistoryConsumed,
+  },
+  {
+    cookie: PRESERVE_FRAGMENT_COOKIE,
+    set: (response) => response.preserveFragment(),
+    pending: (response) => response.preserveFragmentPending,
+    consumed: (response) => response.preserveFragmentConsumed,
+  },
+];
+
 const isRedirectShaped = (response: Response): boolean =>
   REDIRECT_STATUSES.has(response.status) ||
   (response.status === 409 &&
@@ -136,14 +160,15 @@ async function handle<V extends Record<string, unknown>>(
     response.encryptHistory(true);
   }
 
-  // Consume a flashed clearHistory cookie from a preceding redirect.
-  // Prefetches are skipped: a prefetched page may be discarded client-side,
-  // which would swallow the flag without ever clearing history.
-  const hadClearHistoryCookie =
-    !isPrefetch(c) && getCookie(c, CLEAR_HISTORY_COOKIE) !== undefined;
-  if (hadClearHistoryCookie) {
-    response.clearHistory();
-  }
+  // Consume the flags a preceding redirect flashed. Prefetches are skipped:
+  // a prefetched page may be discarded client-side, which would swallow a
+  // flag without the page ever showing it.
+  const inheritedFlags = new Set(
+    FLASHED_FLAGS.filter(
+      (flag) => !isPrefetch(c) && getCookie(c, flag.cookie) !== undefined,
+    ),
+  );
+  for (const flag of inheritedFlags) flag.set(response);
 
   await next();
 
@@ -197,29 +222,27 @@ async function handle<V extends Record<string, unknown>>(
     });
   }
 
-  // Flash clearHistory to the next page render: set the cookie when the
-  // handler asked for it on a response that is not a page, re-flash it across
+  // Flash each flag to the next page render: set the cookie when the handler
+  // asked for it on a response that is not a page, re-flash it across
   // redirect chains, delete it once render() put it on the page (or the
   // handler cancelled it), and otherwise leave an inherited cookie untouched,
   // so a parallel non-page request neither eats nor resurrects the flag.
   // Max-Age bounds stray cookies.
-  if (
-    response.clearHistoryPending &&
-    !response.clearHistoryConsumed &&
-    (!hadClearHistoryCookie || isRedirectShaped(c.res))
-  ) {
-    setCookie(c, CLEAR_HISTORY_COOKIE, '1', {
-      path: '/',
-      httpOnly: true,
-      sameSite: 'Lax',
-      maxAge: 60,
-      secure: new URL(c.req.url).protocol === 'https:',
-    });
-  } else if (
-    hadClearHistoryCookie &&
-    (response.clearHistoryConsumed || !response.clearHistoryPending)
-  ) {
-    deleteCookie(c, CLEAR_HISTORY_COOKIE, { path: '/' });
+  for (const flag of FLASHED_FLAGS) {
+    const inherited = inheritedFlags.has(flag);
+    const pending = flag.pending(response);
+    const consumed = flag.consumed(response);
+    if (pending && !consumed && (!inherited || isRedirectShaped(c.res))) {
+      setCookie(c, flag.cookie, '1', {
+        path: '/',
+        httpOnly: true,
+        sameSite: 'Lax',
+        maxAge: 60,
+        secure: new URL(c.req.url).protocol === 'https:',
+      });
+    } else if (inherited && (consumed || !pending)) {
+      deleteCookie(c, flag.cookie, { path: '/' });
+    }
   }
 
   const sessionAfter = response.sessionAfter;

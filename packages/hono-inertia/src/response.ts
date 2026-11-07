@@ -47,6 +47,7 @@ export class InertiaResponse implements InertiaContext {
   private shouldClearHistory = false;
   private clearHistoryWasConsumed = false;
   private shouldPreserveFragment = false;
+  private preserveFragmentWasConsumed = false;
   private urlOverride: string | undefined;
   private devtoolsPayloadStore: DevtoolsPayload | null = null;
 
@@ -161,6 +162,16 @@ export class InertiaResponse implements InertiaContext {
 
   preserveFragment(preserve = true): void {
     this.shouldPreserveFragment = preserve;
+  }
+
+  // Read by the middleware to flash preserveFragment across redirects, as
+  // with clearHistory
+  get preserveFragmentPending(): boolean {
+    return this.shouldPreserveFragment;
+  }
+
+  get preserveFragmentConsumed(): boolean {
+    return this.preserveFragmentWasConsumed;
   }
 
   redirect(url: string): Response {
@@ -298,6 +309,25 @@ export class InertiaResponse implements InertiaContext {
       return false;
     };
 
+    const addOnceMetadata = (
+      key: string,
+      property: { onceKey: string | null; expiresAt: number | null },
+    ): void => {
+      onceMetadata[property.onceKey ?? key] = {
+        prop: key,
+        expiresAt: property.expiresAt,
+      };
+    };
+
+    // The client lists the once props it holds on every request. As in
+    // inertia-laravel, only a full visit skips them: a partial reload that
+    // names one asks for a fresh value.
+    const clientHolds = (
+      key: string,
+      property: { onceKey: string | null },
+    ): boolean =>
+      !isPartialRequest && exceptOnceProperties.has(property.onceKey ?? key);
+
     const propertyHandlers: Record<
       string,
       (key: string, tagged: TaggedProperty) => void
@@ -314,26 +344,17 @@ export class InertiaResponse implements InertiaContext {
       optional: (key, tagged) => {
         const opt = tagged as OptionalProperty;
         if (isPartialRequest && isRequestedByPartialData(key)) {
-          if (opt.isOnce && exceptOnceProperties.has(opt.onceKey ?? key))
-            return;
           included[key] = opt.value;
-          if (opt.isOnce) {
-            onceMetadata[opt.onceKey ?? key] = {
-              prop: key,
-              expiresAt: opt.expiresAt,
-            };
-          }
+          if (opt.isOnce) addOnceMetadata(key, opt);
+        } else if (!isPartialRequest && opt.isOnce) {
+          // Left out, but listed, so the client carries over a value it holds
+          addOnceMetadata(key, opt);
         }
       },
 
       deferred: (key, tagged) => {
         const deferred = tagged as DeferredProperty;
         if (isPartialForThis && isRequestedByPartialData(key)) {
-          if (
-            deferred.isOnce &&
-            exceptOnceProperties.has(deferred.onceKey ?? key)
-          )
-            return;
           included[key] = deferred.value;
           if (deferred.shouldRescue) {
             rescuableKeys.add(key);
@@ -349,17 +370,14 @@ export class InertiaResponse implements InertiaContext {
               matchOnKeys,
             );
           }
-          if (deferred.isOnce) {
-            onceMetadata[deferred.onceKey ?? key] = {
-              prop: key,
-              expiresAt: deferred.expiresAt,
-            };
-          }
+          if (deferred.isOnce) addOnceMetadata(key, deferred);
         } else if (!isPartialRequest) {
-          if (!deferredGroups[deferred.group]) {
-            deferredGroups[deferred.group] = [];
+          // A once prop the client holds isn't fetched again
+          if (!deferred.isOnce || !clientHolds(key, deferred)) {
+            deferredGroups[deferred.group] ??= [];
+            deferredGroups[deferred.group].push(key);
           }
-          deferredGroups[deferred.group].push(key);
+          if (deferred.isOnce) addOnceMetadata(key, deferred);
           if (deferred.isMerge) {
             collectMergeMetadata(
               key,
@@ -393,13 +411,11 @@ export class InertiaResponse implements InertiaContext {
 
       once: (key, tagged) => {
         const o = tagged as OnceProperty;
-        if (exceptOnceProperties.has(o.onceKey ?? key)) return;
         if (isFilteredOut(key)) return;
+        // Left out, but listed, so the client carries over the value it holds
+        addOnceMetadata(key, o);
+        if (clientHolds(key, o)) return;
         included[key] = o.value;
-        onceMetadata[o.onceKey ?? key] = {
-          prop: key,
-          expiresAt: o.expiresAt,
-        };
       },
 
       scroll: (key, tagged) => {
@@ -503,6 +519,7 @@ export class InertiaResponse implements InertiaContext {
     }
     if (this.shouldPreserveFragment) {
       page.preserveFragment = true;
+      this.preserveFragmentWasConsumed = true;
     }
     if (sharedKeys.length > 0) {
       page.sharedProps = sharedKeys;

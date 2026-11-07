@@ -789,6 +789,41 @@ describe('Once props', () => {
     expect(function_).not.toHaveBeenCalled();
   });
 
+  // The client carries over a held value only for props the response lists
+  it('lists a once prop the client holds in onceProps', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', { plans: once(() => ['free', 'pro']) }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({ 'X-Inertia-Except-Once-Props': 'plans' }),
+    });
+    const page = await getPage(response);
+
+    expect(page.onceProps).toEqual({
+      plans: { prop: 'plans', expiresAt: null },
+    });
+  });
+
+  it('sends a once prop the client holds on a reload that names it', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', { plans: once(() => ['free', 'pro']) }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'plans',
+        'X-Inertia-Except-Once-Props': 'plans',
+      }),
+    });
+    const page = await getPage(response);
+
+    expect(page.props.plans).toEqual(['free', 'pro']);
+  });
+
   it('skips a once prop when the client echoes its custom key', async () => {
     const function_ = vi.fn(() => ['free', 'pro']);
     const app = createApp();
@@ -1340,13 +1375,11 @@ describe('Multiple deferred groups', () => {
     });
   });
 
-  it('skips deferred+once prop when client already has it', async () => {
-    const function_ = vi.fn(() => [1, 2]);
-
+  it('sends deferred+once prop on a reload that names it', async () => {
     const app = createApp();
     app.get('/test', (c) =>
       c.var.inertia.render('Test', {
-        feed: deferred(function_, 'main').once(),
+        feed: deferred(() => [1, 2], 'main').once(),
       }),
     );
 
@@ -1359,8 +1392,49 @@ describe('Multiple deferred groups', () => {
     });
     const page = await getPage(response);
 
-    expect(page.props.feed).toBeUndefined();
-    expect(function_).not.toHaveBeenCalled();
+    expect(page.props.feed).toEqual([1, 2]);
+  });
+
+  it('lists deferred+once prop in onceProps on the first load', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        feed: deferred(() => [1, 2], 'main').once(),
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+
+    expect({
+      deferredProps: page.deferredProps,
+      onceProps: page.onceProps,
+    }).toEqual({
+      deferredProps: { main: ['feed'] },
+      onceProps: { feed: { prop: 'feed', expiresAt: null } },
+    });
+  });
+
+  it('does not defer deferred+once prop the client holds', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        feed: deferred(() => [1, 2], 'main').once(),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({ 'X-Inertia-Except-Once-Props': 'feed' }),
+    });
+    const page = await getPage(response);
+
+    expect({
+      deferredProps: page.deferredProps,
+      onceProps: page.onceProps,
+    }).toEqual({
+      deferredProps: undefined,
+      onceProps: { feed: { prop: 'feed', expiresAt: null } },
+    });
   });
 });
 
@@ -1406,12 +1480,11 @@ describe('Optional + once chaining', () => {
     });
   });
 
-  it('skips optional+once when client already has it', async () => {
-    const function_ = vi.fn(() => 'data');
+  it('sends optional+once on a reload that names it', async () => {
     const app = createApp();
     app.get('/test', (c) =>
       c.var.inertia.render('Test', {
-        expensive: optional(function_).once(),
+        expensive: optional(() => 'data').once(),
       }),
     );
 
@@ -1424,8 +1497,23 @@ describe('Optional + once chaining', () => {
     });
     const page = await getPage(response);
 
-    expect(page.props.expensive).toBeUndefined();
-    expect(function_).not.toHaveBeenCalled();
+    expect(page.props.expensive).toBe('data');
+  });
+
+  it('lists optional+once in onceProps on full visits', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        expensive: optional(() => 'data').once('exp-key'),
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+
+    expect(page.onceProps).toEqual({
+      'exp-key': { prop: 'expensive', expiresAt: null },
+    });
   });
 });
 
@@ -2936,6 +3024,60 @@ describe('Preserve fragment', () => {
     const response = await app.request('/test', { headers: inertiaHeaders() });
     const page = await getPage(response);
     expect(page.preserveFragment).toBeUndefined();
+  });
+
+  describe('across redirects', () => {
+    const COOKIE = 'inertia_preserve_fragment';
+
+    const flashedCookie = (response: Response) =>
+      response.headers
+        .getSetCookie()
+        .find((cookie) => cookie.startsWith(`${COOKIE}=`));
+
+    it('flashes a cookie on a redirect', async () => {
+      const app = createApp();
+      app.post('/users', (c) => {
+        c.var.inertia.preserveFragment();
+        return c.redirect('/users/1', 302);
+      });
+
+      const response = await app.request('/users', {
+        method: 'POST',
+        headers: inertiaHeaders(),
+      });
+
+      expect(flashedCookie(response)).toContain(`${COOKIE}=1`);
+    });
+
+    it('applies the flashed flag to the next page and deletes the cookie', async () => {
+      const app = createApp();
+      app.get('/users/1', (c) => c.var.inertia.render('Users/Show'));
+
+      const response = await app.request('/users/1', {
+        headers: inertiaHeaders({ Cookie: `${COOKIE}=1` }),
+      });
+      const page = await getPage(response);
+
+      expect({
+        preserveFragment: page.preserveFragment,
+        cookie: flashedCookie(response),
+      }).toEqual({
+        preserveFragment: true,
+        cookie: expect.stringContaining('Max-Age=0') as string,
+      });
+    });
+
+    it('leaves the clearHistory flag alone', async () => {
+      const app = createApp();
+      app.get('/users/1', (c) => c.var.inertia.render('Users/Show'));
+
+      const response = await app.request('/users/1', {
+        headers: inertiaHeaders({ Cookie: `${COOKIE}=1` }),
+      });
+      const page = await getPage(response);
+
+      expect(page.clearHistory).toBeUndefined();
+    });
   });
 
   it('can disable preserveFragment after enabling', async () => {
