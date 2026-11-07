@@ -6,6 +6,7 @@ export default defineConfig({
     'src/vite.ts',
     'src/vite-plugin.ts',
     'src/testing.ts',
+    'src/vue.ts',
   ],
   format: ['esm'],
   dts: true,

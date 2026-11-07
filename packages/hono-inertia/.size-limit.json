@@ -22,5 +22,12 @@
     "path": "dist/testing.js",
     "import": "*",
     "limit": "600 B"
+  },
+  {
+    "name": "vue entry",
+    "path": "dist/vue.js",
+    "import": "*",
+    "ignore": ["@inertiajs/vue3"],
+    "limit": "350 B"
   }
 ]

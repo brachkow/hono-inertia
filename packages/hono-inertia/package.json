@@ -24,6 +24,12 @@
         "default": "./dist/vite-plugin.js"
       }
     },
+    "./vue": {
+      "import": {
+        "types": "./dist/vue.d.ts",
+        "default": "./dist/vue.js"
+      }
+    },
     "./testing": {
       "import": {
         "types": "./dist/testing.d.ts",
@@ -60,10 +66,12 @@
     "node": ">=22.12.0"
   },
   "peerDependencies": {
+    "@inertiajs/vue3": ">=3.0.0",
     "hono": ">=4.8.0 || >=5.0.0-rc.1",
     "vite": ">=7.0.0"
   },
   "devDependencies": {
+    "@inertiajs/vue3": "^3.9.1",
     "@size-limit/preset-small-lib": "^14.1.0",
     "hono": "catalog:",
     "hono-4.8.0": "npm:hono@4.8.0",
@@ -74,6 +82,7 @@
     "vite": "catalog:",
     "vite-7.0.0": "npm:vite@7.0.0",
     "vitest": "^3.1.0",
+    "vue": "^3.5.44",
     "zod": "^4.6.7"
   },
   "license": "MIT",
@@ -85,6 +94,9 @@
     "middleware"
   ],
   "peerDependenciesMeta": {
+    "@inertiajs/vue3": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }
