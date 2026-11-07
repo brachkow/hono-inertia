@@ -1,2 +1,24 @@
+packages:
+  - 'packages/*'
+  - 'examples/*'
+  - 'e2e'
+
+# One version for dependencies the adapter and the examples share. The
+# examples link the adapter's folder, so its `hono` and `vite` resolve from its
+# own devDependencies; a different version there would put a second Hono in
+# each example's bundle.
+catalog:
+  hono: ^4.13.13
+  typescript: ^5.9.3
+  vite: ^8.3.4
+
+# size-limit loads its plugins with a bare import() from its own install
+# location, so the preset has to be reachable from the root node_modules.
+publicHoistPattern:
+  - '@size-limit/*'
+
 allowBuilds:
   esbuild: true
+  unrs-resolver: false
+  # Downloads the runtime binary that wrangler and @cloudflare/vite-plugin run
+  workerd: true

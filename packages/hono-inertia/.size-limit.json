@@ -1,0 +1,26 @@
+[
+  {
+    "name": "inertia() middleware",
+    "path": "dist/index.js",
+    "import": "{ inertia }",
+    "limit": "6.1 kB"
+  },
+  {
+    "name": "Full entry",
+    "path": "dist/index.js",
+    "import": "*",
+    "limit": "7.5 kB"
+  },
+  {
+    "name": "vite entry",
+    "path": "dist/vite.js",
+    "import": "*",
+    "limit": "350 B"
+  },
+  {
+    "name": "testing entry",
+    "path": "dist/testing.js",
+    "import": "*",
+    "limit": "600 B"
+  }
+]
