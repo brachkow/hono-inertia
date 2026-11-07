@@ -1,7 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { computed, createSSRApp, effect, h, reactive, ref } from 'vue';
+import {
+  computed,
+  createSSRApp,
+  defineComponent,
+  effect,
+  h,
+  reactive,
+  ref,
+} from 'vue';
 import { renderToString } from 'vue/server-renderer';
-import { usePageProps } from '../src/vue.js';
+import {
+  PagePropsProvider,
+  providePageProps,
+  usePageProps,
+} from '../src/vue.js';
 
 // The same shape as @inertiajs/vue3's usePage(): one reactive object whose
 // props is computed from the page ref a visit replaces
@@ -86,5 +98,74 @@ describe('usePageProps', () => {
     const html = await renderToString(app);
 
     expect(html).toBe(`<p>${name}</p>`);
+  });
+});
+
+// Shows the name a page reads with usePageProps()
+const NamePage = defineComponent({
+  setup: () => {
+    const page = usePageProps();
+    return () => h('p', String(Reflect.get(page, 'name')));
+  },
+});
+
+const renderApp = (setup: () => () => unknown) =>
+  renderToString(createSSRApp(defineComponent({ setup })));
+
+describe('providePageProps', () => {
+  beforeEach(() => {
+    setPage({ name: 'Current' });
+  });
+
+  it('gives the subtree its own props', async () => {
+    const html = await renderApp(() => {
+      providePageProps({ name: 'Ada' });
+      return () => h(NamePage);
+    });
+
+    expect(html).toBe('<p>Ada</p>');
+  });
+
+  it('leaves the current page to components outside it', async () => {
+    const html = await renderApp(() => () => h(NamePage));
+
+    expect(html).toBe('<p>Current</p>');
+  });
+
+  it('updates the subtree when reactive props change', async () => {
+    const state = reactive({ name: 'Ada' });
+    let page: object = {};
+    const Capture = defineComponent({
+      setup: () => {
+        page = usePageProps();
+        return () => null;
+      },
+    });
+    await renderApp(() => {
+      providePageProps(() => state);
+      return () => h(Capture);
+    });
+    const seen: unknown[] = [];
+    effect(() => seen.push(Reflect.get(page, 'name')));
+
+    state.name = 'Grace';
+
+    expect(seen).toEqual(['Ada', 'Grace']);
+  });
+});
+
+describe('PagePropsProvider', () => {
+  it('gives each subtree its own props', async () => {
+    const html = await renderApp(() => () => [
+      h(PagePropsProvider, { page: 'Profile', props: { name: 'Ada' } }, () =>
+        h(NamePage),
+      ),
+      h(PagePropsProvider, { page: 'Profile', props: { name: 'Grace' } }, () =>
+        h(NamePage),
+      ),
+    ]);
+
+    // Without the fragment markers SSR adds
+    expect(html.replaceAll(/<!--.*?-->/g, '')).toBe('<p>Ada</p><p>Grace</p>');
   });
 });

@@ -32,6 +32,8 @@ export default defineConfig(
             RouteProps: true,
             RoutePropsFor: true,
             usePageProps: true,
+            providePageProps: true,
+            PagePropsProvider: true,
           },
           replacements: {
             res: { response: true, resource: false, result: false },
