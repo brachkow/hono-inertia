@@ -326,6 +326,50 @@ describe('pages', () => {
     expect(generated).toContain("  VuePage<'Settings', typeof SettingsPage>,");
   });
 
+  const isChecked = async (setup: string) => {
+    const root = await createProject(['src/pages/Settings.vue'], {
+      'src/pages/Settings.vue': `<script setup lang="ts">\n${setup}\n</script>\n`,
+    });
+    await generate(root, { directory: 'src/pages', server: 'src/server.ts' });
+    const generated = await readFile(
+      path.join(root, 'src/pages.gen.ts'),
+      'utf8',
+    );
+    return generated.includes("VuePage<'Settings'");
+  };
+
+  it('ignores defineProps in a comment', async () => {
+    const checked = await isChecked(
+      "// No defineProps: Inertia passes the props anyway\nconst page = usePageProps<'Settings'>();",
+    );
+
+    expect(checked).toBe(false);
+  });
+
+  it('ignores defineProps in a block comment and a string', async () => {
+    const checked = await isChecked(
+      "/* defineProps() */\nconst label = 'defineProps()';\nconst page = usePageProps();",
+    );
+
+    expect(checked).toBe(false);
+  });
+
+  it('ignores usePageProps in a comment', async () => {
+    const checked = await isChecked(
+      "// Not usePageProps(), because of the defaults\nconst { name } = { name: '' };",
+    );
+
+    expect(checked).toBe(true);
+  });
+
+  it('keeps checking a page that only mentions the word usePageProps', async () => {
+    const checked = await isChecked(
+      "import { usePageProps } from '@brachkow/hono-inertia/vue';\ndefineProps<{ name: string }>();",
+    );
+
+    expect(checked).toBe(true);
+  });
+
   it('adds only the comment when every Vue page reads usePageProps()', async () => {
     const root = await createProject(['src/pages/Settings.vue'], {
       'src/pages/Settings.vue':

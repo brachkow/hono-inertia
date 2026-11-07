@@ -266,13 +266,46 @@ export interface PageFile {
 }
 
 const SCRIPT_SETUP = /<script\b[^>]*\bsetup\b[^>]*>([\S\s]*?)<\/script>/;
-const USE_PAGE_PROPS = /\busePageProps\b/;
-const DEFINE_PROPS = /\bdefineProps\b/;
+// A call, with or without type arguments: usePageProps<'Home'>()
+const USE_PAGE_PROPS = /\busePageProps\s*[(<]/;
+const DEFINE_PROPS = /\bdefineProps\s*[(<]/;
+const QUOTES = new Set(['"', "'", '`']);
+
+// The code with comments removed and string contents blanked, so a word in a
+// comment or a string doesn't count as a call
+const codeOnly = (source: string): string => {
+  let code = '';
+  let index = 0;
+  while (index < source.length) {
+    const char = source[index];
+    const next = source[index + 1];
+    if (char === '/' && next === '/') {
+      const end = source.indexOf('\n', index);
+      index = end === -1 ? source.length : end;
+    } else if (char === '/' && next === '*') {
+      const end = source.indexOf('*/', index + 2);
+      index = end === -1 ? source.length : end + 2;
+      code += ' ';
+    } else if (QUOTES.has(char)) {
+      let end = index + 1;
+      while (end < source.length && source[end] !== char) {
+        end += source[end] === '\\' ? 2 : 1;
+      }
+      code += `${char}${char}`;
+      index = end + 1;
+    } else {
+      code += char;
+      index += 1;
+    }
+  }
+  return code;
+};
 
 // A text match, like the rest of the page scan: <script setup> calls
-// usePageProps() and has no defineProps
+// usePageProps() and doesn't call defineProps(). A page that calls it only
+// inside a composable isn't found.
 const readsPageProperties = (source: string): boolean => {
-  const setup = SCRIPT_SETUP.exec(source)?.[1] ?? '';
+  const setup = codeOnly(SCRIPT_SETUP.exec(source)?.[1] ?? '');
   return USE_PAGE_PROPS.test(setup) && !DEFINE_PROPS.test(setup);
 };
 
