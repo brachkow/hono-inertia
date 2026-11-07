@@ -21,6 +21,22 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 
 - On an Inertia request, a handler that returns a 200 without a body, such as `c.body(null)`, now gets a redirect to the path of the `Referer` (or `/`). Before, the client received an empty response.
 
+**Renamed and reshaped APIs**
+
+- `scroll(value, metadata)` takes a plain object, `{ page, hasMore }` or `{ page, lastPage }`, and works out the previous and next pages. Cursors pass `previousPage` and `nextPage`, and `pageName` defaults to `'page'`. The `ScrollMetadata` interface with its getter methods is gone.
+- `once(fn, key?, expiresAt?)` is `once(fn, { key, ttl })`, and `.once(key?, expiresAt?)` on `optional()` and `deferred()` is `.once({ key, ttl })`. `ttl` is a duration in milliseconds, which the adapter turns into the timestamp the client compares with `Date.now()`.
+- `.setMatchOn(field)` is `.matchOn(field | fields)`.
+- `c.var.inertia.redirect(url)` is `c.var.inertia.clientRedirect(url)`, so it no longer looks like Hono's `c.redirect()`.
+- The prop tag is the registered symbol `Symbol.for('hono-inertia.prop-type')`, not the string key `__hono_inertia_prop_type__`.
+
+**Scroll reset follows inertia-laravel**
+
+- A scroll prop's `reset` is `true` only when `X-Inertia-Reset` names it. It used to be `true` on every request without the merge intent header, so every full visit reset the client's scroll state.
+
+**Nested props are resolved**
+
+- Plain objects in props are resolved like the top level: functions inside them are called, prop types inside them work, and a partial reload can name a nested path such as `auth.permissions`. A nested function used to be dropped by JSON. `only: ['user.name']` now sends `{ user: { name } }` instead of the whole `user`, and the client merges it.
+
 ### Fixes
 
 - A once prop the client already holds is now listed in `onceProps` when the server leaves it out. The client copies its cached value forward only for props the response lists, so the prop used to be `undefined` on the next page.
@@ -68,9 +84,25 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 - The generated pages file leaves a Vue page that calls `usePageProps()` and has no `defineProps` out of its props check, and lists it in a comment. In dev, it now regenerates when a `.vue` page changes.
 - `RouteProps<'Page'>` gives what the routes of a page send, without shared props and `errors`, for story and test fixtures.
 
+**Less setup**
+
+- `inertia({ assets })` takes the Vite plugin's virtual module (`import * as assets from 'virtual:hono-inertia/assets'`) and gets the version, the asset tags and the SSR entry from it. `render` is optional: without it, a built-in template renders the page, with `template: { lang, title, head, id }`.
+- The plugin's new `ssr` option names the SSR entry. Its default export becomes the module's `ssr`, which `inertia({ assets })` renders with. Because the module's type is fixed, an SSR entry passed this way no longer needs an explicit return type.
+- `session` takes `cookieSession()`'s options directly: `session: { secret }`.
+
+**More options**
+
+- `ssr.enabled` takes a function of the context, and `c.var.inertia.ssr(false)` turns SSR off for one response.
+- `ssr.fetch` sends the request to an Inertia SSR server another way, such as a Cloudflare service binding.
+- `allErrors: true` gives pages every message per field as an array.
+- `transformComponent` maps the name `render()` takes to the component name the client resolves.
+- `flagCookies` sets the prefix and path of the clearHistory and preserveFragment cookies.
+- `merge()` and `deferred()` merge at paths inside the prop with `.append(path, matchOn?)` and `.prepend(path, matchOn?)`, and `matchOn()` takes several fields.
+
 **Testing helpers**
 
 - New `@brachkow/hono-inertia/testing` entry with `inertiaRequest()`, `inertiaHeaders()` and `getPage()`, which reads the page from JSON or from the first visit's HTML.
+- `reload(app, page, options)` makes a partial reload of a page, and `loadDeferred(app, page, groups?)` loads its deferred props and merges them into the page.
 
 **Protocol**
 
@@ -85,6 +117,10 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 - `pages.export` names the export that holds the app, for Workers entries that default-export a handler object. `pages.name` maps a file to a page name, or skips it with `null`.
 
 ### Upgrading
+
+- Replace `render` and `version` with `assets`, and `ssr: { render }` with the plugin's `ssr` option, unless you need your own HTML. The examples show the change.
+- Rename `setMatchOn()` to `matchOn()` and `redirect()` to `clientRedirect()`, and move `scroll()` and `once()` to their option objects. TypeScript points at each call.
+- Check pages that read a scroll prop's `reset`, and props that hold functions inside objects (see Breaking changes).
 
 - Replace a hand-rolled flash cookie with `session: cookieSession({ secret })` and call `flash()` before the redirect. The examples show the change.
 - Check handlers that return an empty 200 or redirect to a URL with `#` (see Breaking changes).

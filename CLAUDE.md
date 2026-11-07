@@ -45,11 +45,11 @@ Run a single unit test file with `pnpm --filter @brachkow/hono-inertia exec vite
 
 The library is a Hono middleware + prop helpers. Request flow:
 
-1. **`inertia()` middleware** (`src/middleware.ts`) — factory that returns a Hono middleware. Resolves asset version, checks version conflicts (409), creates `InertiaResponse`, applies shared props, and post-handler redirects an empty 200 back, turns redirects to a URL with `#` into a 409 `X-Inertia-Redirect`, converts 302→303 for PUT/PATCH/DELETE/QUERY, and writes the session.
+1. **`inertia()` middleware** (`src/middleware.ts`) — factory that returns a Hono middleware. Fills in defaults from `assets` (version, SSR) and the built-in template (`src/template.ts`) and cookie session. Resolves asset version, checks version conflicts (409), creates `InertiaResponse`, applies shared props, and post-handler redirects an empty 200 back, turns redirects to a URL with `#` into a 409 `X-Inertia-Redirect`, converts 302→303 for PUT/PATCH/DELETE/QUERY, and writes the session.
 
-2. **`InertiaResponse`** (`src/response.ts`) — attached to Hono context as `c.get('inertia')`. Its `render(component, props)` method does the heavy lifting: classifies props by tag type, resolves partial/deferred/merge/once logic against Inertia request headers, resolves lazy functions in parallel, builds the `PageObject`, and returns either JSON (Inertia request) or HTML (initial visit, optionally via SSR).
+2. **`InertiaResponse`** (`src/response.ts`) — attached to Hono context as `c.get('inertia')`. Its `render(component, props)` method does the heavy lifting: flattens plain objects into dot-path props (as inertia-laravel resolves nested props), classifies props by tag type, resolves partial/deferred/merge/once logic against Inertia request headers, resolves lazy functions in parallel, builds the `PageObject`, and returns either JSON (Inertia request) or HTML (initial visit, optionally via SSR).
 
-3. **Prop wrappers** (`src/properties.ts`) — `optional()`, `always()`, `deferred()`, `merge()`/`prepend()`/`deepMerge()`, `once()`. Each returns a tagged object (symbol `PROP_TYPE` from `src/symbols.ts`). Wrappers are chainable: e.g. `deferred(fn).merge().once()`.
+3. **Prop wrappers** (`src/properties.ts`) — `optional()`, `always()`, `deferred()`, `merge()`/`prepend()`/`deepMerge()`, `once()`. Each returns a tagged object (the registered symbol `PROP_TYPE` from `src/symbols.ts`). Data fields are named apart from the chain methods (`onceSettings` next to `once()`), because `Object.assign` puts both on one object. Wrappers are chainable: e.g. `deferred(fn).merge().once()`.
 
 4. **Utils** (`src/utilities.ts`) — header parsing helpers for `X-Inertia`, `X-Inertia-Partial-Data`, `X-Inertia-Version`, etc.
 
