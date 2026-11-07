@@ -3,6 +3,7 @@ dist
 *.tsbuildinfo
 SECURITY_AUDIT.md
 .inertia/
+.inertia-laravel/
 
 # Copied from the repo root by prepack so npm shows the docs
 packages/hono-inertia/README.md

@@ -13,7 +13,8 @@
     "fix:format": "prettier --write .",
     "test:lint": "eslint .",
     "fix:lint": "eslint . --fix",
-    "fetch:inertia": "bash scripts/fetch-inertia.sh"
+    "fetch:inertia": "bash scripts/fetch-inertia.sh",
+    "fetch:inertia-laravel": "bash scripts/fetch-inertia-laravel.sh"
   },
   "devDependencies": {
     "eslint": "^10.12.0",

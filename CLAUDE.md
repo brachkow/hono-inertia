@@ -36,6 +36,7 @@ pnpm fix:format    # prettier --write
 pnpm size          # size-limit for the library
 pnpm test:e2e      # build the library and examples, then run Playwright
 pnpm fetch:inertia # clone upstream Inertia into .inertia/ (gitignored, for reference)
+pnpm fetch:inertia-laravel # clone the Laravel adapter into .inertia-laravel/ (gitignored, for reference)
 ```
 
 Run a single unit test file with `pnpm --filter @brachkow/hono-inertia exec vitest run tests/properties.test.ts`. Limit e2e to some examples with `E2E_EXAMPLES=vue-node pnpm --filter e2e test`.
@@ -73,3 +74,4 @@ Consult the upstream Inertia.js project to match its protocol and client behavio
 - Docs: https://inertiajs.com/
 - Changelog (releases): https://github.com/inertiajs/inertia/releases
 - Local source snapshot: run `pnpm fetch:inertia` to clone the Inertia repo into `.inertia/` (gitignored). `.inertia/packages/core` is the client core this server adapter must mirror (data-page boot, X-Inertia headers, partial reloads, deferred/merge props, history encryption).
+- Laravel adapter snapshot: run `pnpm fetch:inertia-laravel` to clone inertia-laravel into `.inertia-laravel/` (gitignored). It is the reference for server behavior (middleware hooks, prop resolution, error bags, redirects, SSR, testing assertions). Follow it unless a Laravel convention conflicts with a JavaScript one.
