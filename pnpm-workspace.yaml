@@ -2,6 +2,7 @@ packages:
   - 'packages/*'
   - 'examples/*'
   - 'e2e'
+  - 'docs'
 
 # One version for dependencies the adapter and the examples share. The
 # examples link the adapter's folder, so its `hono` and `vite` resolve from its

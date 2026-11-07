@@ -12,3 +12,7 @@ packages/hono-inertia/README.md
 test-results/
 playwright-report/
 .wrangler/
+
+# VitePress
+docs/.vitepress/cache/
+docs/.vitepress/dist/

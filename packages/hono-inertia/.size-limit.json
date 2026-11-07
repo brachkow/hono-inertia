@@ -27,10 +27,7 @@
     "name": "vue entry",
     "path": "dist/vue.js",
     "import": "*",
-    "ignore": [
-      "@inertiajs/vue3",
-      "vue"
-    ],
+    "ignore": ["@inertiajs/vue3", "vue"],
     "limit": "1 kB"
   }
 ]

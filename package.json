@@ -13,6 +13,8 @@
     "fix:format": "prettier --write .",
     "test:lint": "eslint .",
     "fix:lint": "eslint . --fix",
+    "docs:dev": "pnpm --filter docs dev",
+    "docs:build": "pnpm --filter docs build",
     "fetch:inertia": "bash scripts/fetch-inertia.sh",
     "fetch:inertia-laravel": "bash scripts/fetch-inertia-laravel.sh"
   },
