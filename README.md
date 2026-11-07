@@ -1422,7 +1422,7 @@ The Vite plugin can write a file that ties each page component to the routes tha
    };
    ```
 
-`PageProps` resolves lazy functions and prop wrappers to their values. `optional()` and `deferred()` props are optional, because the first visit leaves them out. Props from a typed `share()` and the `errors` prop are included. When several routes render the same page with different props, a prop that only some of them send is possibly `undefined`.
+`PageProps` resolves lazy functions and prop wrappers to their values. `optional()` and `deferred()` props are optional, because the first visit leaves them out. Props from a typed `share()` and the `errors` prop are included. When several routes, or several `render()` calls in one handler, render the same page with different props, a prop that only some of them send is possibly `undefined`.
 
 The types describe the props as the client receives them, after JSON. A `Date`, or anything else with `toJSON()`, has the type that `toJSON()` returns, so a `Date` is a `string`. Inside objects, fields that are functions or symbols are left out, and a field that may be `undefined` is optional. In arrays, those values are `null`. `Map` and `Set` arrive as empty objects. A `bigint` stays a `bigint`, because the client (3.8+) turns it back into one.
 

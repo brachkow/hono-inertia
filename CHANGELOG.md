@@ -53,6 +53,7 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 - `SharedProps<typeof app>` gives the shared props without `errors`. The `pages.sharedPageProps` option declares them as `@inertiajs/core`'s `sharedPageProps` in the generated file. With in-process SSR, the SSR entry needs an explicit return type, or TypeScript reports a circular type.
 
 - `PageProps` and `SharedProps` type props as the client receives them after JSON. A `Date` is a `string`, a value with `toJSON()` has its return type, and functions and `undefined` fields are left out. They used to keep the server's types.
+- `PageProps` keeps every `render()` of a page in one handler. A render whose props extended another render's used to be dropped, along with its extra props.
 
 **Testing helpers**
 
