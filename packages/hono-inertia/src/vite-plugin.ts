@@ -653,7 +653,7 @@ export const honoInertia = (options: HonoInertiaPluginOptions): Plugin[] => {
       const inertiaServer = ids.find((id) => INERTIA_SSR_SERVER.test(id));
       if (!inertiaServer) return;
       this.error(
-        `[hono-inertia] The server bundle includes Inertia's SSR server (${inertiaServer}), which starts a second server next to ssr.render. @inertiajs/vite adds it around an SSR entry that calls createInertiaApp() at the top level, unless you pass { ssr: false } to it. Export a render function from the SSR entry instead (see README → SSR).`,
+        `[hono-inertia] The server bundle includes Inertia's SSR server (${inertiaServer}), which starts a second server next to ssr.render. @inertiajs/vite adds it around an SSR entry that calls createInertiaApp() at the top level, unless you pass { ssr: false } to it. Export a render function from the SSR entry instead (see https://brachkow.github.io/hono-inertia/guide/ssr).`,
       );
     },
 

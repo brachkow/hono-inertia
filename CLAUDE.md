@@ -10,6 +10,7 @@ A pnpm monorepo:
 
 - `packages/hono-inertia/` is the published library. Paths below are relative to it.
 - `examples/` holds runnable apps (`react-node`, `vue-node`, `svelte-node`, `vue-workers`) that double as guides. They implement the same pages and depend on the library via `workspace:*`, which resolves to its `dist/`, so build the library first.
+- `docs/` is the VitePress site published to GitHub Pages (brachkow.github.io/hono-inertia). The guide pages in `docs/guide/` are the documentation; the README keeps the intro, features and install, and links to them. `vitepress-plugin-llms` writes `llms.txt` from them.
 - `e2e/` is one Playwright suite that runs against every example twice: the production build, and the Vite dev server (ports +1000), where `hmr.spec.ts` also edits a page and checks it updates without a reload.
 
 ## Goals
@@ -35,6 +36,8 @@ pnpm test:format   # prettier --check
 pnpm fix:format    # prettier --write
 pnpm size          # size-limit for the library
 pnpm test:e2e      # build the library and examples, then run Playwright
+pnpm docs:dev      # VitePress dev server for docs/
+pnpm docs:build    # build the docs site into docs/.vitepress/dist/
 pnpm fetch:inertia # clone upstream Inertia into .inertia/ (gitignored, for reference)
 pnpm fetch:inertia-laravel # clone the Laravel adapter into .inertia-laravel/ (gitignored, for reference)
 ```

@@ -43,7 +43,7 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 - `deferred().once()` and `optional().once()` send once metadata on full visits, and a deferred once prop the client holds is no longer listed in `deferredProps`. It used to be fetched again, skipped by the server, and lost.
 - A partial reload that names a once prop sends a fresh value, as in inertia-laravel. It used to send nothing when the client held the prop.
 - `preserveFragment()` before a redirect reaches the next rendered page, through a short-lived cookie as with `clearHistory()`. It used to apply only to a page rendered in the same response.
-- The README's `once()` example passed a duration as `expiresAt`, which the client reads as a timestamp in milliseconds, so the prop expired at once.
+- The documented `once()` example passed a duration as `expiresAt`, which the client reads as a timestamp in milliseconds, so the prop expired at once.
 - The version mismatch 409 could send `X-Inertia-Location: //host/path`, a protocol-relative URL to another origin, when the request path started with `//`. The adapter now collapses leading slashes and backslashes in every path it builds into a `Location` or `page.url`. This also affected 3.x.
 
 ### Highlights

@@ -215,13 +215,13 @@ export interface InertiaConfig<
   // in render). Throw from it to fail the request instead. Defaults to console.error.
   onSsrError?: (error: unknown, page: PageObject) => void;
   // Record requests for the Inertia DevTools browser extension. Off by default;
-  // enable in development only. See README → DevTools.
+  // enable in development only. See brachkow.github.io/hono-inertia/guide/devtools.
   devtools?: boolean | DevtoolsConfig;
   // Carries validation errors and flash data across redirects. Without it,
   // flash() applies to the current response only, and withErrors() works only
   // when the handler renders a page afterwards.
   // Pass a store, or cookieSession()'s options for the built-in signed
-  // cookie. See README → Validation and sessions.
+  // cookie. See brachkow.github.io/hono-inertia/guide/sessions.
   session?: InertiaSession | CookieSessionOptions;
   // Pages get every message per field from withErrors() and the validator,
   // as arrays. By default they get the first one, as with Laravel's adapter.
