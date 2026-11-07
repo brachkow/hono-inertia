@@ -33,6 +33,8 @@ jobs:
       - run: pnpm test
       - run: pnpm typecheck
       - run: pnpm size
+      # Fails on a link to a page that doesn't exist
+      - run: pnpm docs:build
 
   e2e:
     runs-on: ubuntu-latest
