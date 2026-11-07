@@ -25,7 +25,7 @@ export interface PageObject {
   prependProps?: string[];
   deepMergeProps?: string[];
   matchPropsOn?: string[];
-  onceProps?: Record<string, { prop: string; expiresAt?: number | null }>;
+  onceProps?: Record<string, { prop: string; expiresAt: number | null }>;
   scrollProps?: Record<
     string,
     {
@@ -436,52 +436,52 @@ export interface OnceSettings {
   ttl: number | null;
 }
 
+// A prop value, or a function that returns it, called only when the prop is sent
+export type Lazy<T> = T | (() => T | Promise<T>);
+
+// Props that take .live()
+interface LiveCapable {
+  liveMetadata?: LivePropertyMetadata;
+}
+
 // T is the resolved value. Runtime code ignores it; ResolvedProps reads it.
 // Data fields are named apart from the chain methods (onceSettings next to
 // once()), because Object.assign puts the methods on the same object.
-export interface OptionalProperty<T = unknown> {
+export interface OptionalProperty<T = unknown> extends LiveCapable {
   [PROP_TYPE]: 'optional';
   value: () => T | Promise<T>;
   onceSettings: OnceSettings | null;
-  // Set by .live()
-  liveMetadata?: LivePropertyMetadata;
 }
 
-export interface AlwaysProperty<T = unknown> {
+export interface AlwaysProperty<T = unknown> extends LiveCapable {
   [PROP_TYPE]: 'always';
-  value: T | (() => T | Promise<T>);
-  // Set by .live()
-  liveMetadata?: LivePropertyMetadata;
+  value: Lazy<T>;
 }
 
-export interface DeferredProperty<T = unknown> {
+export interface DeferredProperty<T = unknown> extends LiveCapable {
   [PROP_TYPE]: 'deferred';
   value: () => T | Promise<T>;
   group: string;
   shouldRescue: boolean;
   mergeSettings: MergeSettings | null;
   onceSettings: OnceSettings | null;
-  // Set by .live()
-  liveMetadata?: LivePropertyMetadata;
 }
 
 export interface MergeProperty<T = unknown> {
   [PROP_TYPE]: 'merge';
-  value: T | (() => T | Promise<T>);
+  value: Lazy<T>;
   mergeSettings: MergeSettings;
 }
 
-export interface OnceProperty<T = unknown> {
+export interface OnceProperty<T = unknown> extends LiveCapable {
   [PROP_TYPE]: 'once';
   value: () => T | Promise<T>;
   onceSettings: OnceSettings;
-  // Set by .live()
-  liveMetadata?: LivePropertyMetadata;
 }
 
 export interface ScrollProperty<T = unknown> {
   [PROP_TYPE]: 'scroll';
-  value: T | (() => T | Promise<T>);
+  value: Lazy<T>;
   pageName: string;
   currentPage: ScrollPage;
   previousPage: ScrollPage | null;
@@ -492,7 +492,7 @@ export interface ScrollProperty<T = unknown> {
 // A plain prop that refreshes on broadcast events
 export interface LiveProperty<T = unknown> {
   [PROP_TYPE]: 'live';
-  value: T | (() => T | Promise<T>);
+  value: Lazy<T>;
   liveMetadata: LivePropertyMetadata;
 }
 
@@ -504,3 +504,11 @@ export type TaggedProperty =
   | MergeProperty
   | OnceProperty
   | ScrollProperty;
+
+// One function per prop type, each given the prop of its own type
+export type PropertyHandlers<R> = {
+  [K in TaggedProperty[typeof PROP_TYPE]]: (
+    path: string,
+    property: Extract<TaggedProperty, Record<typeof PROP_TYPE, K>>,
+  ) => R;
+};

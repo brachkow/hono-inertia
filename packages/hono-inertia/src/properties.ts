@@ -1,6 +1,7 @@
 import { PROP_TYPE } from './symbols.js';
 import type {
   AlwaysProperty,
+  Lazy,
   DeferredProperty,
   LiveChannel,
   LiveOptions,
@@ -37,9 +38,6 @@ export function isTaggedProp(value: unknown): value is TaggedProperty {
 // Laravel's adapter refuses this combination, and the Inertia docs say merge
 // props cannot be live.
 const MERGE_LIVE_ERROR = 'A merge prop cannot be live';
-
-// A prop value, or a function that returns it, called only when the prop is sent
-type Lazy<T> = T | (() => T | Promise<T>);
 
 // The value a Lazy<T> argument stands for
 type Resolved<V> = V extends () => infer R ? Awaited<R> : V;
@@ -98,29 +96,71 @@ const createMergeSettings = (): MergeSettings => ({
   matchOn: [],
 });
 
-// Applies one merge method call to the settings, as Laravel's MergesProps does
-const mergeUpdates = {
-  append: (settings: MergeSettings, path?: string, matchOn?: string): void => {
-    if (path === undefined) {
-      settings.strategy = 'append';
-      return;
-    }
-    settings.appendPaths.push(path);
-    if (matchOn) settings.matchOn.push(`${path}.${matchOn}`);
-  },
-  prepend: (settings: MergeSettings, path?: string, matchOn?: string): void => {
-    if (path === undefined) {
-      settings.strategy = 'prepend';
-      return;
-    }
-    settings.prependPaths.push(path);
-    if (matchOn) settings.matchOn.push(`${path}.${matchOn}`);
-  },
+// One append() or prepend() call, as Laravel's MergesProps applies it:
+// without a path it sets the root strategy, with one it merges at the path
+const updateMerge = (
+  settings: MergeSettings,
+  direction: 'append' | 'prepend',
+  path?: string,
+  matchOn?: string,
+): void => {
+  if (path === undefined) {
+    settings.strategy = direction;
+    return;
+  }
+  settings[direction === 'append' ? 'appendPaths' : 'prependPaths'].push(path);
+  if (matchOn) settings.matchOn.push(`${path}.${matchOn}`);
 };
 
 const toOnceSettings = (options: OnceOptions = {}): OnceSettings => ({
   key: options.key ?? null,
   ttl: options.ttl ?? null,
+});
+
+// The chain methods several prop types share. `chain` returns the prop the
+// methods are assigned to, so each method returns it for the next call.
+
+const mergeMethods = <Chain>(
+  settings: () => MergeSettings,
+  chain: () => Chain,
+): MergeMethods<Chain> => ({
+  append(path?: string, matchOn?: string): Chain {
+    updateMerge(settings(), 'append', path, matchOn);
+    return chain();
+  },
+  prepend(path?: string, matchOn?: string): Chain {
+    updateMerge(settings(), 'prepend', path, matchOn);
+    return chain();
+  },
+  deepMerge(): Chain {
+    settings().strategy = 'deep';
+    return chain();
+  },
+  matchOn(fields: string | string[]): Chain {
+    settings().matchOn = toList(fields);
+    return chain();
+  },
+});
+
+const liveMethod = <Chain>(
+  property: { liveMetadata?: LivePropertyMetadata; mergeSettings?: unknown },
+  chain: () => Chain,
+) => ({
+  live(options: LiveOptions): Chain {
+    if (property.mergeSettings) throw new Error(MERGE_LIVE_ERROR);
+    property.liveMetadata = addLiveListeners(property.liveMetadata, options);
+    return chain();
+  },
+});
+
+const onceMethod = <Chain>(
+  property: { onceSettings: OnceSettings | null },
+  chain: () => Chain,
+) => ({
+  once(options?: OnceOptions): Chain {
+    property.onceSettings = toOnceSettings(options);
+    return chain();
+  },
 });
 
 // ---------------------------------------------------------------------------
@@ -133,19 +173,11 @@ export function optional<T>(function_: () => T | Promise<T>): OptionalChain<T> {
     value: function_,
     onceSettings: null,
   };
-
-  const chain = {
-    once(options?: OnceOptions): OptionalChain<T> {
-      property.onceSettings = toOnceSettings(options);
-      return result;
-    },
-    live(options: LiveOptions): OptionalChain<T> {
-      property.liveMetadata = addLiveListeners(property.liveMetadata, options);
-      return result;
-    },
-  };
-
-  const result: OptionalChain<T> = Object.assign(property, chain);
+  const result: OptionalChain<T> = Object.assign(
+    property,
+    onceMethod(property, () => result),
+    liveMethod(property, () => result),
+  );
   return result;
 }
 
@@ -159,15 +191,10 @@ export function always<V>(value: V): AlwaysChain<Resolved<V>> {
     [PROP_TYPE]: 'always',
     value: value as Lazy<T>,
   };
-
-  const chain = {
-    live(options: LiveOptions): AlwaysChain<T> {
-      property.liveMetadata = addLiveListeners(property.liveMetadata, options);
-      return result;
-    },
-  };
-
-  const result: AlwaysChain<T> = Object.assign(property, chain);
+  const result: AlwaysChain<T> = Object.assign(
+    property,
+    liveMethod(property, () => result),
+  );
   return result;
 }
 
@@ -195,43 +222,22 @@ export function deferred<T>(
     return property.mergeSettings;
   };
 
-  const chain = {
-    rescue(): DeferredChain<T> {
-      property.shouldRescue = true;
-      return result;
+  const result: DeferredChain<T> = Object.assign(
+    property,
+    mergeMethods(settings, () => result),
+    onceMethod(property, () => result),
+    liveMethod(property, () => result),
+    {
+      rescue(): DeferredChain<T> {
+        property.shouldRescue = true;
+        return result;
+      },
+      merge(): DeferredChain<T> {
+        settings();
+        return result;
+      },
     },
-    live(options: LiveOptions): DeferredChain<T> {
-      if (property.mergeSettings) throw new Error(MERGE_LIVE_ERROR);
-      property.liveMetadata = addLiveListeners(property.liveMetadata, options);
-      return result;
-    },
-    merge(): DeferredChain<T> {
-      settings();
-      return result;
-    },
-    append(path?: string, matchOn?: string): DeferredChain<T> {
-      mergeUpdates.append(settings(), path, matchOn);
-      return result;
-    },
-    prepend(path?: string, matchOn?: string): DeferredChain<T> {
-      mergeUpdates.prepend(settings(), path, matchOn);
-      return result;
-    },
-    deepMerge(): DeferredChain<T> {
-      settings().strategy = 'deep';
-      return result;
-    },
-    matchOn(fields: string | string[]): DeferredChain<T> {
-      settings().matchOn = toList(fields);
-      return result;
-    },
-    once(options?: OnceOptions): DeferredChain<T> {
-      property.onceSettings = toOnceSettings(options);
-      return result;
-    },
-  };
-
-  const result: DeferredChain<T> = Object.assign(property, chain);
+  );
   return result;
 }
 
@@ -246,27 +252,13 @@ export function merge<V>(value: V): MergeChain<Resolved<V>> {
     value: value as Lazy<T>,
     mergeSettings: createMergeSettings(),
   };
-
-  const chain = {
-    append(path?: string, matchOn?: string): MergeChain<T> {
-      mergeUpdates.append(property.mergeSettings, path, matchOn);
-      return result;
-    },
-    prepend(path?: string, matchOn?: string): MergeChain<T> {
-      mergeUpdates.prepend(property.mergeSettings, path, matchOn);
-      return result;
-    },
-    deepMerge(): MergeChain<T> {
-      property.mergeSettings.strategy = 'deep';
-      return result;
-    },
-    matchOn(fields: string | string[]): MergeChain<T> {
-      property.mergeSettings.matchOn = toList(fields);
-      return result;
-    },
-  };
-
-  const result: MergeChain<T> = Object.assign(property, chain);
+  const result: MergeChain<T> = Object.assign(
+    property,
+    mergeMethods(
+      () => property.mergeSettings,
+      () => result,
+    ),
+  );
   return result;
 }
 
@@ -299,18 +291,10 @@ export function once<T>(
     value: function_,
     onceSettings: toOnceSettings(options),
   };
-
-  const chain = {
-    live(liveOptions: LiveOptions): OnceChain<T> {
-      property.liveMetadata = addLiveListeners(
-        property.liveMetadata,
-        liveOptions,
-      );
-      return result;
-    },
-  };
-
-  const result: OnceChain<T> = Object.assign(property, chain);
+  const result: OnceChain<T> = Object.assign(
+    property,
+    liveMethod(property, () => result),
+  );
   return result;
 }
 
@@ -347,15 +331,12 @@ export function scroll<V>(
     nextPage: nextPageOf(options),
     matchOnFields: [],
   };
-
-  const chain = {
+  const result: ScrollChain<T> = Object.assign(property, {
     matchOn(fields: string | string[]): ScrollChain<T> {
       property.matchOnFields = toList(fields);
       return result;
     },
-  };
-
-  const result: ScrollChain<T> = Object.assign(property, chain);
+  });
   return result;
 }
 
@@ -373,15 +354,10 @@ export function live<V>(
     value: value as Lazy<T>,
     liveMetadata: addLiveListeners(undefined, options),
   };
-
-  const chain = {
-    live(more: LiveOptions): LiveChain<T> {
-      property.liveMetadata = addLiveListeners(property.liveMetadata, more);
-      return result;
-    },
-  };
-
-  const result: LiveChain<T> = Object.assign(property, chain);
+  const result: LiveChain<T> = Object.assign(
+    property,
+    liveMethod(property, () => result),
+  );
   return result;
 }
 
