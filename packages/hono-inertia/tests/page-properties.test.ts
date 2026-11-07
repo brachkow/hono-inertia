@@ -456,6 +456,52 @@ describe('PageProps', () => {
     });
   });
 
+  it('types a rescued deferred prop as possibly null', () => {
+    const app = new Hono().use(inertia({ render })).get('/', (c) =>
+      c.var.inertia.render('Home', {
+        stats: deferred(() => ({ total: 1 })).rescue(),
+      }),
+    );
+
+    expectTypeOf<PagePropsFor<typeof app, 'Home'>>().toEqualTypeOf<{
+      stats?: { total: number } | null;
+      errors: Errors;
+    }>();
+    expect(app).toBeDefined();
+  });
+
+  it('records a render for each page name a handler can choose', () => {
+    const isAdmin = Math.random() > 1;
+    const app = new Hono()
+      .use(inertia({ render }))
+      .get('/', (c) =>
+        c.var.inertia.render(isAdmin ? 'Admin' : 'Home', { name: 'Ada' }),
+      );
+
+    expectTypeOf<PagePropsFor<typeof app, 'Home'>>().toEqualTypeOf<{
+      name: string;
+      errors: Errors;
+    }>();
+    expect(app).toBeDefined();
+  });
+
+  it('keeps a shared prop for routes that do not override it', async () => {
+    const app = new Hono()
+      .use(inertia({ render, share: () => ({ count: 1 }) }))
+      .get('/a', (c) => c.var.inertia.render('Page', { count: 'many' }))
+      .get('/b', (c) => c.var.inertia.render('Page', { other: true }));
+
+    expectTypeOf<PagePropsFor<typeof app, 'Page'>>().toEqualTypeOf<
+      | { count: string; other?: undefined; errors: Errors }
+      | { count: number; other: boolean; errors: Errors }
+    >();
+    expect(await firstVisitProperties(app, '/b')).toEqual({
+      count: 1,
+      other: true,
+      errors: {},
+    });
+  });
+
   it('ignores routes that do not render a page', async () => {
     const app = new Hono()
       .use(inertia({ render }))

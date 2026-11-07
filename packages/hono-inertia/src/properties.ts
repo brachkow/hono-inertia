@@ -73,7 +73,8 @@ export type LiveChain<T = unknown> = LiveProperty<T> & {
 
 export type DeferredChain<T = unknown> = DeferredProperty<T> &
   MergeMethods<DeferredChain<T>> & {
-    rescue(): DeferredChain<T>;
+    // A rescued prop arrives as null when its function throws
+    rescue(): DeferredChain<T | null>;
     live(options: LiveOptions): DeferredChain<T>;
     merge(): DeferredChain<T>;
     once(options?: OnceOptions): DeferredChain<T>;
@@ -228,7 +229,7 @@ export function deferred<T>(
     onceMethod(property, () => result),
     liveMethod(property, () => result),
     {
-      rescue(): DeferredChain<T> {
+      rescue(): DeferredChain<T | null> {
         property.shouldRescue = true;
         return result;
       },

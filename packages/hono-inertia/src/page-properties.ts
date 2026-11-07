@@ -142,10 +142,18 @@ declare const RENDER_PROPS: unique symbol;
 // TypeScript reduces a handler's returns by subtype, so a render whose props
 // extend another's would vanish into it. The phantom field makes the type
 // invariant in its props, and every render stays in the union.
-export type RenderResponse<C extends string, P> = Response &
-  TypedResponse<{ component: C; props: ResolvedProperties<P> }, 200, 'html'> & {
-    readonly [RENDER_PROPS]?: (properties: P) => P;
-  };
+// One member per page name, so render(flag ? 'Home' : 'Other', props) records
+// an output for each of them
+export type RenderResponse<C extends string, P> = C extends unknown
+  ? Response &
+      TypedResponse<
+        { component: C; props: ResolvedProperties<P> },
+        200,
+        'html'
+      > & {
+        readonly [RENDER_PROPS]?: (properties: P) => P;
+      }
+  : never;
 
 // ---------------------------------------------------------------------------
 // Shared props, carried in the app's Env by the middleware
@@ -247,11 +255,18 @@ type RouteOutputs<App, C> = Normalize<
 >;
 
 // Kept separate from PageProps so tests can pass an app without the registry
+// Shared props join each route's props before Normalize, so a route that
+// overrides a shared prop doesn't take it away from the routes that don't
 export type PagePropsFor<
   App,
   C extends RenderOutput<App>['component'],
 > = C extends unknown
-  ? MergeProperties<SharedProperties<App>, RouteOutputs<App, C>>
+  ? Normalize<
+      MergeProperties<
+        SharedProperties<App>,
+        SerializedEach<Extract<RenderOutput<App>, { component: C }>['props']>
+      >
+    >
   : never;
 
 // The props a page component receives, taken from the routes that render it
