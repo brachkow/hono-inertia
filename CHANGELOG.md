@@ -28,6 +28,7 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 - `.setMatchOn(field)` is `.matchOn(field | fields)`.
 - `c.var.inertia.redirect(url)` is `c.var.inertia.clientRedirect(url)`, so it no longer looks like Hono's `c.redirect()`.
 - The prop tag is the registered symbol `Symbol.for('hono-inertia.prop-type')`, not the string key `__hono_inertia_prop_type__`.
+- The `CLEAR_HISTORY_COOKIE` export is gone. Nothing in the adapter read it, and it ignored the `flagCookies` prefix.
 
 **Scroll reset follows inertia-laravel**
 
