@@ -1,5 +1,7 @@
 import type { Context } from 'hono';
 import type { PageName, RenderResponse } from './page-properties.js';
+import type { PROP_TYPE } from './symbols.js';
+import type { CookieSessionOptions } from './session.js';
 
 // ---------------------------------------------------------------------------
 // Page object (sent to the Inertia client)
@@ -28,9 +30,9 @@ export interface PageObject {
     string,
     {
       pageName: string;
-      previousPage: number | null;
-      nextPage: number | null;
-      currentPage: number;
+      previousPage: ScrollPage | null;
+      nextPage: ScrollPage | null;
+      currentPage: ScrollPage;
       reset: boolean;
     }
   >;
@@ -107,10 +109,16 @@ export interface SsrRenderResult {
   body: string;
 }
 
+// Turns SSR off for some requests, e.g. (c) => !c.req.path.startsWith('/admin')
+export type SsrEnabled = boolean | ((c: Context) => boolean | Promise<boolean>);
+
 // Posts the page to `${url}/render` on an Inertia SSR server (`createServer`)
 export interface SsrHttpConfig {
-  enabled?: boolean;
+  enabled?: SsrEnabled;
   url?: string;
+  // Sends the request instead of the global fetch, e.g. through a Cloudflare
+  // service binding: (request, c) => c.env.SSR.fetch(request)
+  fetch?: (request: Request, c: Context) => Response | Promise<Response>;
   // Abort the SSR request after this many ms (default 5000), falling back to CSR.
   timeout?: number;
   // Reject SSR responses larger than this many bytes (default 2_000_000).
@@ -120,9 +128,10 @@ export interface SsrHttpConfig {
 
 // Renders in the same process, e.g. a Worker that imports the SSR entry
 export interface SsrRenderConfig {
-  enabled?: boolean;
+  enabled?: SsrEnabled;
   render: (page: PageObject) => SsrRenderResult | Promise<SsrRenderResult>;
   url?: never;
+  fetch?: never;
   timeout?: never;
   maxResponseBytes?: never;
 }
@@ -145,6 +154,27 @@ export type RenderFunction = (
   c: Context,
 ) => string | Promise<string>;
 
+// The parts of honoInertia()'s virtual module that inertia() reads. Pass the
+// module itself: `import * as assets from 'virtual:hono-inertia/assets'`.
+export interface InertiaAssets {
+  version: string;
+  assetTagsFor: (component: string) => string;
+  // The plugin's `ssr` entry, when it has one
+  ssr?: ((page: PageObject) => Promise<SsrRenderResult>) | null;
+}
+
+// The root template inertia() renders when there is no `render` option
+export interface TemplateOptions {
+  // <html lang>
+  lang?: string;
+  // A <title> for pages whose SSR output has none
+  title?: string;
+  // More HTML for <head>, such as a favicon or fonts
+  head?: string | ((page: PageObject, c: Context) => string | Promise<string>);
+  // The root element's id, which createInertiaApp() reads. Defaults to 'app'.
+  id?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Middleware configuration
 // ---------------------------------------------------------------------------
@@ -155,8 +185,16 @@ export interface InertiaConfig<
 > {
   // Asset version. Omitting it disables version checks (page.version: null).
   // Keep the value short — the client echoes it back as a request header.
+  // Defaults to assets.version.
   version?: string | (() => string | Promise<string>);
-  render: RenderFunction;
+  // The Vite plugin's virtual module. Gives the version, the asset tags of
+  // the default template, and the SSR render function.
+  assets?: InertiaAssets;
+  // Options for the default template
+  template?: TemplateOptions;
+  // Renders the HTML of a first visit. Replaces the default template.
+  render?: RenderFunction;
+  // Defaults to rendering with assets.ssr when the plugin has an SSR entry
   ssr?: SsrConfig;
   share?: (c: Context) => V | Promise<V>;
   // The page.url sent to the client. Defaults to the request's path and query.
@@ -182,9 +220,27 @@ export interface InertiaConfig<
   // Carries validation errors and flash data across redirects. Without it,
   // flash() applies to the current response only, and withErrors() works only
   // when the handler renders a page afterwards.
-  // See README → Validation and sessions.
-  session?: InertiaSession;
+  // Pass a store, or cookieSession()'s options for the built-in signed
+  // cookie. See README → Validation and sessions.
+  session?: InertiaSession | CookieSessionOptions;
+  // Pages get every message per field from withErrors() and the validator,
+  // as arrays. By default they get the first one, as with Laravel's adapter.
+  allErrors?: boolean;
+  // Maps the name render() takes to the component name the client resolves,
+  // e.g. (name) => name.toLowerCase()
+  transformComponent?: (component: string) => string;
+  // The short-lived cookies that carry clearHistory() and preserveFragment()
+  // across redirects. Defaults to the prefix 'inertia_' and the path '/'.
+  flagCookies?: { prefix?: string; path?: string };
 }
+
+// The config after inertia() filled in its defaults
+export type ResolvedInertiaConfig<
+  V extends Record<string, unknown> = Record<string, unknown>,
+> = Omit<InertiaConfig<V>, 'render' | 'session' | 'assets' | 'template'> & {
+  render: RenderFunction;
+  session?: InertiaSession;
+};
 
 // ---------------------------------------------------------------------------
 // DevTools (https://inertiajs.com/docs/devtools-protocol)
@@ -289,10 +345,14 @@ export interface InertiaContext {
   url(url: string): void;
   share(data: Record<string, unknown>): void;
   location(url: string): Response;
-  redirect(url: string): Response;
+  // A 409 with X-Inertia-Redirect: the client visits the URL itself. Unlike
+  // Hono's c.redirect(), the browser never follows it, so it keeps a fragment.
+  clientRedirect(url: string): Response;
   encryptHistory(encrypt?: boolean): void;
   clearHistory(clear?: boolean): void;
   preserveFragment(preserve?: boolean): void;
+  // Renders this response's first visit without SSR, or with it again
+  ssr(enabled?: boolean): void;
   viewData(data: Record<string, unknown>): void;
   // On the page when this request renders one, otherwise kept in the session
   // for the next page.
@@ -330,14 +390,30 @@ export interface InertiaEnv {
 }
 
 // ---------------------------------------------------------------------------
-// Scroll metadata adapter (public — users implement for their paginator)
+// Scroll and once options (public)
 // ---------------------------------------------------------------------------
 
-export interface ScrollMetadata {
-  getPageName(): string;
-  getCurrentPage(): number;
-  getPreviousPage(): number | null;
-  getNextPage(): number | null;
+// A page number, or a cursor for cursor pagination
+export type ScrollPage = number | string;
+
+// The pagination of a scroll prop. With a numeric page, the previous page is
+// page - 1 above page 1, and the next page is page + 1 while `hasMore` is
+// true or `page` is below `lastPage`. Cursors pass previousPage and nextPage.
+export interface ScrollOptions {
+  page: ScrollPage;
+  // The query parameter the client sends the page in. Defaults to 'page'.
+  pageName?: string;
+  hasMore?: boolean;
+  lastPage?: number;
+  previousPage?: ScrollPage | null;
+  nextPage?: ScrollPage | null;
+}
+
+export interface OnceOptions {
+  // Shares the cached value between props or pages with the same key
+  key?: string;
+  // The client asks for the prop again this many ms after it was sent
+  ttl?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -346,68 +422,76 @@ export interface ScrollMetadata {
 
 export type MergeStrategy = 'append' | 'prepend' | 'deep';
 
+// How the client merges a prop: at the root with `strategy`, or at the paths
+// inside it. matchOn holds fields relative to the prop, e.g. 'id' or 'data.id'.
+export interface MergeSettings {
+  strategy: MergeStrategy;
+  appendPaths: string[];
+  prependPaths: string[];
+  matchOn: string[];
+}
+
+export interface OnceSettings {
+  key: string | null;
+  ttl: number | null;
+}
+
 // T is the resolved value. Runtime code ignores it; ResolvedProps reads it.
+// Data fields are named apart from the chain methods (onceSettings next to
+// once()), because Object.assign puts the methods on the same object.
 export interface OptionalProperty<T = unknown> {
-  __hono_inertia_prop_type__: 'optional';
+  [PROP_TYPE]: 'optional';
   value: () => T | Promise<T>;
-  isOnce: boolean;
-  onceKey: string | null;
-  expiresAt: number | null;
+  onceSettings: OnceSettings | null;
   // Set by .live()
   liveMetadata?: LivePropertyMetadata;
 }
 
 export interface AlwaysProperty<T = unknown> {
-  __hono_inertia_prop_type__: 'always';
+  [PROP_TYPE]: 'always';
   value: T | (() => T | Promise<T>);
   // Set by .live()
   liveMetadata?: LivePropertyMetadata;
 }
 
 export interface DeferredProperty<T = unknown> {
-  __hono_inertia_prop_type__: 'deferred';
+  [PROP_TYPE]: 'deferred';
   value: () => T | Promise<T>;
   group: string;
   shouldRescue: boolean;
-  isMerge: boolean;
-  mergeStrategy: MergeStrategy;
-  matchOn: string | null;
-  isOnce: boolean;
-  onceKey: string | null;
-  expiresAt: number | null;
+  mergeSettings: MergeSettings | null;
+  onceSettings: OnceSettings | null;
   // Set by .live()
   liveMetadata?: LivePropertyMetadata;
 }
 
 export interface MergeProperty<T = unknown> {
-  __hono_inertia_prop_type__: 'merge';
+  [PROP_TYPE]: 'merge';
   value: T | (() => T | Promise<T>);
-  strategy: MergeStrategy;
-  matchOn: string | null;
+  mergeSettings: MergeSettings;
 }
 
 export interface OnceProperty<T = unknown> {
-  __hono_inertia_prop_type__: 'once';
+  [PROP_TYPE]: 'once';
   value: () => T | Promise<T>;
-  onceKey: string | null;
-  expiresAt: number | null;
+  onceSettings: OnceSettings;
   // Set by .live()
   liveMetadata?: LivePropertyMetadata;
 }
 
 export interface ScrollProperty<T = unknown> {
-  __hono_inertia_prop_type__: 'scroll';
+  [PROP_TYPE]: 'scroll';
   value: T | (() => T | Promise<T>);
   pageName: string;
-  currentPage: number;
-  previousPage: number | null;
-  nextPage: number | null;
-  matchOn: string | null;
+  currentPage: ScrollPage;
+  previousPage: ScrollPage | null;
+  nextPage: ScrollPage | null;
+  matchOnFields: string[];
 }
 
 // A plain prop that refreshes on broadcast events
 export interface LiveProperty<T = unknown> {
-  __hono_inertia_prop_type__: 'live';
+  [PROP_TYPE]: 'live';
   value: T | (() => T | Promise<T>);
   liveMetadata: LivePropertyMetadata;
 }

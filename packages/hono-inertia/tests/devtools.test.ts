@@ -17,7 +17,7 @@ import type {
   DevtoolsStore,
   InertiaConfig,
   InertiaEnv,
-  ScrollMetadata,
+  ScrollOptions,
 } from '../src/types.js';
 
 type AppConfig = Partial<Omit<InertiaConfig, 'devtools'>>;
@@ -81,12 +81,7 @@ function fakeEntry(overrides: Partial<DevtoolsEntry['__meta']>): DevtoolsEntry {
   };
 }
 
-const scrollMetadata: ScrollMetadata = {
-  getPageName: () => 'page',
-  getCurrentPage: () => 1,
-  getPreviousPage: () => null,
-  getNextPage: () => 2,
-};
+const scrollMetadata: ScrollOptions = { page: 1, hasMore: true };
 
 // =========================================================================
 // Discovery
@@ -470,7 +465,7 @@ describe('DevTools entry meta', () => {
     app.post('/redirect', (c) => c.redirect('/elsewhere'));
     app.delete('/gone', (c) => c.redirect('/list'));
     app.post('/external', (c) => c.var.inertia.location('https://example.com'));
-    app.post('/hash', (c) => c.var.inertia.redirect('/page#top'));
+    app.post('/hash', (c) => c.var.inertia.clientRedirect('/page#top'));
     app.get('/ok', (c) => c.text('ok'));
 
     await app.request('/redirect', {
@@ -576,7 +571,7 @@ describe('DevTools prop metadata', () => {
         posts: merge([1]),
         prepended: merge([2]).prepend(),
         deep: merge({ a: 1 }).deepMerge(),
-        matched: merge([{ id: 1 }]).setMatchOn('id'),
+        matched: merge([{ id: 1 }]).matchOn('id'),
         settings: once(() => ({ theme: 'dark' })),
       }),
     );
@@ -624,7 +619,7 @@ describe('DevTools prop metadata', () => {
     app.get('/page', (c) =>
       c.var.inertia.render('Test', {
         posts: merge([1]),
-        feed: scroll([1], scrollMetadata).setMatchOn('id'),
+        feed: scroll([1], scrollMetadata).matchOn('id'),
       }),
     );
 

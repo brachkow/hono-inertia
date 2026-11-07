@@ -10,7 +10,7 @@ import type {
   DevtoolsRequestType,
   DevtoolsStore,
   MergeProperty,
-  MergeStrategy,
+  MergeSettings,
   OptionalProperty,
   PageObject,
   ScrollProperty,
@@ -411,12 +411,11 @@ function buildPropertyMeta(
   const resetProperties = getResetProperties(c);
   const rescued = new Set(payload.rescuedProps);
 
-  const mergeMeta = (
-    strategy: MergeStrategy,
-    matchOn: string | null,
-  ): Partial<DevtoolsPropMeta> => ({
-    mergeDirection: strategy === 'prepend' ? 'prepend' : 'append',
-    ...((strategy === 'deep' || matchOn !== null) && { deepMerge: true }),
+  const mergeMeta = (settings: MergeSettings): Partial<DevtoolsPropMeta> => ({
+    mergeDirection: settings.strategy === 'prepend' ? 'prepend' : 'append',
+    ...((settings.strategy === 'deep' || settings.matchOn.length > 0) && {
+      deepMerge: true,
+    }),
   });
 
   const classifiers: Record<
@@ -427,29 +426,30 @@ function buildPropertyMeta(
     always: () => ({ inertiaType: 'always' }),
     optional: (tag) => ({
       inertiaType: 'optional',
-      ...((tag as OptionalProperty).isOnce && { once: true }),
+      ...((tag as OptionalProperty).onceSettings && { once: true }),
     }),
     deferred: (tag) => {
       const deferred = tag as DeferredProperty;
       return {
         inertiaType: deferredDelivery ? 'defer' : null,
         ...(deferredDelivery && { deferGroup: deferred.group }),
-        ...(deferred.isOnce && { once: true }),
-        ...(deferred.isMerge &&
-          mergeMeta(deferred.mergeStrategy, deferred.matchOn)),
+        ...(deferred.onceSettings && { once: true }),
+        ...(deferred.mergeSettings && mergeMeta(deferred.mergeSettings)),
       };
     },
     merge: (tag) => ({
       inertiaType: 'merge',
-      ...mergeMeta(
-        (tag as MergeProperty).strategy,
-        (tag as MergeProperty).matchOn,
-      ),
+      ...mergeMeta((tag as MergeProperty).mergeSettings),
     }),
     once: () => ({ inertiaType: 'once', once: true }),
     scroll: (tag) => ({
       inertiaType: 'scroll',
-      ...mergeMeta(scrollDirection, (tag as ScrollProperty).matchOn),
+      ...mergeMeta({
+        strategy: scrollDirection,
+        appendPaths: [],
+        prependPaths: [],
+        matchOn: (tag as ScrollProperty).matchOnFields,
+      }),
     }),
   };
 

@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { renderSsr } from '../src/ssr.js';
 import type { PageObject } from '../src/types.js';
 
@@ -10,6 +12,23 @@ const mockPage: PageObject = {
   url: '/test',
   version: '1.0',
 };
+
+// renderSsr only hands the context to a custom fetch. Hono 4.8 doesn't
+// export the Context class, so a request provides one.
+let context: Context | undefined;
+const c = (): Context => {
+  if (!context) throw new Error('no context yet');
+  return context;
+};
+
+beforeAll(async () => {
+  await new Hono()
+    .get('/', (honoContext) => {
+      context = honoContext;
+      return honoContext.body(null);
+    })
+    .request('/');
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -29,7 +48,11 @@ describe('renderSsr over HTTP', () => {
     });
     vi.stubGlobal('fetch', mockFetch);
 
-    const result = await renderSsr({ url: 'http://localhost:13714' }, mockPage);
+    const result = await renderSsr(
+      { url: 'http://localhost:13714' },
+      mockPage,
+      c(),
+    );
 
     expect(mockFetch).toHaveBeenCalledWith('http://localhost:13714/render', {
       method: 'POST',
@@ -59,7 +82,7 @@ describe('renderSsr over HTTP', () => {
       }),
     );
 
-    const result = renderSsr({ url: 'http://localhost:13714' }, mockPage);
+    const result = renderSsr({ url: 'http://localhost:13714' }, mockPage, c());
 
     await expect(result).rejects.toThrow(
       'SSR server responded with 500: window is not defined',
@@ -80,7 +103,7 @@ describe('renderSsr over HTTP', () => {
     );
 
     await expect(
-      renderSsr({ url: 'http://localhost:13714' }, mockPage),
+      renderSsr({ url: 'http://localhost:13714' }, mockPage, c()),
     ).rejects.toThrow(SSR_502_MESSAGE);
   });
 
@@ -91,7 +114,7 @@ describe('renderSsr over HTTP', () => {
     );
 
     await expect(
-      renderSsr({ url: 'http://localhost:13714' }, mockPage),
+      renderSsr({ url: 'http://localhost:13714' }, mockPage, c()),
     ).rejects.toThrow('ECONNREFUSED');
   });
 
@@ -103,7 +126,7 @@ describe('renderSsr over HTTP', () => {
     });
     vi.stubGlobal('fetch', mockFetch);
 
-    await renderSsr({}, mockPage);
+    await renderSsr({}, mockPage, c());
 
     expect(mockFetch).toHaveBeenCalledWith(
       'http://127.0.0.1:13714/render',
@@ -122,7 +145,7 @@ describe('renderSsr over HTTP', () => {
     );
 
     await expect(
-      renderSsr({ url: 'http://localhost:13714' }, mockPage),
+      renderSsr({ url: 'http://localhost:13714' }, mockPage, c()),
     ).rejects.toThrow(
       'SSR render must return { head: string[], body: string }',
     );
@@ -142,6 +165,7 @@ describe('renderSsr over HTTP', () => {
       renderSsr(
         { url: 'http://localhost:13714', maxResponseBytes: 1000 },
         mockPage,
+        c(),
       ),
     ).rejects.toThrow('SSR response exceeds maxResponseBytes (1000)');
   });
@@ -164,6 +188,7 @@ describe('renderSsr over HTTP with an oversized error response', () => {
       renderSsr(
         { url: 'http://localhost:13714', maxResponseBytes: 1000 },
         mockPage,
+        c(),
       ),
     ).rejects.toThrow('SSR response exceeds maxResponseBytes (1000)');
     expect(json).not.toHaveBeenCalled();
@@ -177,7 +202,7 @@ describe('renderSsr in process', () => {
       body: '<div id="app">rendered</div>',
     });
 
-    const result = await renderSsr({ render }, mockPage);
+    const result = await renderSsr({ render }, mockPage, c());
 
     expect(render).toHaveBeenCalledWith(mockPage);
     expect(result).toEqual({
@@ -190,6 +215,7 @@ describe('renderSsr in process', () => {
     const result = await renderSsr(
       { render: () => ({ head: [], body: '<div></div>' }) },
       mockPage,
+      c(),
     );
 
     expect(result).toEqual({ head: '', body: '<div></div>' });
@@ -199,7 +225,7 @@ describe('renderSsr in process', () => {
     const mockFetch = vi.fn();
     vi.stubGlobal('fetch', mockFetch);
 
-    await renderSsr({ render: () => ({ head: [], body: '' }) }, mockPage);
+    await renderSsr({ render: () => ({ head: [], body: '' }) }, mockPage, c());
 
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -208,7 +234,7 @@ describe('renderSsr in process', () => {
     const error = new Error('Page not found: Missing');
 
     await expect(
-      renderSsr({ render: () => Promise.reject(error) }, mockPage),
+      renderSsr({ render: () => Promise.reject(error) }, mockPage, c()),
     ).rejects.toBe(error);
   });
 
@@ -222,6 +248,7 @@ describe('renderSsr in process', () => {
           }),
         },
         mockPage,
+        c(),
       ),
     ).rejects.toThrow(
       'SSR render must return { head: string[], body: string }',
@@ -236,6 +263,7 @@ describe('renderSsr in process', () => {
             undefined as unknown as { head: string[]; body: string },
         },
         mockPage,
+        c(),
       ),
     ).rejects.toThrow(
       'SSR render must return { head: string[], body: string }',

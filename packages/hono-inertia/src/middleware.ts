@@ -1,7 +1,14 @@
 import { createMiddleware } from 'hono/factory';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { Context, Env, MiddlewareHandler, Next } from 'hono';
-import type { InertiaConfig, InertiaEnv } from './types.js';
+import type {
+  InertiaConfig,
+  InertiaEnv,
+  InertiaSession,
+  ResolvedInertiaConfig,
+} from './types.js';
+import { cookieSession } from './session.js';
+import { createTemplate } from './template.js';
 import type { InertiaSharedEnv } from './page-properties.js';
 import { InertiaResponse } from './response.js';
 import {
@@ -18,8 +25,9 @@ import {
   resolveUrl,
 } from './utilities.js';
 
-export const CLEAR_HISTORY_COOKIE = 'inertia_clear_history';
-export const PRESERVE_FRAGMENT_COOKIE = 'inertia_preserve_fragment';
+const DEFAULT_FLAG_PREFIX = 'inertia_';
+export const CLEAR_HISTORY_COOKIE = `${DEFAULT_FLAG_PREFIX}clear_history`;
+export const PRESERVE_FRAGMENT_COOKIE = `${DEFAULT_FLAG_PREFIX}preserve_fragment`;
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
@@ -34,15 +42,15 @@ interface FlashedFlag {
   consumed: (response: InertiaResponse) => boolean;
 }
 
-const FLASHED_FLAGS: FlashedFlag[] = [
+const flashedFlags = (prefix = DEFAULT_FLAG_PREFIX): FlashedFlag[] => [
   {
-    cookie: CLEAR_HISTORY_COOKIE,
+    cookie: `${prefix}clear_history`,
     set: (response) => response.clearHistory(),
     pending: (response) => response.clearHistoryPending,
     consumed: (response) => response.clearHistoryConsumed,
   },
   {
-    cookie: PRESERVE_FRAGMENT_COOKIE,
+    cookie: `${prefix}preserve_fragment`,
     set: (response) => response.preserveFragment(),
     pending: (response) => response.preserveFragmentPending,
     consumed: (response) => response.preserveFragmentConsumed,
@@ -63,6 +71,7 @@ export function inertia<
   config: InertiaConfig<V>,
 ): MiddlewareHandler<InertiaEnv & InertiaSharedEnv<V>> {
   const devtools = resolveDevtools(config.devtools);
+  const resolved = resolveConfig(config);
 
   return createMiddleware<InertiaEnv & InertiaSharedEnv<V>>(async (c, next) => {
     if (devtools) {
@@ -71,7 +80,7 @@ export function inertia<
     }
 
     const recording = devtools ? beginDevtoolsRecording(c) : null;
-    const response = await handle(c, next, config);
+    const response = await handle(c, next, resolved);
 
     if (devtools && recording) {
       await recordDevtoolsEntry(
@@ -84,12 +93,36 @@ export function inertia<
   });
 }
 
+const isSessionStore = (
+  session: NonNullable<InertiaConfig['session']>,
+): session is InertiaSession => 'get' in session;
+
+// Fills in what the Vite plugin's assets give, and the built-in template and
+// cookie session
+function resolveConfig<V extends Record<string, unknown>>({
+  assets,
+  template,
+  render,
+  session,
+  ...config
+}: InertiaConfig<V>): ResolvedInertiaConfig<V> {
+  const ssrRender = assets?.ssr;
+  return {
+    ...config,
+    version: config.version ?? assets?.version,
+    ssr: config.ssr ?? (ssrRender ? { render: ssrRender } : undefined),
+    render: render ?? createTemplate(template, assets),
+    session:
+      session && (isSessionStore(session) ? session : cookieSession(session)),
+  };
+}
+
 // Runs the Inertia request lifecycle, leaving the final response on `c.res`.
 // Returns the InertiaResponse when the handler ran, null on a version 409.
 async function handle<V extends Record<string, unknown>>(
   c: Context<InertiaEnv & InertiaSharedEnv<V>>,
   next: Next,
-  config: InertiaConfig<V>,
+  config: ResolvedInertiaConfig<V>,
 ): Promise<InertiaResponse | null> {
   // Current asset version, resolved lazily and at most once per request —
   // a version thunk must not run on passthrough routes or POSTs that never
@@ -163,8 +196,10 @@ async function handle<V extends Record<string, unknown>>(
   // Consume the flags a preceding redirect flashed. Prefetches are skipped:
   // a prefetched page may be discarded client-side, which would swallow a
   // flag without the page ever showing it.
+  const flags = flashedFlags(config.flagCookies?.prefix);
+  const flagPath = config.flagCookies?.path ?? '/';
   const inheritedFlags = new Set(
-    FLASHED_FLAGS.filter(
+    flags.filter(
       (flag) => !isPrefetch(c) && getCookie(c, flag.cookie) !== undefined,
     ),
   );
@@ -228,20 +263,20 @@ async function handle<V extends Record<string, unknown>>(
   // handler cancelled it), and otherwise leave an inherited cookie untouched,
   // so a parallel non-page request neither eats nor resurrects the flag.
   // Max-Age bounds stray cookies.
-  for (const flag of FLASHED_FLAGS) {
+  for (const flag of flags) {
     const inherited = inheritedFlags.has(flag);
     const pending = flag.pending(response);
     const consumed = flag.consumed(response);
     if (pending && !consumed && (!inherited || isRedirectShaped(c.res))) {
       setCookie(c, flag.cookie, '1', {
-        path: '/',
+        path: flagPath,
         httpOnly: true,
         sameSite: 'Lax',
         maxAge: 60,
         secure: new URL(c.req.url).protocol === 'https:',
       });
     } else if (inherited && (consumed || !pending)) {
-      deleteCookie(c, flag.cookie, { path: '/' });
+      deleteCookie(c, flag.cookie, { path: flagPath });
     }
   }
 

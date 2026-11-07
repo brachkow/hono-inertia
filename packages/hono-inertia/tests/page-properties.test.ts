@@ -16,7 +16,7 @@ import type {
   RoutePropsFor,
   SharedProps,
 } from '../src/page-properties.js';
-import type { PageObject, ScrollMetadata } from '../src/types.js';
+import type { PageObject, ScrollOptions } from '../src/types.js';
 
 // Each test checks a PageProps type, which `pnpm typecheck` verifies, and the
 // props a first visit receives at runtime, which should fit that type.
@@ -25,12 +25,7 @@ type Errors = Record<string, string> & Record<string, Record<string, string>>;
 
 const render = () => '';
 const USERS = [{ id: 1 }];
-const metadata: ScrollMetadata = {
-  getPageName: () => 'page',
-  getCurrentPage: () => 1,
-  getPreviousPage: () => null,
-  getNextPage: () => null,
-};
+const metadata: ScrollOptions = { page: 1 };
 
 interface App {
   request: (path: string, init: RequestInit) => Response | Promise<Response>;
@@ -103,6 +98,26 @@ describe('PageProps', () => {
       errors: Errors;
     }>();
     expect(await firstVisitProperties(app, '/users')).toEqual({ errors: {} });
+  });
+
+  it('resolves prop wrappers and lazy functions inside objects', async () => {
+    const app = new Hono().use(inertia({ render })).get('/', (c) =>
+      c.var.inertia.render('Home', {
+        auth: {
+          user: () => ({ name: 'Ada' }),
+          permissions: optional(() => ['admin']),
+        },
+      }),
+    );
+
+    expectTypeOf<PagePropsFor<typeof app, 'Home'>>().toEqualTypeOf<{
+      auth: { user: { name: string }; permissions?: string[] };
+      errors: Errors;
+    }>();
+    expect(await firstVisitProperties(app, '/')).toEqual({
+      auth: { user: { name: 'Ada' } },
+      errors: {},
+    });
   });
 
   it('adds what share() returns, letting page props win', async () => {
@@ -316,7 +331,7 @@ describe('PageProps', () => {
       sessions: Array<{ createdAt: string; device?: string }>;
       price: number;
       tags: Record<string, never>;
-      handlers: Record<never, never>;
+      handlers: { onSave: 1 };
       slots: Array<string | null>;
       id: bigint;
       errors: Errors;
@@ -327,7 +342,7 @@ describe('PageProps', () => {
     ]);
     expect(page.price).toBe(12.5);
     expect(page.tags).toEqual({});
-    expect(page.handlers).toEqual({});
+    expect(page.handlers).toEqual({ onSave: 1 });
     expect(page.slots).toEqual(['2026-01-02T03:04:05.000Z', null]);
   });
 

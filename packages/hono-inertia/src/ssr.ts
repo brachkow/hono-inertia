@@ -1,3 +1,4 @@
+import type { Context } from 'hono';
 import type {
   PageObject,
   SsrConfig,
@@ -14,27 +15,42 @@ const DEFAULT_SSR_MAX_RESPONSE_BYTES = 2_000_000;
 export async function renderSsr(
   config: SsrConfig,
   page: PageObject,
+  c: Context,
 ): Promise<SsrResult> {
   if (config.render) {
     return toSsrResult(await config.render(page));
   }
-  return dispatchToSsr(config, page);
+  return dispatchToSsr(config, page, c);
+}
+
+// The config's enabled flag, which may depend on the request
+export async function isSsrEnabled(
+  config: SsrConfig,
+  c: Context,
+): Promise<boolean> {
+  const { enabled } = config;
+  return typeof enabled === 'function' ? await enabled(c) : enabled !== false;
 }
 
 async function dispatchToSsr(
   config: SsrHttpConfig,
   page: PageObject,
+  c: Context,
 ): Promise<SsrResult> {
   const url = config.url ?? DEFAULT_SSR_URL;
 
-  const response = await fetch(`${url}/render`, {
+  const endpoint = `${url}/render`;
+  const init: RequestInit = {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     // Inertia's SSR server parses with parsePage, which revives BigInt markers
     body: stringifyPage(page),
     // Without a timeout a hung SSR server holds the request open indefinitely.
     signal: AbortSignal.timeout(config.timeout ?? DEFAULT_SSR_TIMEOUT),
-  });
+  };
+  const response = await (config.fetch
+    ? config.fetch(new Request(endpoint, init), c)
+    : fetch(endpoint, init));
 
   // Reject oversized bodies before buffering them into the heap, error
   // responses included.

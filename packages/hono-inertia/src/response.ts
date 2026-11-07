@@ -3,12 +3,14 @@ import { routePath } from 'hono/route';
 import type {
   AlwaysProperty,
   DeferredProperty,
-  InertiaConfig,
+  ResolvedInertiaConfig,
   InertiaContext,
   LivePropertyMetadata,
   MergeProperty,
+  MergeSettings,
   MergeStrategy,
   OnceProperty,
+  OnceSettings,
   OptionalProperty,
   PageObject,
   ScrollProperty,
@@ -19,7 +21,8 @@ import type {
   ValidationErrors,
 } from './types.js';
 import { isTaggedProp } from './properties.js';
-import { renderSsr } from './ssr.js';
+import { PROP_TYPE } from './symbols.js';
+import { isSsrEnabled, renderSsr } from './ssr.js';
 import { stringifyPage } from './serialize.js';
 import type { DevtoolsPayload } from './devtools.js';
 import type { PageName, RenderResponse } from './page-properties.js';
@@ -32,7 +35,6 @@ import {
   getPartialExcept,
   getResetProperties,
   getScrollMergeIntent,
-  hasScrollMergeIntent,
   isInertiaRequest,
   toPageUrl,
 } from './utilities.js';
@@ -44,6 +46,8 @@ export class InertiaResponse implements InertiaContext {
   private errorStore: Record<string, ValidationErrors> = {};
   private didRender = false;
   private shouldEncryptHistory = false;
+  // Set by ssr(), and wins over the config's enabled flag
+  private ssrOverride: boolean | undefined;
   private shouldClearHistory = false;
   private clearHistoryWasConsumed = false;
   private shouldPreserveFragment = false;
@@ -53,7 +57,7 @@ export class InertiaResponse implements InertiaContext {
 
   constructor(
     private c: Context,
-    private config: InertiaConfig,
+    private config: ResolvedInertiaConfig,
     private version: () => Promise<string | null>,
     // What the previous request left in the session (null without one)
     private incomingSession: SessionData | null = null,
@@ -123,18 +127,22 @@ export class InertiaResponse implements InertiaContext {
     const hasFlash = Object.keys(this.flashStore).length > 0;
     if (!hasErrors && !hasFlash) return undefined;
 
-    // Only the first message per field, the one pages show, so the data
-    // stays small enough for a cookie
+    // Only the messages pages show, so the data stays small enough for a
+    // cookie
     const errors = Object.fromEntries(
       Object.entries(this.errorStore).map(([bag, fields]) => [
         bag,
-        firstMessages(fields),
+        this.pageMessages(fields),
       ]),
     );
     return mergeSessionData(this.incomingSession, {
       ...(hasErrors && { errors }),
       ...(hasFlash && { flash: this.flashStore }),
     });
+  }
+
+  ssr(enabled = true): void {
+    this.ssrOverride = enabled;
   }
 
   encryptHistory(encrypt = true): void {
@@ -174,7 +182,7 @@ export class InertiaResponse implements InertiaContext {
     return this.preserveFragmentWasConsumed;
   }
 
-  redirect(url: string): Response {
+  clientRedirect(url: string): Response {
     if (isInertiaRequest(this.c)) {
       return new Response(null, {
         status: 409,
@@ -227,11 +235,20 @@ export class InertiaResponse implements InertiaContext {
     this.urlOverride = url;
   }
 
+  // The first message per field, or every message with allErrors
+  private pageMessages(
+    fields: ValidationErrors,
+  ): Record<string, string | string[]> {
+    return this.config.allErrors ? allMessages(fields) : firstMessages(fields);
+  }
+
   private async renderPage(
-    component: string,
+    name: string,
     properties: Record<string, unknown>,
     extraViewData: Record<string, unknown>,
   ): Promise<Response> {
+    // The client sends this name back in X-Inertia-Partial-Component
+    const component = this.config.transformComponent?.(name) ?? name;
     const mergedViewData = { ...this.viewDataStore, ...extraViewData };
     this.didRender = true;
 
@@ -248,7 +265,11 @@ export class InertiaResponse implements InertiaContext {
 
     // 2. Merge shared + render props. Render props win. Ensure errors exists.
     const allProperties: Record<string, unknown> = {
-      errors: resolveSessionErrors(session.errors, getErrorBag(this.c)),
+      errors: resolveSessionErrors(
+        session.errors,
+        getErrorBag(this.c),
+        (fields) => this.pageMessages(fields),
+      ),
       ...this.sharedProps,
       ...properties,
     };
@@ -263,9 +284,6 @@ export class InertiaResponse implements InertiaContext {
     const exceptOnceProperties = getExceptOnceProperties(this.c);
     const resetProperties = getResetProperties(this.c);
     const scrollMergeIntent = getScrollMergeIntent(this.c);
-    // No merge-intent header => a fresh load, so the client should reset the
-    // accumulated infinite-scroll collection rather than append/prepend.
-    const scrollReset = !hasScrollMergeIntent(this.c);
 
     // 3. Classify props and determine which to include
     const included: Record<string, unknown> = {};
@@ -279,54 +297,68 @@ export class InertiaResponse implements InertiaContext {
       string,
       { prop: string; expiresAt: number | null }
     > = {};
-    const scrollMetadata: Record<
-      string,
-      {
-        pageName: string;
-        previousPage: number | null;
-        nextPage: number | null;
-        currentPage: number;
-        reset: boolean;
-      }
-    > = {};
+    const scrollMetadata: NonNullable<PageObject['scrollProps']> = {};
 
-    // A top-level prop is requested if named directly or via a nested path
-    // (e.g. `only: ['user.name']` requests the `user` prop). The client extracts
-    // the nested slice; the server only resolves whole top-level props.
-    const isRequestedByPartialData = (key: string): boolean => {
-      if (partialData.has(key)) return true;
+    // The props tree as dot paths. Plain objects are branches, so prop types
+    // and lazy functions inside them work as at the top level, as in
+    // inertia-laravel. The client deep-merges a partial response into the
+    // top-level props that dot paths in only and except name.
+    const { leaves, branches } = flattenProperties(allProperties);
+
+    // A prop is requested if named, if it sits inside a named path (`auth`
+    // requests `auth.user`), or if a named path sits inside it (`user.name`
+    // requests a `user` that resolves to an object, which the client slices)
+    const isRequestedByPartialData = (path: string): boolean => {
+      if (partialData.has(path)) return true;
       for (const entry of partialData) {
-        if (entry.startsWith(`${key}.`)) return true;
+        if (entry.startsWith(`${path}.`) || path.startsWith(`${entry}.`)) {
+          return true;
+        }
       }
       return false;
     };
 
-    const isFilteredOut = (key: string): boolean => {
-      if (!isPartialRequest) return false;
-      if (key === 'errors') return false;
-      if (partialData.size > 0 && !isRequestedByPartialData(key)) return true;
-      if (partialExcept.size > 0 && partialExcept.has(key)) return true;
+    const isExcepted = (path: string): boolean => {
+      if (partialExcept.has(path)) return true;
+      for (const entry of partialExcept) {
+        if (path.startsWith(`${entry}.`)) return true;
+      }
       return false;
     };
 
-    const addOnceMetadata = (
-      key: string,
-      property: { onceKey: string | null; expiresAt: number | null },
-    ): void => {
-      onceMetadata[property.onceKey ?? key] = {
+    const isFilteredOut = (path: string): boolean => {
+      if (!isPartialRequest) return false;
+      if (path === 'errors') return false;
+      if (partialData.size > 0 && !isRequestedByPartialData(path)) return true;
+      return partialExcept.size > 0 && isExcepted(path);
+    };
+
+    // The client compares expiresAt with Date.now(), so a ttl becomes a
+    // timestamp when the prop is sent
+    const addOnceMetadata = (key: string, settings: OnceSettings): void => {
+      onceMetadata[settings.key ?? key] = {
         prop: key,
-        expiresAt: property.expiresAt,
+        expiresAt: settings.ttl === null ? null : Date.now() + settings.ttl,
       };
     };
 
     // The client lists the once props it holds on every request. As in
     // inertia-laravel, only a full visit skips them: a partial reload that
     // names one asks for a fresh value.
-    const clientHolds = (
-      key: string,
-      property: { onceKey: string | null },
-    ): boolean =>
-      !isPartialRequest && exceptOnceProperties.has(property.onceKey ?? key);
+    const clientHolds = (key: string, settings: OnceSettings): boolean =>
+      !isPartialRequest && exceptOnceProperties.has(settings.key ?? key);
+
+    // X-Inertia-Reset asks the client to replace the prop, so it gets no
+    // merge metadata
+    const addMergeMetadata = (key: string, settings: MergeSettings): void => {
+      if (resetProperties.has(key)) return;
+      collectMergeMetadata(key, settings, {
+        mergeKeys,
+        prependKeys,
+        deepMergeKeys,
+        matchOnKeys,
+      });
+    };
 
     const propertyHandlers: Record<
       string,
@@ -345,10 +377,10 @@ export class InertiaResponse implements InertiaContext {
         const opt = tagged as OptionalProperty;
         if (isPartialRequest && isRequestedByPartialData(key)) {
           included[key] = opt.value;
-          if (opt.isOnce) addOnceMetadata(key, opt);
-        } else if (!isPartialRequest && opt.isOnce) {
+          if (opt.onceSettings) addOnceMetadata(key, opt.onceSettings);
+        } else if (!isPartialRequest && opt.onceSettings) {
           // Left out, but listed, so the client carries over a value it holds
-          addOnceMetadata(key, opt);
+          addOnceMetadata(key, opt.onceSettings);
         }
       },
 
@@ -359,36 +391,23 @@ export class InertiaResponse implements InertiaContext {
           if (deferred.shouldRescue) {
             rescuableKeys.add(key);
           }
-          if (deferred.isMerge && !resetProperties.has(key)) {
-            collectMergeMetadata(
-              key,
-              deferred.mergeStrategy,
-              deferred.matchOn,
-              mergeKeys,
-              prependKeys,
-              deepMergeKeys,
-              matchOnKeys,
-            );
-          }
-          if (deferred.isOnce) addOnceMetadata(key, deferred);
+          if (deferred.mergeSettings)
+            addMergeMetadata(key, deferred.mergeSettings);
+          if (deferred.onceSettings)
+            addOnceMetadata(key, deferred.onceSettings);
         } else if (!isPartialRequest) {
           // A once prop the client holds isn't fetched again
-          if (!deferred.isOnce || !clientHolds(key, deferred)) {
+          if (
+            !deferred.onceSettings ||
+            !clientHolds(key, deferred.onceSettings)
+          ) {
             deferredGroups[deferred.group] ??= [];
             deferredGroups[deferred.group].push(key);
           }
-          if (deferred.isOnce) addOnceMetadata(key, deferred);
-          if (deferred.isMerge) {
-            collectMergeMetadata(
-              key,
-              deferred.mergeStrategy,
-              deferred.matchOn,
-              mergeKeys,
-              prependKeys,
-              deepMergeKeys,
-              matchOnKeys,
-            );
-          }
+          if (deferred.onceSettings)
+            addOnceMetadata(key, deferred.onceSettings);
+          if (deferred.mergeSettings)
+            addMergeMetadata(key, deferred.mergeSettings);
         }
       },
 
@@ -396,25 +415,15 @@ export class InertiaResponse implements InertiaContext {
         const m = tagged as MergeProperty;
         if (isFilteredOut(key)) return;
         included[key] = m.value;
-        if (!resetProperties.has(key)) {
-          collectMergeMetadata(
-            key,
-            m.strategy,
-            m.matchOn,
-            mergeKeys,
-            prependKeys,
-            deepMergeKeys,
-            matchOnKeys,
-          );
-        }
+        addMergeMetadata(key, m.mergeSettings);
       },
 
       once: (key, tagged) => {
         const o = tagged as OnceProperty;
         if (isFilteredOut(key)) return;
         // Left out, but listed, so the client carries over the value it holds
-        addOnceMetadata(key, o);
-        if (clientHolds(key, o)) return;
+        addOnceMetadata(key, o.onceSettings);
+        if (clientHolds(key, o.onceSettings)) return;
         included[key] = o.value;
       },
 
@@ -427,39 +436,36 @@ export class InertiaResponse implements InertiaContext {
           currentPage: s.currentPage,
           previousPage: s.previousPage,
           nextPage: s.nextPage,
-          reset: scrollReset,
+          // As in inertia-laravel, only X-Inertia-Reset naming the prop
+          // resets the client's scroll state
+          reset: resetProperties.has(key),
         };
-        if (!resetProperties.has(key)) {
-          collectMergeMetadata(
-            key,
-            scrollMergeIntent === 'prepend' ? 'prepend' : 'append',
-            s.matchOn,
-            mergeKeys,
-            prependKeys,
-            deepMergeKeys,
-            matchOnKeys,
-          );
-        }
+        addMergeMetadata(key, {
+          strategy: scrollMergeIntent,
+          appendPaths: [],
+          prependPaths: [],
+          matchOn: s.matchOnFields,
+        });
       },
     };
 
-    for (const [key, value] of Object.entries(allProperties)) {
+    for (const [path, value] of leaves) {
       if (!isTaggedProp(value)) {
-        if (!isFilteredOut(key)) {
-          included[key] = value;
+        if (!isFilteredOut(path)) {
+          included[path] = value;
         }
         continue;
       }
 
-      const propertyType = value.__hono_inertia_prop_type__;
-      propertyHandlers[propertyType]?.(key, value);
+      const propertyType = value[PROP_TYPE];
+      propertyHandlers[propertyType]?.(path, value);
     }
 
     // Live listeners go on the first visit even for props left out of it, so
     // the client knows what to subscribe to. A partial response only carries
     // the props it refreshed; the client keeps the rest.
     const liveMetadata: Record<string, LivePropertyMetadata> = {};
-    for (const [key, value] of Object.entries(allProperties)) {
+    for (const [key, value] of leaves) {
       if (!isTaggedProp(value) || !('liveMetadata' in value)) continue;
       if (!value.liveMetadata) continue;
       if (isPartialRequest && !(key in included)) continue;
@@ -470,24 +476,29 @@ export class InertiaResponse implements InertiaContext {
     // deferred prop that throws is sent as null and reported instead of
     // failing the whole response (mirrors Laravel's `defer(..., rescue: true)`).
     const resolved: Record<string, unknown> = {};
+    // A full response keeps every branch, also one whose props all wait for
+    // a partial reload
+    if (!isPartialRequest) {
+      for (const branch of branches) setPath(resolved, branch, {});
+    }
     const rescued = new Set<string>();
     const resolvePromises: Array<Promise<void>> = [];
 
     for (const [key, value] of Object.entries(included)) {
       if (typeof value !== 'function') {
-        resolved[key] = value;
+        setPath(resolved, key, value);
         continue;
       }
       const promise = Promise.resolve()
         .then(() => value())
         .then(
           (result) => {
-            resolved[key] = result;
+            setPath(resolved, key, result);
           },
           (error: unknown) => {
             if (!rescuableKeys.has(key)) throw error;
             (this.config.onRescue ?? defaultOnRescue)(error, key);
-            resolved[key] = null;
+            setPath(resolved, key, null);
             rescued.add(key);
           },
         );
@@ -559,8 +570,9 @@ export class InertiaResponse implements InertiaContext {
       component,
       page,
       routePath: routePath(this.c),
+      // By top-level prop, as DevTools lists them. A branch reads as plain.
       propTags: Object.fromEntries(
-        Object.keys(included).map((key) => [
+        Object.keys(resolved).map((key) => [
           key,
           isTaggedProp(allProperties[key]) ? allProperties[key] : undefined,
         ]),
@@ -584,9 +596,13 @@ export class InertiaResponse implements InertiaContext {
 
     // Initial visit: optionally SSR, then render HTML
     let ssrResult: SsrResult | undefined;
-    if (this.config.ssr && this.config.ssr.enabled !== false) {
+    const ssrConfig = this.config.ssr;
+    const ssrEnabled =
+      ssrConfig !== undefined &&
+      (this.ssrOverride ?? (await isSsrEnabled(ssrConfig, this.c)));
+    if (ssrConfig && ssrEnabled) {
       try {
-        ssrResult = await renderSsr(this.config.ssr, page);
+        ssrResult = await renderSsr(ssrConfig, page, this.c);
       } catch (error) {
         (this.config.onSsrError ?? defaultOnSsrError)(error, page);
       }
@@ -626,23 +642,100 @@ function defaultOnSsrError(error: unknown, page: PageObject): void {
   );
 }
 
+const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+  if (value === null || typeof value !== 'object' || isTaggedProp(value)) {
+    return false;
+  }
+  const prototype: unknown = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+};
+
+interface FlattenedProperties {
+  // [dot path, value] for every prop that is not a branch
+  leaves: Array<[string, unknown]>;
+  // Dot paths of the plain objects in between, parents first
+  branches: string[];
+}
+
+// errors stays one prop: its keys are field names, not props. An empty
+// object, and one with toJSON(), are values, not branches.
+function flattenProperties(
+  properties: Record<string, unknown>,
+  prefix = '',
+  result: FlattenedProperties = { leaves: [], branches: [] },
+): FlattenedProperties {
+  for (const [key, value] of Object.entries(properties)) {
+    const path = prefix === '' ? key : `${prefix}.${key}`;
+    if (
+      path !== 'errors' &&
+      isPlainObject(value) &&
+      typeof value.toJSON !== 'function' &&
+      Object.keys(value).length > 0
+    ) {
+      result.branches.push(path);
+      flattenProperties(value, path, result);
+    } else {
+      result.leaves.push([path, value]);
+    }
+  }
+  return result;
+}
+
+// Sets a dot path in a props object, creating the objects on the way
+function setPath(
+  target: Record<string, unknown>,
+  path: string,
+  value: unknown,
+): void {
+  const keys = path.split('.');
+  const last = keys.pop() ?? path;
+  let current = target;
+  for (const key of keys) {
+    const next = current[key];
+    if (isPlainObject(next)) {
+      current = next;
+    } else {
+      const created: Record<string, unknown> = {};
+      current[key] = created;
+      current = created;
+    }
+  }
+  current[last] = value;
+}
+
+interface MergeMetadataTargets {
+  mergeKeys: string[];
+  prependKeys: string[];
+  deepMergeKeys: string[];
+  matchOnKeys: string[];
+}
+
+// Follows inertia-laravel: a deep merge or a root merge lists the prop, and
+// merges at paths list `key.path` instead
 function collectMergeMetadata(
   key: string,
-  strategy: MergeStrategy,
-  matchOn: string | null,
-  mergeKeys: string[],
-  prependKeys: string[],
-  deepMergeKeys: string[],
-  matchOnKeys: string[],
+  settings: MergeSettings,
+  targets: MergeMetadataTargets,
 ): void {
-  const strategyCollectors: Record<MergeStrategy, () => void> = {
-    append: () => mergeKeys.push(key),
-    prepend: () => prependKeys.push(key),
-    deep: () => deepMergeKeys.push(key),
+  const atRoot =
+    settings.appendPaths.length === 0 && settings.prependPaths.length === 0;
+  const rootTargets: Record<MergeStrategy, string[]> = {
+    append: targets.mergeKeys,
+    prepend: targets.prependKeys,
+    deep: targets.deepMergeKeys,
   };
-  strategyCollectors[strategy]();
-  if (matchOn) {
-    matchOnKeys.push(`${key}.${matchOn}`);
+  if (settings.strategy === 'deep' || atRoot) {
+    rootTargets[settings.strategy].push(key);
+  } else {
+    for (const path of settings.appendPaths) {
+      targets.mergeKeys.push(`${key}.${path}`);
+    }
+    for (const path of settings.prependPaths) {
+      targets.prependKeys.push(`${key}.${path}`);
+    }
+  }
+  for (const field of settings.matchOn) {
+    targets.matchOnKeys.push(`${key}.${field}`);
   }
 }
 
@@ -668,14 +761,24 @@ function mergeSessionData(
 function resolveSessionErrors(
   bags: Record<string, ValidationErrors> | undefined,
   errorBag: string | null,
+  messages: (fields: ValidationErrors) => Record<string, string | string[]>,
 ): Record<string, unknown> {
   if (!bags) return {};
   if (bags.default) {
-    const defaultBag = firstMessages(bags.default);
+    const defaultBag = messages(bags.default);
     return errorBag ? { [errorBag]: defaultBag } : defaultBag;
   }
   return Object.fromEntries(
-    Object.entries(bags).map(([bag, fields]) => [bag, firstMessages(fields)]),
+    Object.entries(bags).map(([bag, fields]) => [bag, messages(fields)]),
+  );
+}
+
+function allMessages(fields: ValidationErrors): Record<string, string[]> {
+  return Object.fromEntries(
+    Object.entries(fields).map(([field, messages]) => [
+      field,
+      Array.isArray(messages) ? messages : [messages],
+    ]),
   );
 }
 

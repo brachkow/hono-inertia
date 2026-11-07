@@ -153,11 +153,10 @@ describe('.live() on other prop types', () => {
 
   it('keeps the once settings after .live()', () => {
     const property = optional(() => 1)
-      .once('feed', 60)
+      .once({ key: 'feed', ttl: 60 })
       .live({ channel: 'feed', on: 'FeedChanged' });
 
-    expect(property.isOnce).toBe(true);
-    expect(property.onceKey).toBe('feed');
+    expect(property.onceSettings).toEqual({ key: 'feed', ttl: 60 });
   });
 
   it('refuses a deferred merge prop', () => {

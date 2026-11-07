@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { html as honoHtml } from 'hono/html';
 import { inertia } from '../src/middleware.js';
@@ -13,7 +13,7 @@ import {
   scroll,
 } from '../src/properties.js';
 import { serializePage } from '../src/serialize.js';
-import type { InertiaEnv, PageObject, ScrollMetadata } from '../src/types.js';
+import type { InertiaEnv, PageObject, ScrollOptions } from '../src/types.js';
 
 function createApp(config?: Partial<Parameters<typeof inertia>[0]>) {
   const app = new Hono<InertiaEnv>();
@@ -48,6 +48,11 @@ function parsePageFromHtml(html: string): PageObject {
   if (!match) throw new Error('no data-page script tag in HTML');
   return JSON.parse(match[1]) as PageObject;
 }
+
+// Some tests pin Date.now() to check once expiry timestamps
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 // =========================================================================
 // 1. Detect Inertia requests via X-Inertia: true
@@ -723,7 +728,7 @@ describe('Merge props', () => {
     const app = createApp();
     app.get('/test', (c) =>
       c.var.inertia.render('Test', {
-        items: merge(() => []).setMatchOn('id'),
+        items: merge(() => []).matchOn('id'),
       }),
     );
 
@@ -731,6 +736,55 @@ describe('Merge props', () => {
     const page = await getPage(response);
     expect(page.mergeProps).toEqual(['items']);
     expect(page.matchPropsOn).toEqual(['items.id']);
+  });
+
+  it('lists each matchOn field', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        items: merge(() => []).matchOn(['id', 'slug']),
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.matchPropsOn).toEqual(['items.id', 'items.slug']);
+  });
+
+  it('merges at paths inside the prop', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        feed: merge(() => ({ posts: [], pinned: [], total: 3 }))
+          .append('posts', 'id')
+          .prepend('pinned'),
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect({
+      mergeProps: page.mergeProps,
+      prependProps: page.prependProps,
+      matchPropsOn: page.matchPropsOn,
+    }).toEqual({
+      mergeProps: ['feed.posts'],
+      prependProps: ['feed.pinned'],
+      matchPropsOn: ['feed.posts.id'],
+    });
+  });
+
+  it('merges a deferred prop at a path', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        feed: deferred(() => ({ posts: [] })).append('posts'),
+      }),
+    );
+
+    const response = await app.request('/test', { headers: inertiaHeaders() });
+    const page = await getPage(response);
+    expect(page.mergeProps).toEqual(['feed.posts']);
   });
 
   it('strips merge metadata for reset props', async () => {
@@ -828,7 +882,9 @@ describe('Once props', () => {
     const function_ = vi.fn(() => ['free', 'pro']);
     const app = createApp();
     app.get('/test', (c) =>
-      c.var.inertia.render('Test', { plans: once(function_, 'plans-cache') }),
+      c.var.inertia.render('Test', {
+        plans: once(function_, { key: 'plans-cache' }),
+      }),
     );
 
     const response = await app.request('/test', {
@@ -926,7 +982,7 @@ describe('clearHistory across redirects', () => {
     const app = createApp();
     app.post('/logout', (c) => {
       c.var.inertia.clearHistory();
-      return c.var.inertia.redirect('/');
+      return c.var.inertia.clientRedirect('/');
     });
 
     const response = await app.request('/logout', {
@@ -1342,12 +1398,13 @@ describe('Multiple deferred groups', () => {
   });
 
   it('handles deferred with merge+once chaining', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
     const app = createApp();
     app.get('/test', (c) =>
       c.var.inertia.render('Test', {
         feed: deferred(() => [1, 2], 'main')
           .merge()
-          .once('feed-key', 3600),
+          .once({ key: 'feed-key', ttl: 3600 }),
       }),
     );
 
@@ -1371,7 +1428,7 @@ describe('Multiple deferred groups', () => {
     expect(page2.props.feed).toEqual([1, 2]);
     expect(page2.mergeProps).toEqual(['feed']);
     expect(page2.onceProps).toEqual({
-      'feed-key': { prop: 'feed', expiresAt: 3600 },
+      'feed-key': { prop: 'feed', expiresAt: 1_003_600 },
     });
   });
 
@@ -1447,7 +1504,7 @@ describe('Optional + once chaining', () => {
     const app = createApp();
     app.get('/test', (c) =>
       c.var.inertia.render('Test', {
-        expensive: optional(function_).once('exp-key', 7200),
+        expensive: optional(function_).once({ key: 'exp-key', ttl: 7200 }),
       }),
     );
 
@@ -1459,10 +1516,11 @@ describe('Optional + once chaining', () => {
   });
 
   it('includes optional+once on partial reload with once metadata', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
     const app = createApp();
     app.get('/test', (c) =>
       c.var.inertia.render('Test', {
-        expensive: optional(() => 'data').once('exp-key', 7200),
+        expensive: optional(() => 'data').once({ key: 'exp-key', ttl: 7200 }),
       }),
     );
 
@@ -1476,7 +1534,7 @@ describe('Optional + once chaining', () => {
 
     expect(page.props.expensive).toBe('data');
     expect(page.onceProps).toEqual({
-      'exp-key': { prop: 'expensive', expiresAt: 7200 },
+      'exp-key': { prop: 'expensive', expiresAt: 1_007_200 },
     });
   });
 
@@ -1504,7 +1562,7 @@ describe('Optional + once chaining', () => {
     const app = createApp();
     app.get('/test', (c) =>
       c.var.inertia.render('Test', {
-        expensive: optional(() => 'data').once('exp-key'),
+        expensive: optional(() => 'data').once({ key: 'exp-key' }),
       }),
     );
 
@@ -1726,7 +1784,7 @@ describe('Reset props edge cases', () => {
     const app = createApp();
     app.get('/test', (c) =>
       c.var.inertia.render('Test', {
-        posts: merge(() => [1, 2, 3]).setMatchOn('id'),
+        posts: merge(() => [1, 2, 3]).matchOn('id'),
       }),
     );
 
@@ -1774,7 +1832,7 @@ describe('Once props edge cases', () => {
     const app = createApp();
     app.get('/test', (c) =>
       c.var.inertia.render('Test', {
-        plans: once(() => ['free'], 'custom-plans-key', 3600),
+        plans: once(() => ['free'], { key: 'custom-plans-key' }),
       }),
     );
 
@@ -1782,22 +1840,23 @@ describe('Once props edge cases', () => {
     const page = await getPage(response);
 
     expect(page.onceProps).toEqual({
-      'custom-plans-key': { prop: 'plans', expiresAt: 3600 },
+      'custom-plans-key': { prop: 'plans', expiresAt: null },
     });
   });
 
-  it('passes through expiresAt value', async () => {
+  it('sends the ttl as a timestamp', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
     const app = createApp();
     app.get('/test', (c) =>
       c.var.inertia.render('Test', {
-        config: once(() => ({}), undefined, 86_400),
+        config: once(() => ({}), { ttl: 86_400 }),
       }),
     );
 
     const response = await app.request('/test', { headers: inertiaHeaders() });
     const page = await getPage(response);
 
-    expect(page.onceProps?.config?.expiresAt).toBe(86_400);
+    expect(page.onceProps?.config?.expiresAt).toBe(1_086_400);
   });
 });
 
@@ -2602,9 +2661,9 @@ describe('Cache-Control', () => {
     expect(response.headers.get('Cache-Control')).toBe(DEFAULT);
   });
 
-  it('sets the default header on redirect() 409 responses', async () => {
+  it('sets the default header on clientRedirect() 409 responses', async () => {
     const app = createApp();
-    app.get('/away', (c) => c.var.inertia.redirect('/other#section'));
+    app.get('/away', (c) => c.var.inertia.clientRedirect('/other#section'));
 
     const response = await app.request('/away', { headers: inertiaHeaders() });
 
@@ -3095,12 +3154,12 @@ describe('Preserve fragment', () => {
 });
 
 // =========================================================================
-// v3: redirect() with X-Inertia-Redirect header
+// v3: clientRedirect() with X-Inertia-Redirect header
 // =========================================================================
 describe('Fragment-preserving redirect', () => {
   it('returns 409 with X-Inertia-Redirect for Inertia requests', async () => {
     const app = createApp();
-    app.get('/test', (c) => c.var.inertia.redirect('/new-page#section'));
+    app.get('/test', (c) => c.var.inertia.clientRedirect('/new-page#section'));
 
     const response = await app.request('/test', { headers: inertiaHeaders() });
     expect(response.status).toBe(409);
@@ -3112,7 +3171,7 @@ describe('Fragment-preserving redirect', () => {
 
   it('returns 302 for non-Inertia requests', async () => {
     const app = createApp();
-    app.get('/test', (c) => c.var.inertia.redirect('/new-page#section'));
+    app.get('/test', (c) => c.var.inertia.clientRedirect('/new-page#section'));
 
     const response = await app.request('/test', { redirect: 'manual' });
     expect(response.status).toBe(302);
@@ -3124,12 +3183,7 @@ describe('Fragment-preserving redirect', () => {
 // v3: scroll() prop
 // =========================================================================
 describe('Scroll props', () => {
-  const mockMetadata: ScrollMetadata = {
-    getPageName: () => 'page',
-    getCurrentPage: () => 1,
-    getPreviousPage: () => null,
-    getNextPage: () => 2,
-  };
+  const mockMetadata: ScrollOptions = { page: 1, hasMore: true };
 
   it('includes scroll data in props and scrollProps metadata', async () => {
     const app = createApp();
@@ -3148,7 +3202,7 @@ describe('Scroll props', () => {
         currentPage: 1,
         previousPage: null,
         nextPage: 2,
-        reset: true,
+        reset: false,
       },
     });
   });
@@ -3227,11 +3281,30 @@ describe('Scroll props', () => {
     expect(page.mergeProps).toBeUndefined();
   });
 
+  it('resets the scroll state only when X-Inertia-Reset names the prop', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        posts: scroll(() => [1], mockMetadata),
+        comments: scroll(() => [2], mockMetadata),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({ 'X-Inertia-Reset': 'posts' }),
+    });
+    const page = await getPage(response);
+    expect({
+      posts: page.scrollProps?.posts?.reset,
+      comments: page.scrollProps?.comments?.reset,
+    }).toEqual({ posts: true, comments: false });
+  });
+
   it('sets matchPropsOn for scroll with matchOn', async () => {
     const app = createApp();
     app.get('/test', (c) =>
       c.var.inertia.render('Test', {
-        posts: scroll(() => [{ id: 1 }], mockMetadata).setMatchOn('id'),
+        posts: scroll(() => [{ id: 1 }], mockMetadata).matchOn('id'),
       }),
     );
 
@@ -3245,7 +3318,7 @@ describe('Scroll props', () => {
     const app = createApp();
     app.get('/test', (c) =>
       c.var.inertia.render('Test', {
-        posts: scroll(() => [{ id: 1 }], mockMetadata).setMatchOn('id'),
+        posts: scroll(() => [{ id: 1 }], mockMetadata).matchOn('id'),
       }),
     );
 
@@ -3278,7 +3351,7 @@ describe('Scroll props', () => {
     const app = createApp();
     app.get('/test', (c) =>
       c.var.inertia.render('Test', {
-        posts: scroll(() => [{ id: 1 }], mockMetadata).setMatchOn('id'),
+        posts: scroll(() => [{ id: 1 }], mockMetadata).matchOn('id'),
       }),
     );
 
@@ -3355,7 +3428,8 @@ describe('XSS safety', () => {
 // Conformance: nested partial-reload keys
 // =========================================================================
 describe('Conformance: nested partial-reload keys', () => {
-  it('includes the top-level prop when only a nested path is requested', async () => {
+  // The client deep-merges it into the user it holds
+  it('sends only the nested path a partial reload names', async () => {
     const app = createApp();
     app.get('/test', (c) =>
       c.var.inertia.render('Test', {
@@ -3371,8 +3445,25 @@ describe('Conformance: nested partial-reload keys', () => {
       }),
     });
     const page = await getPage(response);
+    expect(page.props).toEqual({ user: { name: 'Alice' }, errors: {} });
+  });
+
+  it('sends a whole lazy prop when a nested path inside it is named', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        user: () => ({ name: 'Alice', email: 'a@b.c' }),
+      }),
+    );
+
+    const response = await app.request('/test', {
+      headers: inertiaHeaders({
+        'X-Inertia-Partial-Component': 'Test',
+        'X-Inertia-Partial-Data': 'user.name',
+      }),
+    });
+    const page = await getPage(response);
     expect(page.props.user).toEqual({ name: 'Alice', email: 'a@b.c' });
-    expect(page.props.other).toBeUndefined();
   });
 });
 
@@ -3468,5 +3559,178 @@ describe('Flash messages', () => {
     const page = await getPage(response);
     expect(page.props.success).toBeUndefined();
     expect(page.props.title).toBe('Home');
+  });
+});
+
+// =========================================================================
+// Nested props, as in inertia-laravel
+// =========================================================================
+describe('Nested props', () => {
+  const partial = (only: string, except?: string) =>
+    inertiaHeaders({
+      'X-Inertia-Partial-Component': 'Test',
+      'X-Inertia-Partial-Data': only,
+      ...(except !== undefined && { 'X-Inertia-Partial-Except': except }),
+    });
+
+  it('resolves lazy functions inside plain objects', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', { stats: { users: () => 2, plan: 'pro' } }),
+    );
+
+    const page = await getPage(
+      await app.request('/test', { headers: inertiaHeaders() }),
+    );
+    expect(page.props.stats).toEqual({ users: 2, plan: 'pro' });
+  });
+
+  it('leaves a nested optional prop out of the first visit', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        auth: { user: 'me', permissions: optional(() => ['admin']) },
+      }),
+    );
+
+    const page = await getPage(
+      await app.request('/test', { headers: inertiaHeaders() }),
+    );
+    expect(page.props.auth).toEqual({ user: 'me' });
+  });
+
+  it('keeps an object whose props all wait for a reload', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        auth: { permissions: optional(() => ['admin']) },
+      }),
+    );
+
+    const page = await getPage(
+      await app.request('/test', { headers: inertiaHeaders() }),
+    );
+    expect(page.props.auth).toEqual({});
+  });
+
+  it('sends only the nested prop a partial reload names', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        auth: { user: 'me', permissions: optional(() => ['admin']) },
+      }),
+    );
+
+    const page = await getPage(
+      await app.request('/test', { headers: partial('auth.permissions') }),
+    );
+    expect(page.props).toEqual({
+      auth: { permissions: ['admin'] },
+      errors: {},
+    });
+  });
+
+  it('sends every nested prop of a named object', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        auth: { user: 'me', permissions: optional(() => ['admin']) },
+        other: 'x',
+      }),
+    );
+
+    const page = await getPage(
+      await app.request('/test', { headers: partial('auth') }),
+    );
+    expect(page.props).toEqual({
+      auth: { user: 'me', permissions: ['admin'] },
+      errors: {},
+    });
+  });
+
+  it('leaves out the nested path a partial reload excepts', async () => {
+    const app = createApp();
+    const permissions = vi.fn(() => ['admin']);
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        auth: { user: () => 'me', permissions },
+      }),
+    );
+
+    const page = await getPage(
+      await app.request('/test', {
+        headers: inertiaHeaders({
+          'X-Inertia-Partial-Component': 'Test',
+          'X-Inertia-Partial-Except': 'auth.permissions',
+        }),
+      }),
+    );
+    expect({
+      auth: page.props.auth,
+      called: permissions.mock.calls.length,
+    }).toEqual({
+      auth: { user: 'me' },
+      called: 0,
+    });
+  });
+
+  it('lists a nested deferred prop by its path', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        auth: { user: 'me', permissions: deferred(() => ['admin']) },
+      }),
+    );
+
+    const page = await getPage(
+      await app.request('/test', { headers: inertiaHeaders() }),
+    );
+    expect(page.deferredProps).toEqual({ default: ['auth.permissions'] });
+  });
+
+  it('lists a nested merge prop by its path', async () => {
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        feed: { posts: merge(() => [1]).matchOn('id'), title: 'Feed' },
+      }),
+    );
+
+    const page = await getPage(
+      await app.request('/test', { headers: inertiaHeaders() }),
+    );
+    expect({
+      mergeProps: page.mergeProps,
+      matchPropsOn: page.matchPropsOn,
+      props: page.props.feed,
+    }).toEqual({
+      mergeProps: ['feed.posts'],
+      matchPropsOn: ['feed.posts.id'],
+      props: { posts: [1], title: 'Feed' },
+    });
+  });
+
+  it('sends a Map, a class instance and an object with toJSON whole', async () => {
+    class Point {
+      constructor(
+        public x: number,
+        public y: number,
+      ) {}
+    }
+    const app = createApp();
+    app.get('/test', (c) =>
+      c.var.inertia.render('Test', {
+        point: new Point(1, 2),
+        price: { amount: 5, toJSON: () => '5 EUR' },
+      }),
+    );
+
+    const page = await getPage(
+      await app.request('/test', { headers: inertiaHeaders() }),
+    );
+    expect({ point: page.props.point, price: page.props.price }).toEqual({
+      point: { x: 1, y: 2 },
+      price: '5 EUR',
+    });
   });
 });

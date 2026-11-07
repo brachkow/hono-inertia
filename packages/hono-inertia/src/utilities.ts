@@ -1,5 +1,5 @@
 import type { Context } from 'hono';
-import type { InertiaConfig } from './types.js';
+import type { ResolvedInertiaConfig } from './types.js';
 
 // Without Cache-Control, browsers apply heuristic freshness to the HTML
 // document — after a 409-triggered full reload they may serve the same stale
@@ -8,7 +8,9 @@ import type { InertiaConfig } from './types.js';
 // embeds per-user state in data-page.
 const DEFAULT_CACHE_CONTROL = 'private, no-cache, must-revalidate';
 
-export function cacheControlValue(config: InertiaConfig): string | undefined {
+export function cacheControlValue(
+  config: Pick<ResolvedInertiaConfig, 'cacheControl'>,
+): string | undefined {
   if (config.cacheControl === false) return undefined;
   return config.cacheControl ?? DEFAULT_CACHE_CONTROL;
 }

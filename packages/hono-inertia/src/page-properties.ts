@@ -1,5 +1,6 @@
 import type { Hono, TypedResponse } from 'hono';
 import type { ExtractSchema } from 'hono/types';
+import type { PROP_TYPE } from './symbols.js';
 import type { TaggedProperty } from './types.js';
 
 // ---------------------------------------------------------------------------
@@ -25,16 +26,33 @@ export type PageName = keyof InertiaPages extends never
 
 type Resolved<V> = V extends () => infer R ? Awaited<R> : V;
 
+// A plain object, whose props the adapter resolves like the top-level ones.
+// Objects with toJSON(), arrays, Map and Set are sent as they are.
+type IsBranch<V> = 0 extends 1 & V
+  ? false
+  : V extends
+        | TaggedProperty
+        | readonly unknown[]
+        | ((...arguments_: never[]) => unknown)
+        | { toJSON: (...arguments_: never[]) => unknown }
+        | ReadonlyMap<unknown, unknown>
+        | ReadonlySet<unknown>
+    ? false
+    : V extends object
+      ? true
+      : false;
+
 type PropertyValue<V> = V extends TaggedProperty
   ? V extends { value: infer F }
     ? Resolved<F>
     : never
-  : Resolved<V>;
+  : IsBranch<V> extends true
+    ? ResolvedProperties<V>
+    : Resolved<V>;
 
 // Left out of the first visit, so the component sees them as possibly missing
 type MissingOnFirstVisit =
-  | { __hono_inertia_prop_type__: 'optional' }
-  | { __hono_inertia_prop_type__: 'deferred' };
+  { [PROP_TYPE]: 'optional' } | { [PROP_TYPE]: 'deferred' };
 
 type OptionalKeys<P> = {
   [K in keyof P]: P[K] extends MissingOnFirstVisit ? K : never;

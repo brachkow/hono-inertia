@@ -7,9 +7,13 @@ import type {
   LivePropertyMetadata,
   LiveProperty,
   MergeProperty,
+  MergeSettings,
+  OnceOptions,
   OnceProperty,
+  OnceSettings,
   OptionalProperty,
-  ScrollMetadata,
+  ScrollOptions,
+  ScrollPage,
   ScrollProperty,
   TaggedProperty,
 } from './types.js';
@@ -40,8 +44,20 @@ type Lazy<T> = T | (() => T | Promise<T>);
 // The value a Lazy<T> argument stands for
 type Resolved<V> = V extends () => infer R ? Awaited<R> : V;
 
+// The merge methods merge(), deferred().merge() and the like share. Without a
+// path, append() and prepend() merge at the root of the prop; with one, at
+// that path inside it, matched on matchOn when given.
+interface MergeMethods<Chain> {
+  append(path?: string, matchOn?: string): Chain;
+  prepend(path?: string, matchOn?: string): Chain;
+  deepMerge(): Chain;
+  // A field, or fields, that identify an item, so the client replaces it
+  // instead of adding it twice
+  matchOn(fields: string | string[]): Chain;
+}
+
 export type OptionalChain<T = unknown> = OptionalProperty<T> & {
-  once(key?: string, expiresAt?: number | null): OptionalChain<T>;
+  once(options?: OnceOptions): OptionalChain<T>;
   live(options: LiveOptions): OptionalChain<T>;
 };
 
@@ -57,25 +73,55 @@ export type LiveChain<T = unknown> = LiveProperty<T> & {
   live(options: LiveOptions): LiveChain<T>;
 };
 
-export type DeferredChain<T = unknown> = DeferredProperty<T> & {
-  rescue(): DeferredChain<T>;
-  live(options: LiveOptions): DeferredChain<T>;
-  merge(): DeferredChain<T>;
-  prepend(): DeferredChain<T>;
-  deepMerge(): DeferredChain<T>;
-  setMatchOn(field: string): DeferredChain<T>;
-  once(key?: string, expiresAt?: number | null): DeferredChain<T>;
-};
+export type DeferredChain<T = unknown> = DeferredProperty<T> &
+  MergeMethods<DeferredChain<T>> & {
+    rescue(): DeferredChain<T>;
+    live(options: LiveOptions): DeferredChain<T>;
+    merge(): DeferredChain<T>;
+    once(options?: OnceOptions): DeferredChain<T>;
+  };
 
-export type MergeChain<T = unknown> = MergeProperty<T> & {
-  prepend(): MergeChain<T>;
-  deepMerge(): MergeChain<T>;
-  setMatchOn(field: string): MergeChain<T>;
-};
+export type MergeChain<T = unknown> = MergeProperty<T> &
+  MergeMethods<MergeChain<T>>;
 
 export type ScrollChain<T = unknown> = ScrollProperty<T> & {
-  setMatchOn(field: string): ScrollChain<T>;
+  matchOn(fields: string | string[]): ScrollChain<T>;
 };
+
+const toList = (fields: string | string[]): string[] =>
+  Array.isArray(fields) ? fields : [fields];
+
+const createMergeSettings = (): MergeSettings => ({
+  strategy: 'append',
+  appendPaths: [],
+  prependPaths: [],
+  matchOn: [],
+});
+
+// Applies one merge method call to the settings, as Laravel's MergesProps does
+const mergeUpdates = {
+  append: (settings: MergeSettings, path?: string, matchOn?: string): void => {
+    if (path === undefined) {
+      settings.strategy = 'append';
+      return;
+    }
+    settings.appendPaths.push(path);
+    if (matchOn) settings.matchOn.push(`${path}.${matchOn}`);
+  },
+  prepend: (settings: MergeSettings, path?: string, matchOn?: string): void => {
+    if (path === undefined) {
+      settings.strategy = 'prepend';
+      return;
+    }
+    settings.prependPaths.push(path);
+    if (matchOn) settings.matchOn.push(`${path}.${matchOn}`);
+  },
+};
+
+const toOnceSettings = (options: OnceOptions = {}): OnceSettings => ({
+  key: options.key ?? null,
+  ttl: options.ttl ?? null,
+});
 
 // ---------------------------------------------------------------------------
 // optional(fn) — excluded from first visit, included on partial reload
@@ -85,16 +131,12 @@ export function optional<T>(function_: () => T | Promise<T>): OptionalChain<T> {
   const property: OptionalProperty<T> = {
     [PROP_TYPE]: 'optional',
     value: function_,
-    isOnce: false,
-    onceKey: null,
-    expiresAt: null,
+    onceSettings: null,
   };
 
   const chain = {
-    once(key?: string, expiresAt?: number | null): OptionalChain<T> {
-      property.isOnce = true;
-      property.onceKey = key ?? null;
-      property.expiresAt = expiresAt ?? null;
+    once(options?: OnceOptions): OptionalChain<T> {
+      property.onceSettings = toOnceSettings(options);
       return result;
     },
     live(options: LiveOptions): OptionalChain<T> {
@@ -142,12 +184,15 @@ export function deferred<T>(
     value: function_,
     group,
     shouldRescue: false,
-    isMerge: false,
-    mergeStrategy: 'append',
-    matchOn: null,
-    isOnce: false,
-    onceKey: null,
-    expiresAt: null,
+    mergeSettings: null,
+    onceSettings: null,
+  };
+
+  // Every merge method turns merging on
+  const settings = (): MergeSettings => {
+    if (property.liveMetadata) throw new Error(MERGE_LIVE_ERROR);
+    property.mergeSettings ??= createMergeSettings();
+    return property.mergeSettings;
   };
 
   const chain = {
@@ -156,36 +201,32 @@ export function deferred<T>(
       return result;
     },
     live(options: LiveOptions): DeferredChain<T> {
-      if (property.isMerge) throw new Error(MERGE_LIVE_ERROR);
+      if (property.mergeSettings) throw new Error(MERGE_LIVE_ERROR);
       property.liveMetadata = addLiveListeners(property.liveMetadata, options);
       return result;
     },
     merge(): DeferredChain<T> {
-      if (property.liveMetadata) throw new Error(MERGE_LIVE_ERROR);
-      property.isMerge = true;
-      property.mergeStrategy = 'append';
+      settings();
       return result;
     },
-    prepend(): DeferredChain<T> {
-      if (property.liveMetadata) throw new Error(MERGE_LIVE_ERROR);
-      property.isMerge = true;
-      property.mergeStrategy = 'prepend';
+    append(path?: string, matchOn?: string): DeferredChain<T> {
+      mergeUpdates.append(settings(), path, matchOn);
+      return result;
+    },
+    prepend(path?: string, matchOn?: string): DeferredChain<T> {
+      mergeUpdates.prepend(settings(), path, matchOn);
       return result;
     },
     deepMerge(): DeferredChain<T> {
-      if (property.liveMetadata) throw new Error(MERGE_LIVE_ERROR);
-      property.isMerge = true;
-      property.mergeStrategy = 'deep';
+      settings().strategy = 'deep';
       return result;
     },
-    setMatchOn(field: string): DeferredChain<T> {
-      property.matchOn = field;
+    matchOn(fields: string | string[]): DeferredChain<T> {
+      settings().matchOn = toList(fields);
       return result;
     },
-    once(key?: string, expiresAt?: number | null): DeferredChain<T> {
-      property.isOnce = true;
-      property.onceKey = key ?? null;
-      property.expiresAt = expiresAt ?? null;
+    once(options?: OnceOptions): DeferredChain<T> {
+      property.onceSettings = toOnceSettings(options);
       return result;
     },
   };
@@ -203,21 +244,24 @@ export function merge<V>(value: V): MergeChain<Resolved<V>> {
   const property: MergeProperty<T> = {
     [PROP_TYPE]: 'merge',
     value: value as Lazy<T>,
-    strategy: 'append',
-    matchOn: null,
+    mergeSettings: createMergeSettings(),
   };
 
   const chain = {
-    prepend(): MergeChain<T> {
-      property.strategy = 'prepend';
+    append(path?: string, matchOn?: string): MergeChain<T> {
+      mergeUpdates.append(property.mergeSettings, path, matchOn);
+      return result;
+    },
+    prepend(path?: string, matchOn?: string): MergeChain<T> {
+      mergeUpdates.prepend(property.mergeSettings, path, matchOn);
       return result;
     },
     deepMerge(): MergeChain<T> {
-      property.strategy = 'deep';
+      property.mergeSettings.strategy = 'deep';
       return result;
     },
-    setMatchOn(field: string): MergeChain<T> {
-      property.matchOn = field;
+    matchOn(fields: string | string[]): MergeChain<T> {
+      property.mergeSettings.matchOn = toList(fields);
       return result;
     },
   };
@@ -243,24 +287,25 @@ export function deepMerge<V>(value: V): MergeChain<Resolved<V>> {
 }
 
 // ---------------------------------------------------------------------------
-// once(fn) — resolved once, client caches across navigations
+// once(fn, options?) — resolved once, client caches across navigations
 // ---------------------------------------------------------------------------
 
 export function once<T>(
   function_: () => T | Promise<T>,
-  key?: string,
-  expiresAt?: number | null,
+  options?: OnceOptions,
 ): OnceChain<T> {
   const property: OnceProperty<T> = {
     [PROP_TYPE]: 'once',
     value: function_,
-    onceKey: key ?? null,
-    expiresAt: expiresAt ?? null,
+    onceSettings: toOnceSettings(options),
   };
 
   const chain = {
-    live(options: LiveOptions): OnceChain<T> {
-      property.liveMetadata = addLiveListeners(property.liveMetadata, options);
+    live(liveOptions: LiveOptions): OnceChain<T> {
+      property.liveMetadata = addLiveListeners(
+        property.liveMetadata,
+        liveOptions,
+      );
       return result;
     },
   };
@@ -270,27 +315,42 @@ export function once<T>(
 }
 
 // ---------------------------------------------------------------------------
-// scroll(value, metadata) — infinite scroll with pagination metadata
+// scroll(value, options) — infinite scroll with pagination metadata
 // ---------------------------------------------------------------------------
+
+const previousPageOf = (options: ScrollOptions): ScrollPage | null => {
+  if (options.previousPage !== undefined) return options.previousPage;
+  return typeof options.page === 'number' && options.page > 1
+    ? options.page - 1
+    : null;
+};
+
+const nextPageOf = (options: ScrollOptions): ScrollPage | null => {
+  if (options.nextPage !== undefined) return options.nextPage;
+  const { page, hasMore, lastPage } = options;
+  if (typeof page !== 'number') return null;
+  const more = hasMore ?? (lastPage !== undefined && page < lastPage);
+  return more ? page + 1 : null;
+};
 
 export function scroll<V>(
   value: V,
-  metadata: ScrollMetadata,
+  options: ScrollOptions,
 ): ScrollChain<Resolved<V>> {
   type T = Resolved<V>;
   const property: ScrollProperty<T> = {
     [PROP_TYPE]: 'scroll',
     value: value as Lazy<T>,
-    pageName: metadata.getPageName(),
-    currentPage: metadata.getCurrentPage(),
-    previousPage: metadata.getPreviousPage(),
-    nextPage: metadata.getNextPage(),
-    matchOn: null,
+    pageName: options.pageName ?? 'page',
+    currentPage: options.page,
+    previousPage: previousPageOf(options),
+    nextPage: nextPageOf(options),
+    matchOnFields: [],
   };
 
   const chain = {
-    setMatchOn(field: string): ScrollChain<T> {
-      property.matchOn = field;
+    matchOn(fields: string | string[]): ScrollChain<T> {
+      property.matchOnFields = toList(fields);
       return result;
     },
   };
