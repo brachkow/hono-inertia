@@ -10,11 +10,8 @@ const pages = import.meta.glob<DefineComponent>('./pages/**/*.vue', {
   import: 'default',
 });
 
-// src/server.ts passes this to the adapter as ssr.render, so pages render in
-// the server's own process, in dev and in production
-// The return type is written out. Inferring it goes through the types of
-// createInertiaApp(), which read sharedPageProps from src/pages.gen.ts, and
-// those come from the app that holds this function, so TypeScript would loop.
+// honoInertia()'s `ssr` option hands this to inertia({ assets }), so pages
+// render in the server's own process, in dev and in production
 const renderPage = (page: PageObject): Promise<SsrRenderResult> =>
   createInertiaApp({
     // Inertia's Page type also requires client-only state (rememberedState)

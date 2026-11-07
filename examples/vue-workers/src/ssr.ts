@@ -13,10 +13,8 @@ const pages = import.meta.glob<DefineComponent>('./pages/**/*.vue', {
   import: 'default',
 });
 
-// The Worker calls this for every page, in dev and in production
-// The return type is written out. Inferring it goes through the types of
-// createInertiaApp(), which read sharedPageProps from src/pages.gen.ts, and
-// those come from the app that holds this function, so TypeScript would loop.
+// honoInertia()'s `ssr` option hands this to inertia({ assets }), so the
+// Worker renders every page itself, in dev and in production
 const renderPage = (page: Page): Promise<SsrRenderResult> =>
   createInertiaApp({
     page,

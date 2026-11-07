@@ -1,17 +1,13 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import {
-  cookieSession,
   deferred,
   inertia,
   inertiaValidator,
   merge,
   optional,
-  serializePage,
 } from '@brachkow/hono-inertia';
-import type { Page } from '@inertiajs/core';
-import { assetTagsFor, version } from 'virtual:hono-inertia/assets';
-import renderPage from './ssr';
+import * as assets from 'virtual:hono-inertia/assets';
 
 const PAGE_SIZE = 3;
 
@@ -43,28 +39,18 @@ const USERS = [
 const app = new Hono()
   .use(
     inertia({
-      // Both come from honoInertia() in vite.config.ts
-      version,
-      // Workers can't run Inertia's Node SSR server, so the Worker renders
-      // in-process, in dev and in production alike
-      ssr: {
-        // Inertia's Page type also requires client-only state (rememberedState)
-        // that no server sends
-        render: (page) => renderPage(page as Page),
-      },
+      // The version, the asset tags and the SSR entry from honoInertia() in
+      // vite.config.ts. inertia() renders the HTML page with them, and SSR
+      // runs in this process.
+      assets,
       share: () => ({ appName: 'Vue + Workers' }),
-      // Workers secrets live in c.env, which exists only per request
-      session: cookieSession({
+      // Signs the built-in cookie session. Workers secrets live in c.env,
+      // which exists only per request.
+      session: {
         secret: (c) =>
           (c.env as { SESSION_SECRET?: string }).SESSION_SECRET ??
           INSECURE_EXAMPLE_SECRET,
-      }),
-      // assetTagsFor() also preloads the page's own chunks, so the browser
-      // fetches them with the entry instead of after it
-      render: (page, _viewData, ssrResult) =>
-        ssrResult
-          ? `<!DOCTYPE html><html><head><meta charset="utf-8">${ssrResult.head}${assetTagsFor(page.component)}</head><body>${ssrResult.body}</body></html>`
-          : `<!DOCTYPE html><html><head><meta charset="utf-8">${assetTagsFor(page.component)}</head><body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body></html>`,
+      },
     }),
   )
   .get('/', (c) => c.var.inertia.render('Home', { framework: 'Vue' }))

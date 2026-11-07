@@ -18,6 +18,8 @@ export default defineConfig({
     // the server
     honoInertia({
       entry: 'src/client.tsx',
+      // Hands the SSR entry's render function to the server
+      ssr: 'src/ssr.tsx',
       // Writes src/pages.gen.ts, which types each page's props
       pages: {
         directory: 'src/pages',

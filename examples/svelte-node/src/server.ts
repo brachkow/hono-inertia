@@ -1,16 +1,13 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import {
-  cookieSession,
   deferred,
   inertia,
   inertiaValidator,
   merge,
   optional,
-  serializePage,
 } from '@brachkow/hono-inertia';
-import { assetTagsFor, version } from 'virtual:hono-inertia/assets';
-import renderPage from './ssr';
+import * as assets from 'virtual:hono-inertia/assets';
 
 const PAGE_SIZE = 3;
 
@@ -42,20 +39,15 @@ const USERS = [
 const app = new Hono()
   .use(
     inertia({
-      // Both come from honoInertia() in vite.config.ts
-      version,
-      // Renders in this process. No separate SSR server to run
-      ssr: { render: renderPage },
+      // The version, the asset tags and the SSR entry from honoInertia() in
+      // vite.config.ts. inertia() renders the HTML page with them, and SSR
+      // runs in this process.
+      assets,
       share: () => ({ appName: 'Svelte + Node' }),
-      session: cookieSession({
+      // Signs the built-in cookie session
+      session: {
         secret: process.env.SESSION_SECRET ?? INSECURE_EXAMPLE_SECRET,
-      }),
-      // assetTagsFor() also preloads the page's own chunks, so the browser
-      // fetches them with the entry instead of after it
-      render: (page, _viewData, ssrResult) =>
-        ssrResult
-          ? `<!DOCTYPE html><html><head><meta charset="utf-8">${ssrResult.head}${assetTagsFor(page.component)}</head><body>${ssrResult.body}</body></html>`
-          : `<!DOCTYPE html><html><head><meta charset="utf-8">${assetTagsFor(page.component)}</head><body><script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div></body></html>`,
+      },
     }),
   )
   .get('/', (c) => c.var.inertia.render('Home', { framework: 'Svelte' }))
