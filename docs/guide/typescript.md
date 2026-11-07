@@ -89,7 +89,7 @@ To skip the prop names, a Vue page can read its props from the current page with
 </template>
 ```
 
-`page` has the type `PageProps<'Users/Index'>`, shared props and `errors` included. It reads `usePage().props` on every access, so it updates after each visit and reload. A variable that holds `usePage().props` keeps the first page's props, because Inertia puts a new object there on each visit. A page that calls `usePageProps()` in `<script setup>` and has no `defineProps` is left out of the generated check, and the file lists it in a comment. It stays in `InertiaPages`, so `render()` still takes its name.
+`page` has the type `PageProps<'Users/Index'>`, shared props and `errors` included. It reads `usePage().props` on every access, so it updates after each visit and reload. A variable that holds `usePage().props` keeps the first page's props, because Inertia puts a new object there on each visit. A page that calls `usePageProps()` in `<script setup>` and doesn't call `defineProps()` is left out of the generated check, and the file lists it in a comment. Comments and strings don't count, and a page that calls `usePageProps()` only inside a composable is still checked. It stays in `InertiaPages`, so `render()` still takes its name.
 
 Compared with `defineProps`, a page that uses `usePageProps()` behaves differently:
 
@@ -97,6 +97,7 @@ Compared with `defineProps`, a page that uses `usePageProps()` behaves different
 - It always shows the current page. As soon as a visit lands, it has the next page's props, for example while an exit transition plays or in `onBeforeUnmount`. `defineProps` keeps the props the component was rendered with.
 - There are no client-side defaults. Without `withDefaults`, a route has to send every prop, or the page handles `undefined`. A missing optional boolean is `undefined`, where Vue's `defineProps` gives `false`.
 - The generated check is off for that page, so nothing reports a prop that routes send and the page never reads.
+- Inertia still passes every page prop to the page component, which declares none, so Vue sees them as attributes. They don't fall through onto a single root element or component, because `@inertiajs/vue3` renders page components with `inheritAttrs: false` unless the page sets it to `true`. A page mounted directly with props, outside Inertia, would pass them on, so wrap it in `<PagePropsProvider>` instead.
 - To render the page with other data, as in a story or a component test, wrap it in `<PagePropsProvider>` (see below).
 
 `<PagePropsProvider>` gives the pages inside it their own props, which `usePageProps()` reads instead of the current page. Several providers side by side render the same page with different data, or two pages with props that share keys. The props are typed as `PageProps<page>`, shared props and `errors` included:
