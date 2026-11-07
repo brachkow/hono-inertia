@@ -359,6 +359,25 @@ describe('PageProps', () => {
     });
   });
 
+  it('keeps every render of a page in one handler', async () => {
+    const app = new Hono().use(inertia({ render })).get('/login', (c) => {
+      if (c.req.query('limited')) {
+        return c.var.inertia.render('Login', { site: 'x', limited: true });
+      }
+      return c.var.inertia.render('Login', { site: 'x' });
+    });
+
+    expectTypeOf<PagePropsFor<typeof app, 'Login'>>().toEqualTypeOf<
+      | { site: string; limited?: undefined; errors: Errors }
+      | { site: string; limited: boolean; errors: Errors }
+    >();
+    expect(await firstVisitProperties(app, '/login?limited=1')).toEqual({
+      site: 'x',
+      limited: true,
+      errors: {},
+    });
+  });
+
   it('ignores routes that do not render a page', async () => {
     const app = new Hono()
       .use(inertia({ render }))

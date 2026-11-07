@@ -114,10 +114,17 @@ export type Serialized<T> = 0 extends 1 & T
                 ? SerializedObject<T>
                 : never;
 
+declare const RENDER_PROPS: unique symbol;
+
 // What render() returns: a Response whose type also records the component
-// and its props, so PageProps can read them from the app's routes
+// and its props, so PageProps can read them from the app's routes.
+// TypeScript reduces a handler's returns by subtype, so a render whose props
+// extend another's would vanish into it. The phantom field makes the type
+// invariant in its props, and every render stays in the union.
 export type RenderResponse<C extends string, P> = Response &
-  TypedResponse<{ component: C; props: ResolvedProperties<P> }, 200, 'html'>;
+  TypedResponse<{ component: C; props: ResolvedProperties<P> }, 200, 'html'> & {
+    readonly [RENDER_PROPS]?: (properties: P) => P;
+  };
 
 // ---------------------------------------------------------------------------
 // Shared props, carried in the app's Env by the middleware
@@ -168,15 +175,15 @@ export type SharedProps<App> = SharedProperties<App>;
 type Errors = Record<string, string>;
 type ErrorBag = Record<string, Errors>;
 
+// Distributes over a route's outputs: inferring O from the whole union would
+// reduce it by subtype and drop a render whose props extend another's
+type Output<Route> = Route extends { output: infer O } ? O : never;
+
 type Outputs<App> = {
   [Path in keyof ExtractSchema<App>]: {
-    [
-      Method in keyof ExtractSchema<App>[Path]
-    ]: ExtractSchema<App>[Path][Method] extends {
-      output: infer O;
-    }
-      ? O
-      : never;
+    [Method in keyof ExtractSchema<App>[Path]]: Output<
+      ExtractSchema<App>[Path][Method]
+    >;
   }[keyof ExtractSchema<App>[Path]];
 }[keyof ExtractSchema<App>];
 
