@@ -63,7 +63,7 @@ The library is a Hono middleware + prop helpers. Request flow:
 
 9. **Testing helpers** (`src/testing.ts`) — the `./testing` entry: `inertiaRequest()`, `inertiaHeaders()`, `getPage()`.
 
-10. **Vue helper** (`src/vue.ts`) — the `./vue` entry: `usePageProps()`, a read-only proxy over `usePage().props` typed with `PageProps`. `@inertiajs/vue3` is an optional peer. The pages file leaves Vue pages that use it out of the `VuePage` check.
+10. **Vue helper** (`src/vue.ts`) — the `./vue` entry: `usePageProps()`, a read-only proxy over `usePage().props` typed with `PageProps`, or over the props `providePageProps()` / `<PagePropsProvider>` give a subtree. `@inertiajs/vue3` and `vue` are optional peers. The pages file leaves Vue pages that use it out of the `VuePage` check.
 
 Key type: `InertiaEnv` (`src/types.ts`) — Hono env binding that types `c.get('inertia')`.
 

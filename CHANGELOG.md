@@ -83,6 +83,7 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 - New `@brachkow/hono-inertia/vue` entry with `usePageProps<'Page'>()`. A Vue page reads its typed props from the current page, without writing out each name in `defineProps`. It needs `@inertiajs/vue3`, an optional peer dependency.
 - The generated pages file leaves a Vue page that calls `usePageProps()` and has no `defineProps` out of its props check, and lists it in a comment. In dev, it now regenerates when a `.vue` page changes.
 - `RouteProps<'Page'>` gives what the routes of a page send, without shared props and `errors`, for story and test fixtures.
+- `<PagePropsProvider page props>` and `providePageProps()` give a subtree its own page props, which `usePageProps()` reads instead of the current page. Stories and component tests render a page with typed props this way, also several times side by side. `vue` is an optional peer dependency.
 
 **Less setup**
 
