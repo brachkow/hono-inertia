@@ -12,6 +12,15 @@ A pnpm monorepo:
 - `examples/` holds runnable apps (`react-node`, `vue-node`, `svelte-node`, `vue-workers`) that double as guides. They implement the same pages and depend on the library via `workspace:*`, which resolves to its `dist/`, so build the library first.
 - `e2e/` is one Playwright suite that runs against every example twice: the production build, and the Vite dev server (ports +1000), where `hmr.spec.ts` also edits a page and checks it updates without a reload.
 
+## Goals
+
+Weigh every change against these:
+
+- Full, idiomatic support of Inertia, with the Laravel adapter as the reference
+- JavaScript first: don't bring in PHP or Laravel conventions where they conflict with JavaScript ones
+- Fewer decisions and less boilerplate: an app should work well with little or no configuration
+- Still flexible, with options for projects that need something different
+
 ## Commands
 
 Run from the repo root:
