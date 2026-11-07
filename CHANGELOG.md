@@ -1,6 +1,6 @@
 # Changelog
 
-Release notes are published on [GitHub Releases](https://github.com/brachkow/hono-inertia/releases). This file holds the draft for the next release.
+The notes of every release, newest first. [GitHub Releases](https://github.com/brachkow/hono-inertia/releases) has the same notes for 2.0.0 and later. Unreleased is the draft for the next release.
 
 ## Unreleased
 
@@ -129,3 +129,164 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 - Replace a hand-rolled flash cookie with `session: cookieSession({ secret })` and call `flash()` before the redirect. The examples show the change.
 - Check handlers that return an empty 200 or redirect to a URL with `#` (see Breaking changes).
 - Check forms that use `errorBag` (see Breaking changes).
+
+## 3.1.0 (2026-10-08)
+
+### Highlights
+
+**In-process SSR (Cloudflare Workers)**
+
+- New `ssr: { render }` option calls an SSR render function in the same process instead of posting to an Inertia SSR server. It receives the page object and returns `{ head: string[], body: string }`, the same result an Inertia SSR entry returns. Workers can't run Inertia's Node SSR server, so this is how a Worker server-renders.
+- The README has a full Cloudflare Workers setup with Vue and `@cloudflare/vite-plugin`: `vite.config.ts`, the SSR entry and the Worker, with production asset tags and `manifestVersion` from the inlined client manifest.
+
+**SSR error reporting**
+
+- New `onSsrError(error, page)` config callback, for both the SSR server and `ssr.render`. The page still falls back to client-side rendering. Throw from it to fail the request instead, for example in E2E tests.
+- Errors from an Inertia SSR server keep the server's details (`error`, `type`, `hint`, `stack`) as `error.cause`.
+- The `head` and `body` returned by `ssr.render` are validated the same way as an SSR server's response.
+
+**BigInt props (Inertia 3.8)**
+
+- A `BigInt` in props or flash data used to throw in `JSON.stringify` and fail the request with a 500. The adapter now sends each one as a `{ "$bigint": "<digits>" }` marker and sets `preserveBigIntegers: true` on the page, and the 3.8+ client turns the markers back into `BigInt` values. Pages without a `BigInt` are sent unchanged.
+- This covers Inertia responses, the initial HTML page, the SSR server request and DevTools entries. `ssr.render` receives the native `BigInt` values.
+
+**Status codes and handler headers**
+
+- `c.status()` set before `render()` now applies to Inertia responses as well as initial visits, so error pages such as `app.notFound` can answer with a 404 on every visit.
+- Headers set with `c.header()` before `render()`, such as `Cache-Control`, now apply to Inertia responses too.
+
+**`clearHistory()` on any response**
+
+- `clearHistory()` now carries over to the next rendered page from any non-page response, such as a 204 or JSON, not only from redirects. This matches Laravel, which keeps the flag in the session.
+
+**Hono context in `render`**
+
+- The render function receives the Hono context as a fourth argument: `render(page, viewData, ssr, c)`. Use it for request state such as a CSP nonce or a cookie.
+
+### Upgrading from 3.0
+
+- SSR failures are now logged with `console.error` by default instead of being silent. Pass `onSsrError` to change that.
+- `ssr: {}` without a `url` now posts to the default `http://127.0.0.1:13714`, as the README already described. Before, it turned SSR off.
+- Headers set with `c.header()` before `render()` now reach Inertia responses, not only the initial HTML.
+- `RenderFunction` gained the `c` parameter, and `SsrConfig` is now a union of `SsrHttpConfig` and `SsrRenderConfig` (`url` and `render` can't be combined). Existing render functions and SSR configs keep working.
+- New exports: `SsrHttpConfig`, `SsrRenderConfig`, `SsrRenderResult`. `PageObject` gains `preserveBigIntegers`.
+
+## 3.0.0 (2026-09-18)
+
+### Highlights
+
+**Breaking: page data moves to a script tag**
+
+- The Inertia v3 client boots only from `<script data-page="app" type="application/json">` and never reads a `data-page` attribute. `serializePage(page)` now returns script-safe JSON (`<` and `>` escaped as `\u003c` / `\u003e`, matching upstream's initial-page escaping in 3.7.1 and Laravel 3.3.4) instead of HTML-entity-escaped JSON. Entities are not decoded inside a script element, so the old output was invalid there. `escapeHtml` is unchanged and still the tool for view data.
+
+**Inertia DevTools**
+
+- New `devtools` config option implements the server side of the [DevTools protocol](https://inertiajs.com/docs/devtools-protocol): `X-Inertia-Devtools-Id` / `X-Inertia-Devtools-Parent-Out` on every response (a prefetch answers with its own id so it never advances the batch cursor), the discovery `<script data-inertia-devtools-id>` tag injected before `</body>` on the initial load only, and the `GET /_inertia/devtools/entries[/:id]` read API with `component`, `type`, `exclude`, `offset` and `limit` filters.
+- Entries carry the page object, per-prop metadata (`shared`, `always` / `optional` / `defer` / `merge` / `scroll` / `once`, merge direction and deep merge, `reset`, `rescued`), resolved prop values, lowercase request/response headers, request and response bodies, redirect target, request type, server timing and the matched Hono route path. Request bodies are cloned before the handler runs, so they are recorded even after `c.req.json()` consumed them; uploads are summarized as `{ name, size, mimeType }`.
+- Sensitive keys, headers and query parameters are replaced with `[REDACTED]`. Recording is passive: a failure drops the entry and never touches the response.
+- Options: `authorize`, `basePath`, `redact`, `store`, `componentPath`. The default store is in memory per `inertia()` instance, capped per browser tab and pruned by TTL (`createMemoryDevtoolsStore({ limit, ttl })`); pass a `DevtoolsStore` (`set` / `get` / `all`, sync or async) to share entries across isolates.
+
+**Rescuable deferred props**
+
+- `deferred(fn).rescue()`: when the resolver throws, the prop is sent as `null`, listed in `page.rescuedProps` (the client's `<Deferred>` renders its `rescue` slot), and reported through the new `onRescue` config callback (default `console.error`). Non-rescued props still fail the response. Mirrors Laravel's `defer(..., rescue: true)`.
+
+**Inertia 3.7.1 conformance**
+
+- The version-mismatch 409 now carries the new version in `X-Inertia-Version`, so the 3.6+ client fires the cancelable `inertia:location` event with `versionChange: true` and skips the forced reload on background `async` visits (matches Laravel 3.1.1).
+- README documents server-provided head elements: a `head: string[]` prop with `serverHead: true` on the client (3.5+), escaping, and `data-inertia` keys for stable identity.
+
+### Upgrading from v2
+
+- Replace `<div id="app" data-page="${serializePage(page)}"></div>` with `<script data-page="app" type="application/json">${serializePage(page)}</script><div id="app"></div>`. Do not HTML-escape the output and do not put it in an attribute. See the README "Security" section.
+- `DeferredProp` gains a `shouldRescue: boolean` field; add it if you construct these objects by hand.
+- Everything else is additive: `devtools`, `onRescue`, `createMemoryDevtoolsStore`, and the `Devtools*` types.
+
+## 2.3.0 (2026-07-19)
+
+### Highlights
+
+**`scroll()` prop match keys**
+
+- `scroll(value, metadata)` is now chainable with `.setMatchOn(field)`, so a refetched page reconciles by identity instead of appending a duplicate copy of rows the client already holds. Matching rows are updated in place. Pass the field name on its own — the prop key is prefixed for you (`posts` + `id` → `posts.id`). New `ScrollChain` type; `ScrollProp` gains a `matchOn: string | null` field.
+- Scroll props now route through the same merge-metadata collection path as `merge()` / `prepend()` / `deepMerge()`, so `matchOn` lands in the page object's match-key list alongside the append/prepend intent from `X-Inertia-Infinite-Scroll-Merge-Intent`.
+
+**Docs**
+
+- README now documents `scroll(value, metadata)`: the `ScrollMetadata` adapter shape, why `<InfiniteScroll>` requires this prop specifically (it throws at mount without a matching `scrollProps` entry, so `merge()` is not a substitute), how merge direction is derived from the client header, and that a header-less request is treated as a fresh load that resets the accumulated collection.
+
+### Upgrading from v2.2
+
+- No breaking changes. `scroll()` returns a `ScrollChain` (a `ScrollProp` plus `setMatchOn`), which is assignable anywhere a `ScrollProp` was before. If you construct `ScrollProp` objects by hand, add `matchOn: null`.
+
+## 2.2.0 (2026-07-17)
+
+### Highlights
+
+**History clearing across redirects**
+
+- `clearHistory()` now survives redirects: the middleware flashes the flag in a short-lived first-party cookie (`inertia_clear_history` — HttpOnly, SameSite=Lax, Max-Age 60) and applies it to the redirect target's page object, mirroring Laravel's session-flashed `clearHistory`. Works for plain `c.redirect()`, the 302→303 conversion, `redirect()` (409 + `X-Inertia-Redirect`), and `location()`. Parallel non-page requests don't consume the flag, redirect chains re-flash it, `clearHistory(false)` cancels it, and prefetches never eat it. New `CLEAR_HISTORY_COOKIE` export.
+- 302→303 conversion now explicitly preserves all handler headers, including multiple `Set-Cookie`.
+
+**Docs**
+
+- Security: history encryption silently falls back to plaintext in non-secure contexts (`window.crypto.subtle` unavailable on plain-http LAN IPs; localhost is fine).
+- Security: back/forward-cache caveats — the default `no-cache` doesn't keep pages out of bfcache; pair per-route `no-store` with a `pageshow` guard on authenticated pages. A complete logout recipe.
+
+### Upgrading from v2.1
+
+- No breaking changes. After `clearHistory()` + redirect, responses now set the `inertia_clear_history` cookie — worth declaring if you enumerate first-party cookies (compliance scanners, cookie banners). Previously the flag was silently dropped on redirect.
+
+## 2.1.0 (2026-07-14)
+
+### Highlights
+
+**Asset versioning**
+
+- New `manifestVersion()` helper, exported from the `@brachkow/hono-inertia/vite` subpath — derives the asset version from the sorted emitted filenames of an imported Vite manifest (16-char sha256, lazily memoized, WebCrypto-only; works on Workers, Deno, Bun, and Node). The version changes exactly when an open tab's chunk URLs go dead, so server-only deploys don't force-reload every tab. Takes an optional `salt` to force a global reload.
+- `version` is now resolved lazily and at most once per request — a version thunk no longer runs on passthrough routes, POSTs, or requests that never render.
+- Omitting `version` now emits `page.version: null` and disables version checks entirely, per the Inertia protocol.
+
+**Caching**
+
+- Adapter-emitted responses (Inertia JSON, initial HTML, 409s) now send `Cache-Control: private, no-cache, must-revalidate` by default. Without it, browsers can heuristically cache the HTML document and serve the stale page right back after a 409-triggered reload, silently defeating asset versioning. New `cacheControl: string | false` config option to override or opt out.
+
+**Docs & CI**
+
+- README: new Asset versioning guide (why filenames-not-JSON, why not a commit SHA, header-size limits, and the app-side `vite:preloadError` recovery pattern) and a Security → Caching section.
+- GitHub Actions CI running tests and typecheck.
+
+### Upgrading from v2.0
+
+- Responses now carry a default `Cache-Control` header. If you relied on a CDN or browser caching adapter responses, set `cacheControl: false` or provide your own value.
+- With no `version` configured, `page.version` is now `null` (was `''`) and a client-sent `X-Inertia-Version` never triggers a 409.
+- The README's old `readFileSync` version example is gone — passing manifest contents as the version bloats the `X-Inertia-Version` request header past proxy limits (Cloudflare: 16 KB). Use `manifestVersion(manifest)` instead.
+
+## 2.0.0 (2026-06-16)
+
+### Highlights
+
+**Security**
+
+- Safe page-object serialization via `serializePage` / `escapeHtml` and the HTML-escaped `data-page` render pattern, fixing the XSS exposure in the old `<script>` + `JSON.stringify(page)` pattern.
+- Hardened SSR dispatch: request timeout, response size cap, and response-shape validation.
+
+**Inertia v3.4.0 conformance**
+
+- `scrollProps.reset` and infinite-scroll merge-intent (prepend/append).
+- Correct `onceProps` key/prop mapping — custom `once()` keys now work.
+- Nested dot-notation keys in partial reloads (`only: ['user.name']`).
+- Proxy-safe relative `X-Inertia-Location` on version mismatch.
+- `PageObject` type completed; new global `encryptHistory` config option.
+
+**Features**
+
+- Flash messages: `c.var.inertia.flash(...)` populates `page.flash`.
+
+### Upgrading from v1
+
+- Render the page object with `serializePage(page)` in a `data-page` attribute instead of `JSON.stringify(page)` in a `<script>` tag — this fixes the XSS exposure and matches the standard Inertia client. See the README "Security" section.
+- SSR now times out after 5 s and caps responses at 2 MB by default (configurable via `ssr.timeout` / `ssr.maxResponseBytes`).
+
+## 1.0.0 (2026-04-24)
+
+The first release. It has no published release notes.
