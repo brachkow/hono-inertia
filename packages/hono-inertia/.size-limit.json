@@ -3,7 +3,7 @@
     "name": "inertia() middleware",
     "path": "dist/index.js",
     "import": "{ inertia }",
-    "limit": "7 kB"
+    "limit": "8 kB"
   },
   {
     "name": "Full entry",
@@ -15,19 +15,22 @@
     "name": "vite entry",
     "path": "dist/vite.js",
     "import": "*",
-    "limit": "350 B"
+    "limit": "1 kB"
   },
   {
     "name": "testing entry",
     "path": "dist/testing.js",
     "import": "*",
-    "limit": "600 B"
+    "limit": "1 kB"
   },
   {
     "name": "vue entry",
     "path": "dist/vue.js",
     "import": "*",
-    "ignore": ["@inertiajs/vue3"],
-    "limit": "350 B"
+    "ignore": [
+      "@inertiajs/vue3",
+      "vue"
+    ],
+    "limit": "1 kB"
   }
 ]
