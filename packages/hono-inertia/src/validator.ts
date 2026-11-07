@@ -60,7 +60,11 @@ const issueKey = (issue: StandardSchemaIssue): string =>
 const toValidationErrors = (
   issues: readonly StandardSchemaIssue[],
 ): Record<string, string[]> => {
-  const errors: Record<string, string[]> = {};
+  // No prototype, so a field named constructor or __proto__ is a plain key
+  const errors: Record<string, string[]> = Object.create(null) as Record<
+    string,
+    string[]
+  >;
   for (const issue of issues) {
     const key = issueKey(issue);
     (errors[key] ??= []).push(issue.message);

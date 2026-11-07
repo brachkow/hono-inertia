@@ -167,6 +167,33 @@ describe('Precognition', () => {
 });
 
 describe('Failed submits', () => {
+  it('keeps errors for fields named like Object.prototype keys', async () => {
+    const schema = z.object({
+      constructor: z.string().min(1, 'Required'),
+      toString: z.string().min(1, 'Required'),
+    });
+    const app = new Hono<InertiaEnv>()
+      .use(inertia({ version: '1.0' }))
+      .post('/form', inertiaValidator('json', schema), (c) => c.text('ok'));
+
+    const response = await app.request('/form', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ constructor: '', toString: '' }),
+    });
+
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 422,
+      body: {
+        message: expect.any(String) as string,
+        errors: { constructor: ['Required'], toString: ['Required'] },
+      },
+    });
+  });
+
   it('redirects an Inertia request back', async () => {
     const { session } = memorySession();
     const app = createApp(session);
