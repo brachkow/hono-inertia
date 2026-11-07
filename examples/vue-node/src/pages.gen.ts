@@ -2,7 +2,6 @@
 import type app from './server';
 import type { SharedProps, VuePage } from '@brachkow/hono-inertia';
 import type ContactPage from './pages/Contact.vue';
-import type HomePage from './pages/Home.vue';
 import type UsersIndexPage from './pages/Users/Index.vue';
 
 declare module '@brachkow/hono-inertia' {
@@ -25,8 +24,8 @@ declare module '@inertiajs/core' {
 export type { PageProps } from '@brachkow/hono-inertia';
 
 // Fails typecheck when a Vue page doesn't declare a prop its routes pass
+// Left out, as they read their props with usePageProps(): Home
 export type VuePages = [
   VuePage<'Contact', typeof ContactPage>,
-  VuePage<'Home', typeof HomePage>,
   VuePage<'Users/Index', typeof UsersIndexPage>,
 ];
