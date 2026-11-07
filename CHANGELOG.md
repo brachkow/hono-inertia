@@ -54,6 +54,8 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 
 - `PageProps` and `SharedProps` type props as the client receives them after JSON. A `Date` is a `string`, a value with `toJSON()` has its return type, and functions and `undefined` fields are left out. They used to keep the server's types.
 - `PageProps` keeps every `render()` of a page in one handler. A render whose props extended another render's used to be dropped, along with its extra props.
+- `PageProps` keeps every member when a render's props are a union, such as a conditional spread. It used to keep only the keys all members share.
+- `PageProps` keeps the routes that render a page without `errors` when another route renders it with `errors`. Their props used to be typed as `undefined`.
 
 **Testing helpers**
 
