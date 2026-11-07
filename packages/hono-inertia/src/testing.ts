@@ -89,3 +89,71 @@ export const getPage = async <Properties = Record<string, unknown>>(
   // content parses as plain JSON
   return JSON.parse(match[1]) as PageObject & { props: Properties };
 };
+
+export interface ReloadOptions {
+  only?: string[];
+  except?: string[];
+  reset?: string[];
+  headers?: Record<string, string>;
+}
+
+// A partial reload of a page, as router.reload() sends it: the page's own
+// URL, component and version
+export const reload = async <Properties = Record<string, unknown>>(
+  app: RequestableApp,
+  page: PageObject,
+  options: ReloadOptions = {},
+): Promise<PageObject & { props: Properties }> =>
+  getPage<Properties>(
+    await inertiaRequest(app, page.url, {
+      version: page.version ?? undefined,
+      partial: {
+        component: page.component,
+        only: options.only,
+        except: options.except,
+      },
+      reset: options.reset,
+      headers: options.headers,
+    }),
+  );
+
+// Loads a page's deferred props the way the client does once it renders: a
+// partial reload per group, here all or the ones named. Returns the page
+// with their values merged into its props.
+export const loadDeferred = async <Properties = Record<string, unknown>>(
+  app: RequestableApp,
+  page: PageObject,
+  groups?: string[],
+): Promise<PageObject & { props: Properties }> => {
+  const requested = Object.entries(page.deferredProps ?? {}).filter(
+    ([group]) => !groups || groups.includes(group),
+  );
+  const loaded = await Promise.all(
+    requested.map(([, keys]) => reload(app, page, { only: keys })),
+  );
+  const properties = loaded.reduce<Record<string, unknown>>(
+    (merged, reloaded) => mergeObjects(merged, reloaded.props),
+    page.props,
+  ) as Record<string, unknown> & Properties;
+  return { ...page, props: properties };
+};
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+// A deferred prop can sit inside another, e.g. auth.permissions, so its
+// response merges into the objects on the way, as the client merges it
+const mergeObjects = (
+  target: Record<string, unknown>,
+  source: Record<string, unknown>,
+): Record<string, unknown> => {
+  const merged = { ...target };
+  for (const [key, value] of Object.entries(source)) {
+    const current = merged[key];
+    merged[key] =
+      isObject(current) && isObject(value)
+        ? mergeObjects(current, value)
+        : value;
+  }
+  return merged;
+};

@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { Hono } from 'hono';
 import { inertia } from '../src/middleware.js';
-import { deferred } from '../src/properties.js';
+import { deferred, optional } from '../src/properties.js';
 import { serializePage } from '../src/serialize.js';
-import { getPage, inertiaHeaders, inertiaRequest } from '../src/testing.js';
+import {
+  getPage,
+  inertiaHeaders,
+  inertiaRequest,
+  loadDeferred,
+  reload,
+} from '../src/testing.js';
 import type { InertiaEnv } from '../src/types.js';
 
 function createApp() {
@@ -150,4 +156,78 @@ describe('getPage()', () => {
       'is not an Inertia page',
     );
   });
+});
+
+// Users/Index with a second deferred group and an optional prop
+function createReloadApp() {
+  return new Hono().use(inertia({ version: '1.0' })).get('/users', (c) =>
+    c.var.inertia.render('Users/Index', {
+      users: ['Ada', 'Grace'],
+      stats: deferred(() => ({ total: 2 })),
+      activity: deferred(() => ['signed in'], 'feed'),
+      filters: optional(() => ['active']),
+    }),
+  );
+}
+
+describe('reload()', () => {
+  it('reloads the props it names', async () => {
+    const app = createReloadApp();
+    const page = await getPage(await inertiaRequest(app, '/users'));
+
+    const reloaded = await reload(app, page, { only: ['filters'] });
+
+    expect(reloaded.props).toEqual({ filters: ['active'], errors: {} });
+  });
+
+  it('sends the page version', async () => {
+    const app = createReloadApp();
+    const page = await getPage(await inertiaRequest(app, '/users'));
+
+    // An outdated version gets the 409 that makes the client reload
+    await expect(reload(app, { ...page, version: 'old' })).rejects.toThrow(
+      'response 409',
+    );
+  });
+});
+
+describe('loadDeferred()', () => {
+  it('merges every deferred group into the props', async () => {
+    const app = createReloadApp();
+    const page = await getPage(await inertiaRequest(app, '/users'));
+
+    const loaded = await loadDeferred(app, page);
+
+    expect(loaded.props).toEqual({
+      users: ['Ada', 'Grace'],
+      stats: { total: 2 },
+      activity: ['signed in'],
+      errors: {},
+    });
+  });
+
+  it('loads only the named groups', async () => {
+    const app = createReloadApp();
+    const page = await getPage(await inertiaRequest(app, '/users'));
+
+    const loaded = await loadDeferred(app, page, ['feed']);
+
+    expect({
+      stats: loaded.props.stats,
+      activity: loaded.props.activity,
+    }).toEqual({ stats: undefined, activity: ['signed in'] });
+  });
+});
+
+it('loadDeferred() merges a nested deferred prop into its object', async () => {
+  const app = new Hono().use(inertia({})).get('/', (c) =>
+    c.var.inertia.render('Home', {
+      auth: { user: 'me', permissions: deferred(() => ['admin']) },
+    }),
+  );
+  const page = await getPage(await inertiaRequest(app, '/'));
+
+  const loaded = await loadDeferred(app, page);
+
+  expect(loaded.props.auth).toEqual({ user: 'me', permissions: ['admin'] });
 });
