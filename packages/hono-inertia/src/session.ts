@@ -1,6 +1,7 @@
 import type { Context } from 'hono';
 import { deleteCookie, getSignedCookie, setSignedCookie } from 'hono/cookie';
 import type { InertiaSession, SessionData } from './types.js';
+import { replaceBigInt, reviveBigInt } from './serialize.js';
 
 export type CookieSecret = string | BufferSource;
 
@@ -24,6 +25,23 @@ export interface CookieSessionOptions {
   // Defaults to true on https requests
   secure?: boolean;
 }
+
+// Flash data may hold BigInts, which JSON can't. Such data gets markers and
+// this prefix, so plain data never goes through the reviver, as with
+// stringifyPage().
+const BIGINT_PREFIX = 'b:';
+
+const encode = (data: SessionData): string => {
+  try {
+    return JSON.stringify(data);
+  } catch (error) {
+    try {
+      return BIGINT_PREFIX + JSON.stringify(data, replaceBigInt);
+    } catch {
+      throw error;
+    }
+  }
+};
 
 // Browsers drop a cookie over 4096 bytes without telling anyone. The rest of
 // the budget goes to the name, the signature and the attributes.
@@ -63,7 +81,9 @@ export const cookieSession = (
       }
       if (raw === undefined) return null;
       try {
-        const data: unknown = JSON.parse(raw);
+        const data: unknown = raw.startsWith(BIGINT_PREFIX)
+          ? JSON.parse(raw.slice(BIGINT_PREFIX.length), reviveBigInt)
+          : JSON.parse(raw);
         return data !== null && typeof data === 'object' ? data : null;
       } catch {
         return null;
@@ -76,7 +96,7 @@ export const cookieSession = (
         return;
       }
 
-      const value = JSON.stringify(data);
+      const value = encode(data);
       if (encodeURIComponent(value).length > MAX_VALUE_BYTES) {
         throw new Error(
           `[hono-inertia] session data is over ${MAX_VALUE_BYTES} bytes, more than a cookie holds. Pass a server-side store as the \`session\` option instead.`,

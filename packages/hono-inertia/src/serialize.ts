@@ -45,5 +45,13 @@ export function stringifyPage(page: PageObject): string {
   }
 }
 
-const replaceBigInt = (_key: string, value: unknown): unknown =>
+export const replaceBigInt = (_key: string, value: unknown): unknown =>
   typeof value === 'bigint' ? { $bigint: value.toString() } : value;
+
+// Turns the markers replaceBigInt() writes back into BigInts
+export const reviveBigInt = (_key: string, value: unknown): unknown => {
+  const digits = (value as { $bigint?: unknown } | null)?.$bigint;
+  return typeof digits === 'string' && Object.keys(value as object).length === 1
+    ? BigInt(digits)
+    : value;
+};

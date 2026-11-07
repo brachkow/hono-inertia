@@ -277,11 +277,14 @@ function carryFlags(
   }
 }
 
+// Prefetches leave the session untouched, also when they redirect: the
+// client may discard the response, and the real visit runs the handler again
 async function writeSession(
   c: Context,
   config: ResolvedInertiaConfig,
   response: InertiaResponse,
 ): Promise<void> {
+  if (isPrefetch(c)) return;
   const sessionAfter = response.sessionAfter;
   if (config.session) {
     if (sessionAfter !== undefined) await config.session.set(c, sessionAfter);

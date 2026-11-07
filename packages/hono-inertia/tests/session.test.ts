@@ -284,6 +284,24 @@ describe('Error bags from the session', () => {
 });
 
 describe('Flash across redirects', () => {
+  it('leaves the session alone when a prefetch redirects with flash data', async () => {
+    const { session, state } = memorySession({ flash: { message: 'Saved' } });
+    const app = createApp(session);
+    app.get('/next', (c) => {
+      c.var.inertia.flash({ other: 'From the prefetch' });
+      return c.redirect('/');
+    });
+
+    await app.request('/next', {
+      headers: inertiaHeaders({ Purpose: 'prefetch' }),
+    });
+
+    expect({ data: state.data, writes: state.writes }).toEqual({
+      data: { flash: { message: 'Saved' } },
+      writes: 0,
+    });
+  });
+
   it('keeps flash data for the page after the redirect', async () => {
     const { session, state } = memorySession();
     const app = createApp(session);
@@ -376,6 +394,68 @@ describe('Flash across redirects', () => {
 });
 
 describe('cookieSession', () => {
+  it('carries a BigInt in flash data across a redirect', async () => {
+    const app = createApp(cookieSession({ secret: SECRET }));
+    app.post('/users', (c) => {
+      c.var.inertia.flash({ createdId: 7n });
+      return c.redirect('/users');
+    });
+    app.get('/users', (c) => c.var.inertia.render('Users/Index'));
+    const jar = cookieJar();
+
+    const redirect = await app.request('/users', {
+      method: 'POST',
+      headers: inertiaHeaders(),
+    });
+    jar.store(redirect);
+    const page = await getPage(
+      await app.request('/users', {
+        headers: inertiaHeaders({ Cookie: jar.header() }),
+      }),
+    );
+
+    // The page sends it as the marker the client turns back into a BigInt
+    expect({
+      status: redirect.status,
+      flash: page.flash,
+      preserveBigIntegers: page.preserveBigIntegers,
+    }).toEqual({
+      status: 302,
+      flash: { createdId: { $bigint: '7' } },
+      preserveBigIntegers: true,
+    });
+  });
+
+  it('leaves an object shaped like a BigInt marker alone', async () => {
+    const app = createApp(cookieSession({ secret: SECRET }));
+    app.post('/users', (c) => {
+      c.var.inertia.flash({ marker: { $bigint: '7' } });
+      return c.redirect('/users');
+    });
+    app.get('/users', (c) => c.var.inertia.render('Users/Index'));
+    const jar = cookieJar();
+
+    jar.store(
+      await app.request('/users', {
+        method: 'POST',
+        headers: inertiaHeaders(),
+      }),
+    );
+    const page = await getPage(
+      await app.request('/users', {
+        headers: inertiaHeaders({ Cookie: jar.header() }),
+      }),
+    );
+
+    expect({
+      flash: page.flash,
+      preserveBigIntegers: page.preserveBigIntegers,
+    }).toEqual({
+      flash: { marker: { $bigint: '7' } },
+      preserveBigIntegers: undefined,
+    });
+  });
+
   it('carries errors and flash data to the next request', async () => {
     const app = createApp(cookieSession({ secret: SECRET }));
     app.post('/users', (c) => {
