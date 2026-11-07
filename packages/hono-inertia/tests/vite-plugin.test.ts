@@ -243,11 +243,14 @@ describe('manifestKey', () => {
 });
 
 describe('pages', () => {
-  const createProject = async (files: string[]) => {
+  const createProject = async (
+    files: string[],
+    contents: Record<string, string> = {},
+  ) => {
     const root = await mkdtemp(path.join(tmpdir(), 'hono-inertia-pages-'));
     for (const file of files) {
       await mkdir(path.dirname(path.join(root, file)), { recursive: true });
-      await writeFile(path.join(root, file), '');
+      await writeFile(path.join(root, file), contents[file] ?? '');
     }
     return root;
   };
@@ -282,6 +285,63 @@ describe('pages', () => {
     expect(generated).toContain(
       "export type VuePages = [\n  VuePage<'Home', typeof HomePage>,\n  VuePage<'Users/Index', typeof UsersIndexPage>,\n];\n",
     );
+  });
+
+  it('leaves a Vue page that reads usePageProps() out of the Vue checks', async () => {
+    const root = await createProject(
+      ['src/pages/Home.vue', 'src/pages/Settings.vue'],
+      {
+        'src/pages/Settings.vue':
+          '<script setup lang="ts">\nconst props = usePageProps<\'Settings\'>();\n</script>\n',
+      },
+    );
+
+    await generate(root, { directory: 'src/pages', server: 'src/server.ts' });
+
+    const generated = await readFile(
+      path.join(root, 'src/pages.gen.ts'),
+      'utf8',
+    );
+    expect(generated).toContain(
+      '  interface InertiaPages {\n    Home: true;\n    Settings: true;\n  }',
+    );
+    expect(generated).toContain(
+      "// Left out, as they read their props with usePageProps(): Settings\nexport type VuePages = [\n  VuePage<'Home', typeof HomePage>,\n];\n",
+    );
+    expect(generated).not.toContain('SettingsPage');
+  });
+
+  it('checks a Vue page that calls usePageProps() next to defineProps', async () => {
+    const root = await createProject(['src/pages/Settings.vue'], {
+      'src/pages/Settings.vue':
+        '<script setup lang="ts">\ndefineProps<{ name: string }>();\nconst page = usePageProps<\'Settings\'>();\n</script>\n',
+    });
+
+    await generate(root, { directory: 'src/pages', server: 'src/server.ts' });
+
+    const generated = await readFile(
+      path.join(root, 'src/pages.gen.ts'),
+      'utf8',
+    );
+    expect(generated).toContain("  VuePage<'Settings', typeof SettingsPage>,");
+  });
+
+  it('adds only the comment when every Vue page reads usePageProps()', async () => {
+    const root = await createProject(['src/pages/Settings.vue'], {
+      'src/pages/Settings.vue':
+        '<script setup lang="ts">\nconst props = usePageProps<\'Settings\'>();\n</script>\n',
+    });
+
+    await generate(root, { directory: 'src/pages', server: 'src/server.ts' });
+
+    const generated = await readFile(
+      path.join(root, 'src/pages.gen.ts'),
+      'utf8',
+    );
+    expect(generated).toContain(
+      '// Left out, as they read their props with usePageProps(): Settings',
+    );
+    expect(generated).not.toContain('VuePage');
   });
 
   it('adds no Vue checks without Vue pages', async () => {

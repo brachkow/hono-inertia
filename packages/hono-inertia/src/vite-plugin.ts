@@ -256,7 +256,21 @@ export interface PageFile {
   name: string;
   // The component, relative to the generated file, e.g. './pages/Home.vue'
   importPath: string;
+  // A Vue page that reads its props with usePageProps() declares none, so
+  // the props check would fail on it
+  readsPageProperties?: boolean;
 }
+
+const SCRIPT_SETUP = /<script\b[^>]*\bsetup\b[^>]*>([\S\s]*?)<\/script>/;
+const USE_PAGE_PROPS = /\busePageProps\b/;
+const DEFINE_PROPS = /\bdefineProps\b/;
+
+// A text match, like the rest of the page scan: <script setup> calls
+// usePageProps() and has no defineProps
+const readsPageProperties = (source: string): boolean => {
+  const setup = SCRIPT_SETUP.exec(source)?.[1] ?? '';
+  return USE_PAGE_PROPS.test(setup) && !DEFINE_PROPS.test(setup);
+};
 
 // 'Users/Index' → 'UsersIndexPage'
 const NON_IDENTIFIER = /[^\dA-Za-z]+/;
@@ -270,8 +284,24 @@ const componentIdentifier = (name: string) =>
 // Vue pages list their props by hand (defineProps can't take PageProps), so
 // the file checks each list against what the routes pass
 const renderVueChecks = (pages: PageFile[]) => {
-  const vuePages = pages.filter((page) => page.importPath.endsWith('.vue'));
-  if (vuePages.length === 0) return { types: [], imports: [], checks: [] };
+  const allVuePages = pages.filter((page) => page.importPath.endsWith('.vue'));
+  const vuePages = allVuePages.filter((page) => !page.readsPageProperties);
+  const skipped = allVuePages
+    .filter((page) => page.readsPageProperties)
+    .map((page) => page.name);
+  const skippedComment =
+    skipped.length > 0
+      ? [
+          `// Left out, as they read their props with usePageProps(): ${skipped.join(', ')}`,
+        ]
+      : [];
+  if (vuePages.length === 0) {
+    return {
+      types: [],
+      imports: [],
+      checks: skippedComment.length > 0 ? ['', ...skippedComment] : [],
+    };
+  }
   // 'Users-Index' and 'Users/Index' would both be UsersIndexPage
   const taken = new Set<string>();
   const identifiers = vuePages.map((page) => {
@@ -294,6 +324,7 @@ const renderVueChecks = (pages: PageFile[]) => {
     checks: [
       '',
       "// Fails typecheck when a Vue page doesn't declare a prop its routes pass",
+      ...skippedComment,
       'export type VuePages = [',
       ...vuePages.map(
         (page, index) =>
@@ -423,10 +454,15 @@ const createPagesFile = (root: string, options: PagesOptions) => {
 
   const write = async () => {
     const listed = await list();
-    const pages = listed.map(({ name, file }) => ({
-      name,
-      importPath: importPath(file),
-    }));
+    const pages = await Promise.all(
+      listed.map(async ({ name, file }) => ({
+        name,
+        importPath: importPath(file),
+        readsPageProperties:
+          path.extname(file) === '.vue' &&
+          readsPageProperties(await readFile(file, 'utf8')),
+      })),
+    );
     const contents = renderPagesFile(
       pages,
       serverImport,
@@ -569,6 +605,11 @@ export const honoInertia = (options: HonoInertiaPluginOptions): Plugin[] => {
       };
       developmentServer.watcher.on('add', onChange);
       developmentServer.watcher.on('unlink', onChange);
+      // An edit can switch a Vue page to usePageProps() or back. write()
+      // leaves the file alone when nothing changed.
+      developmentServer.watcher.on('change', (file) => {
+        if (path.extname(file) === '.vue') onChange(file);
+      });
     },
 
     // Runs once the client files are on disk: the manifest moves out of the
