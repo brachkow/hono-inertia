@@ -40,6 +40,11 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 
 ### Fixes
 
+- `flash()` with a BigInt before a redirect works with the cookie session. It used to throw in `JSON.stringify` and turn the redirect into a 500.
+- `inertiaValidator()` keeps errors for fields named like `Object.prototype` keys, such as `constructor`. It used to throw and answer with a 500.
+- A prefetch that redirects no longer writes the session, so it can't replace errors or flash data the next page hasn't shown.
+- `inertiaHeaders()` lets a header in `headers` win over a generated one written in another case. Fetch used to join the two values, for example into a version that caused a 409.
+- `PageProps` types a `deferred().rescue()` prop as possibly `null`, keeps props for each page a handler chooses with `render(flag ? 'A' : 'B', props)`, and keeps a shared prop's type for routes that don't override it.
 - A once prop the client already holds is now listed in `onceProps` when the server leaves it out. The client copies its cached value forward only for props the response lists, so the prop used to be `undefined` on the next page.
 - `deferred().once()` and `optional().once()` send once metadata on full visits, and a deferred once prop the client holds is no longer listed in `deferredProps`. It used to be fetched again, skipped by the server, and lost.
 - A partial reload that names a once prop sends a fresh value, as in inertia-laravel. It used to send nothing when the client held the prop.

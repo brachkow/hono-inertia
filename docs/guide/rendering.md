@@ -5,7 +5,7 @@ description: Render pages with lazy and nested props, and set the page URL
 # Rendering pages
 
 ```ts
-app.get('/users', (c) => {
+app.get('/users', async (c) => {
   return c.var.inertia.render('Users/Index', {
     users: await db.users.findMany(),
   });

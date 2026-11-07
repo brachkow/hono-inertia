@@ -4,9 +4,18 @@ A Hono app on Cloudflare Workers that serves Vue pages through `@brachkow/hono-i
 
 ## How SSR works
 
-The Worker imports `src/ssr.ts` and passes its `renderPage` to the adapter as `ssr.render`, as the Node examples do. Every request renders in the same isolate, in dev and in production.
+`honoInertia()`'s `ssr` option hands `src/ssr.ts` to `inertia({ assets })` in the Worker, as in the Node examples. Every request renders in the same isolate, in dev and in production.
 
 ## Commands
+
+From the repository root, install the dependencies and build the adapter, which the example links from `packages/hono-inertia/dist/`:
+
+```bash
+pnpm install
+pnpm build
+```
+
+Then, in this folder:
 
 - `pnpm dev` runs the Worker in workerd through Vite on http://localhost:3003, with hot reload for the client and the SSR entry
 - `pnpm build` builds the client first, then the Worker, which inlines the client's asset tags
@@ -17,7 +26,7 @@ The Worker imports `src/ssr.ts` and passes its `renderPage` to the adapter as `s
 
 - `wrangler.jsonc` names the Worker and points `main` at `src/worker.ts`
 - `vite.config.ts` adds the Vue, Inertia and Cloudflare plugins and builds the client before the Worker
-- `src/worker.ts` is the Hono app: the adapter setup with a cookie session, routes, and the form schema
+- `src/worker.ts` is the Hono app: `inertia({ assets })` with a cookie session, routes, and the form schema
 - `src/ssr.ts` renders a page to HTML for the Worker
 - `src/client.ts` boots Inertia in the browser
 - `src/Layout.vue` is the layout every page renders in
