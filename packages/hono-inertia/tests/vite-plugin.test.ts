@@ -443,8 +443,29 @@ describe('pages', () => {
     expect(generated).toContain(
       "import type { SharedProps } from '@brachkow/hono-inertia';",
     );
+    expect(generated.match(/from '@brachkow\/hono-inertia'/g)).toHaveLength(
+      2, // the import and the PageProps re-export
+    );
     expect(generated).toContain(
       "declare module '@inertiajs/core' {\n  interface InertiaConfig {\n    sharedPageProps: SharedProps<typeof app>;\n  }\n}",
+    );
+  });
+
+  it('imports SharedProps and VuePage in one statement', async () => {
+    const root = await createProject(['src/pages/Home.vue']);
+
+    await generate(root, {
+      directory: 'src/pages',
+      server: 'src/server.ts',
+      sharedPageProps: true,
+    });
+
+    const generated = await readFile(
+      path.join(root, 'src/pages.gen.ts'),
+      'utf8',
+    );
+    expect(generated).toContain(
+      "import type { SharedProps, VuePage } from '@brachkow/hono-inertia';",
     );
   });
 
