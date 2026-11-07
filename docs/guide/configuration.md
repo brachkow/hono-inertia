@@ -85,7 +85,7 @@ Without a `render` option, `inertia()` renders the first visit's HTML itself:
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>My app</title>
-    <!-- SSR head, template.head, then the page's asset tags -->
+    <!-- The page's asset tags, the SSR head, then template.head -->
   </head>
   <body>
     <script data-page="app" type="application/json">
@@ -96,7 +96,31 @@ Without a `render` option, `inertia()` renders the first visit's HTML itself:
 </html>
 ```
 
-With SSR, the body is the SSR body instead, and the `<title>` is left out when the SSR head has one. `template` takes `lang`, `title`, `head` and `id`. `head` is HTML for `<head>`, such as a favicon or fonts, or a function of the page and the context that returns it. `id` is the root element's id, which `createInertiaApp()` reads, and defaults to `app`. The asset tags come from `assets.assetTagsFor(page.component)`, so the page's own chunks load with the entry (see [Preloading the page](/guide/assets#preloading-the-page)).
+With SSR, the body is the SSR body instead, and the `<title>` is left out when the SSR head has one. The asset tags come from `assets.assetTagsFor(page.component)`, so the page's own chunks load with the entry (see [Preloading the page](/guide/assets#preloading-the-page)). They come before the SSR head, so the browser starts fetching them first.
+
+`template` takes these options:
+
+- `lang` sets `<html lang>`. Pass a string, or a function of the page and the context for a language resolved per request. A function that returns `undefined` leaves it out.
+- `htmlAttributes` is a function of the page and the context that returns more attributes for `<html>`, such as `data-theme`. The adapter escapes the values and leaves out the ones that are `undefined`.
+- `title` is a `<title>` for pages whose SSR head has none.
+- `head` is HTML for `<head>`, such as a favicon or fonts. Pass a string, or a function of the page, the context, `render()`'s view data and the SSR result. With the context it can read a CSP nonce, and with the SSR result it can add meta tags only when SSR rendered none.
+- `id` is the root element's id, which `createInertiaApp()` reads. It defaults to `app`.
+
+```ts
+inertia({
+  assets,
+  template: {
+    lang: (page) => String(page.props.locale ?? 'en'),
+    htmlAttributes: (page, c) => ({
+      'data-mode': getCookie(c, 'mode') === 'dark' ? 'dark' : undefined,
+    }),
+    head: (page, c, viewData, ssr) =>
+      ssr?.head || typeof viewData.robots !== 'string'
+        ? ''
+        : `<meta name="robots" content="${escapeHtml(viewData.robots)}">`,
+  },
+});
+```
 
 For other HTML, pass `render`. Embed the page with `serializePage(page)`, never a bare `JSON.stringify` (see [Security](/guide/security#embedding-the-page-object-xss)):
 

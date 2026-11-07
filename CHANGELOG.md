@@ -92,6 +92,7 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 - `inertia({ assets })` takes the Vite plugin's virtual module (`import * as assets from 'virtual:hono-inertia/assets'`) and gets the version, the asset tags and the SSR entry from it. `render` is optional: without it, a built-in template renders the page, with `template: { lang, title, head, id }`.
 - The plugin's new `ssr` option names the SSR entry. Its default export becomes the module's `ssr`, which `inertia({ assets })` renders with. Because the module's type is fixed, an SSR entry passed this way no longer needs an explicit return type.
 - `session` takes `cookieSession()`'s options directly: `session: { secret }`.
+- `template.lang` takes a function of the page and the context, `template.htmlAttributes` adds attributes to `<html>`, and a `template.head` function also gets the view data and the SSR result. The asset tags come before the SSR head.
 
 **More options**
 
