@@ -193,3 +193,36 @@ describe('flagCookies', () => {
     expect(page.clearHistory).toBe(true);
   });
 });
+
+describe('a render that throws', () => {
+  it('keeps the flash data for the next page', async () => {
+    const app = new Hono()
+      .use(inertia({ session: { secret: 'x'.repeat(32) } }))
+      .post('/save', (c) => {
+        c.var.inertia.flash({ message: 'Saved' });
+        return c.redirect('/broken');
+      })
+      .get('/broken', (c) =>
+        c.var.inertia.render('Broken', {
+          data: () => {
+            throw new Error('database down');
+          },
+        }),
+      )
+      .get('/', (c) => c.var.inertia.render('Home'));
+
+    const redirect = await app.request('/save', { method: 'POST' });
+    const cookie = redirect.headers.get('Set-Cookie')?.split(';')[0] ?? '';
+    const broken = await app.request('/broken', {
+      headers: { ...INERTIA, Cookie: cookie },
+    });
+    const page = await getPage(
+      await app.request('/', { headers: { ...INERTIA, Cookie: cookie } }),
+    );
+
+    expect({ status: broken.status, flash: page.flash }).toEqual({
+      status: 500,
+      flash: { message: 'Saved' },
+    });
+  });
+});

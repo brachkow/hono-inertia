@@ -1,7 +1,7 @@
 import type { Context, Env, MiddlewareHandler, ValidationTargets } from 'hono';
 import { validator } from 'hono/validator';
 import type { InertiaContext, InertiaEnv, ValidationErrors } from './types.js';
-import { isInertiaRequest } from './utilities.js';
+import { isInertiaRequest, parseHeaderList } from './utilities.js';
 
 // ---------------------------------------------------------------------------
 // Standard Schema (https://standardschema.dev). The spec asks libraries to
@@ -68,15 +68,9 @@ const toValidationErrors = (
   return errors;
 };
 
+// null without the header, so every field is validated
 const parseFieldList = (header: string | undefined): Set<string> | null =>
-  header === undefined
-    ? null
-    : new Set(
-        header
-          .split(',')
-          .map((field) => field.trim())
-          .filter(Boolean),
-      );
+  header === undefined ? null : parseHeaderList(header);
 
 const VALIDATION_FAILED = 'The given data was invalid.';
 

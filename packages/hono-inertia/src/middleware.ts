@@ -11,6 +11,7 @@ import { cookieSession } from './session.js';
 import { createTemplate } from './template.js';
 import type { InertiaSharedEnv } from './page-properties.js';
 import { InertiaResponse } from './response.js';
+import type { PageFlag } from './response.js';
 import {
   beginDevtoolsRecording,
   handleDevtoolsRequest,
@@ -18,44 +19,27 @@ import {
   resolveDevtools,
 } from './devtools.js';
 import {
-  cacheControlValue,
+  cacheControlHeaders,
+  conflictResponse,
   getRequestVersion,
   isInertiaRequest,
   isPrefetch,
   resolveUrl,
 } from './utilities.js';
 
-const DEFAULT_FLAG_PREFIX = 'inertia_';
-export const CLEAR_HISTORY_COOKIE = `${DEFAULT_FLAG_PREFIX}clear_history`;
-export const PRESERVE_FRAGMENT_COOKIE = `${DEFAULT_FLAG_PREFIX}preserve_fragment`;
-
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const SEE_OTHER_METHODS = new Set(['PUT', 'PATCH', 'DELETE', 'QUERY']);
 
 // clearHistory and preserveFragment only land on a rendered page object, but
 // handlers that set them often redirect, and logout handlers answer 204.
 // Laravel keeps the flags in the session until the next page render. This
-// adapter works without a session, so each flag uses a short-lived cookie.
-interface FlashedFlag {
-  cookie: string;
-  set: (response: InertiaResponse) => void;
-  pending: (response: InertiaResponse) => boolean;
-  consumed: (response: InertiaResponse) => boolean;
-}
-
-const flashedFlags = (prefix = DEFAULT_FLAG_PREFIX): FlashedFlag[] => [
-  {
-    cookie: `${prefix}clear_history`,
-    set: (response) => response.clearHistory(),
-    pending: (response) => response.clearHistoryPending,
-    consumed: (response) => response.clearHistoryConsumed,
-  },
-  {
-    cookie: `${prefix}preserve_fragment`,
-    set: (response) => response.preserveFragment(),
-    pending: (response) => response.preserveFragmentPending,
-    consumed: (response) => response.preserveFragmentConsumed,
-  },
-];
+// adapter works without a session, so each flag uses a short-lived cookie,
+// named with the flagCookies prefix.
+const FLAG_COOKIES: Record<PageFlag, string> = {
+  clearHistory: 'clear_history',
+  preserveFragment: 'preserve_fragment',
+};
+const FLAGS = Object.keys(FLAG_COOKIES) as PageFlag[];
 
 const isRedirectShaped = (response: Response): boolean =>
   REDIRECT_STATUSES.has(response.status) ||
@@ -140,30 +124,7 @@ async function handle<V extends Record<string, unknown>>(
     return resolved;
   };
 
-  // Version conflict check (before handler, GET only). A missing or empty
-  // X-Inertia-Version never 409s, and a null server version means
-  // versioning is disabled — both per Inertia protocol (matches Laravel).
-  if (isInertiaRequest(c) && c.req.method === 'GET') {
-    const clientVersion = getRequestVersion(c);
-    if (clientVersion) {
-      const version = await currentVersion();
-      if (version !== null && clientVersion !== version) {
-        const cacheControl = cacheControlValue(config);
-        c.res = c.body(null, 409, {
-          // Relative path (not c.req.url): an absolute URL would send the client
-          // to the internal origin behind a proxy. Matches page.url's format.
-          'X-Inertia-Location': resolveUrl(c),
-          // Lets the client tell a deploy-driven reload apart from a plain
-          // location redirect: background async visits skip the forced reload
-          // and `inertia:location` reports versionChange.
-          'X-Inertia-Version': version,
-          Vary: 'X-Inertia',
-          ...(cacheControl !== undefined && { 'Cache-Control': cacheControl }),
-        });
-        return null;
-      }
-    }
-  }
+  if (await answerVersionConflict(c, config, currentVersion)) return null;
 
   // Read after the version check, so a 409 leaves the session for the full
   // reload that follows. Prefetches skip it: the client may discard a
@@ -173,7 +134,6 @@ async function handle<V extends Record<string, unknown>>(
       ? ((await config.session.get(c)) ?? null)
       : null;
 
-  // Create response builder and attach to context
   const response = new InertiaResponse(
     c,
     config,
@@ -182,109 +142,149 @@ async function handle<V extends Record<string, unknown>>(
   );
   c.set('inertia', response);
 
-  // Apply global shared props
-  if (config.share) {
-    const shared = await config.share(c);
-    response.share(shared);
-  }
+  if (config.share) response.share(await config.share(c));
+  // Handlers can still opt out with encryptHistory(false)
+  if (config.encryptHistory) response.encryptHistory(true);
 
-  // Apply global history encryption (per-request opt-out still possible)
-  if (config.encryptHistory) {
-    response.encryptHistory(true);
-  }
-
-  // Consume the flags a preceding redirect flashed. Prefetches are skipped:
-  // a prefetched page may be discarded client-side, which would swallow a
-  // flag without the page ever showing it.
-  const flags = flashedFlags(config.flagCookies?.prefix);
-  const flagPath = config.flagCookies?.path ?? '/';
-  const inheritedFlags = new Set(
-    flags.filter(
-      (flag) => !isPrefetch(c) && getCookie(c, flag.cookie) !== undefined,
+  // Take the flags a preceding redirect flashed. Prefetches are skipped: a
+  // prefetched page may be discarded client-side, which would swallow a flag
+  // without the page ever showing it.
+  const prefix = config.flagCookies?.prefix ?? 'inertia_';
+  const inherited = new Set(
+    FLAGS.filter(
+      (flag) =>
+        !isPrefetch(c) &&
+        getCookie(c, `${prefix}${FLAG_COOKIES[flag]}`) !== undefined,
     ),
   );
-  for (const flag of inheritedFlags) flag.set(response);
+  for (const flag of inherited) response[flag](true);
 
   await next();
 
-  // An empty 200 means the handler had nothing to show, e.g. it saved a form
-  // and returned c.body(null). Laravel's adapter redirects back then.
-  if (isInertiaRequest(c) && c.res.status === 200 && c.res.body === null) {
-    // The c.res setter carries over the headers the handler set
-    c.res = new Response(null, {
-      status: 302,
-      headers: { Location: response.backUrl() },
-    });
-  }
+  redirectEmptyResponse(c, response);
+  redirectToFragment(c, config);
+  seeOtherAfterMutation(c);
+  carryFlags(c, config, response, inherited);
+  await writeSession(c, config, response);
+  addVary(c);
+  return response;
+}
 
-  // A redirect to a URL with a fragment: the client cannot read the fragment
-  // of a redirect its HTTP client followed, so it is told to visit the full
-  // URL itself. Prefetches get the redirect unchanged, per the protocol.
-  const redirectTarget = c.res.headers.get('Location');
+// Version conflict check (before the handler, GET only). A missing or empty
+// X-Inertia-Version never 409s, and a null server version means versioning
+// is disabled, both per the Inertia protocol (as in Laravel).
+async function answerVersionConflict(
+  c: Context,
+  config: ResolvedInertiaConfig,
+  currentVersion: () => Promise<string | null>,
+): Promise<boolean> {
+  if (!isInertiaRequest(c) || c.req.method !== 'GET') return false;
+  const clientVersion = getRequestVersion(c);
+  if (!clientVersion) return false;
+  const version = await currentVersion();
+  if (version === null || clientVersion === version) return false;
+  c.res = c.body(null, 409, {
+    // Relative path (not c.req.url): an absolute URL would send the client
+    // to the internal origin behind a proxy. Matches page.url's format.
+    'X-Inertia-Location': resolveUrl(c),
+    // Lets the client tell a deploy-driven reload apart from a plain
+    // location redirect: background async visits skip the forced reload
+    // and `inertia:location` reports versionChange.
+    'X-Inertia-Version': version,
+    // Returned before addVary() runs
+    Vary: 'X-Inertia',
+    ...cacheControlHeaders(config),
+  });
+  return true;
+}
+
+// An empty 200 means the handler had nothing to show, e.g. it saved a form
+// and returned c.body(null). Laravel's adapter redirects back then.
+function redirectEmptyResponse(c: Context, response: InertiaResponse): void {
+  if (!isInertiaRequest(c) || c.res.status !== 200 || c.res.body !== null) {
+    return;
+  }
+  // The c.res setter carries over the headers the handler set
+  c.res = new Response(null, {
+    status: 302,
+    headers: { Location: response.backUrl() },
+  });
+}
+
+// A redirect to a URL with a fragment: the client cannot read the fragment
+// of a redirect its HTTP client followed, so it is told to visit the full
+// URL itself. Prefetches get the redirect unchanged, per the protocol.
+function redirectToFragment(c: Context, config: ResolvedInertiaConfig): void {
+  const target = c.res.headers.get('Location');
   if (
-    isInertiaRequest(c) &&
-    !isPrefetch(c) &&
-    REDIRECT_STATUSES.has(c.res.status) &&
-    redirectTarget?.includes('#')
+    !isInertiaRequest(c) ||
+    isPrefetch(c) ||
+    !REDIRECT_STATUSES.has(c.res.status) ||
+    !target?.includes('#')
   ) {
-    const cacheControl = cacheControlValue(config);
-    // Hono's c.res setter copies the old response's headers onto the new one,
-    // so Location goes from the old response first
-    c.res.headers.delete('Location');
-    c.res = new Response(null, {
-      status: 409,
-      headers: {
-        'X-Inertia-Redirect': redirectTarget,
-        ...(cacheControl !== undefined && { 'Cache-Control': cacheControl }),
-      },
-    });
+    return;
   }
+  // Hono's c.res setter copies the old response's headers onto the new one,
+  // so Location goes from the old response first
+  c.res.headers.delete('Location');
+  c.res = conflictResponse(config, { 'X-Inertia-Redirect': target });
+}
 
-  // Post-handler: convert 302 → 303 after PUT/PATCH/DELETE/QUERY on Inertia
-  // requests, so the browser follows with GET
+// A 302 after PUT/PATCH/DELETE/QUERY becomes a 303 on Inertia requests, so
+// the browser follows it with GET
+function seeOtherAfterMutation(c: Context): void {
   if (
-    isInertiaRequest(c) &&
-    c.res.status === 302 &&
-    ['PUT', 'PATCH', 'DELETE', 'QUERY'].includes(c.req.method)
+    !isInertiaRequest(c) ||
+    c.res.status !== 302 ||
+    !SEE_OTHER_METHODS.has(c.req.method)
   ) {
-    const location = c.res.headers.get('Location') || '/';
-    const headers = new Headers(c.res.headers);
-    headers.set('Location', location);
-    headers.set('Vary', 'X-Inertia');
-    c.res = new Response(null, {
-      status: 303,
-      headers,
-    });
+    return;
   }
+  const headers = new Headers(c.res.headers);
+  headers.set('Location', c.res.headers.get('Location') || '/');
+  c.res = new Response(null, { status: 303, headers });
+}
 
-  // Flash each flag to the next page render: set the cookie when the handler
-  // asked for it on a response that is not a page, re-flash it across
-  // redirect chains, delete it once render() put it on the page (or the
-  // handler cancelled it), and otherwise leave an inherited cookie untouched,
-  // so a parallel non-page request neither eats nor resurrects the flag.
-  // Max-Age bounds stray cookies.
-  for (const flag of flags) {
-    const inherited = inheritedFlags.has(flag);
-    const pending = flag.pending(response);
-    const consumed = flag.consumed(response);
-    if (pending && !consumed && (!inherited || isRedirectShaped(c.res))) {
-      setCookie(c, flag.cookie, '1', {
-        path: flagPath,
+// Flash each flag to the next page render: set the cookie when the handler
+// asked for it on a response that is not a page, re-flash it across redirect
+// chains, delete it once render() put it on the page (or the handler
+// cancelled it), and otherwise leave an inherited cookie untouched, so a
+// parallel non-page request neither eats nor resurrects the flag. Max-Age
+// bounds stray cookies.
+function carryFlags(
+  c: Context,
+  config: ResolvedInertiaConfig,
+  response: InertiaResponse,
+  inherited: Set<PageFlag>,
+): void {
+  const prefix = config.flagCookies?.prefix ?? 'inertia_';
+  const path = config.flagCookies?.path ?? '/';
+  for (const flag of FLAGS) {
+    const cookie = `${prefix}${FLAG_COOKIES[flag]}`;
+    const { pending, rendered } = response.flagState(flag);
+    const wasInherited = inherited.has(flag);
+    if (pending && !rendered && (!wasInherited || isRedirectShaped(c.res))) {
+      setCookie(c, cookie, '1', {
+        path,
         httpOnly: true,
         sameSite: 'Lax',
         maxAge: 60,
         secure: new URL(c.req.url).protocol === 'https:',
       });
-    } else if (inherited && (consumed || !pending)) {
-      deleteCookie(c, flag.cookie, { path: flagPath });
+    } else if (wasInherited && (rendered || !pending)) {
+      deleteCookie(c, cookie, { path });
     }
   }
+}
 
+async function writeSession(
+  c: Context,
+  config: ResolvedInertiaConfig,
+  response: InertiaResponse,
+): Promise<void> {
   const sessionAfter = response.sessionAfter;
   if (config.session) {
-    if (sessionAfter !== undefined) {
-      await config.session.set(c, sessionAfter);
-    }
+    if (sessionAfter !== undefined) await config.session.set(c, sessionAfter);
   } else if (sessionAfter?.errors) {
     // Errors that no page showed would be lost. Flash data without a session
     // stays limited to the current response, as it always was.
@@ -292,16 +292,16 @@ async function handle<V extends Record<string, unknown>>(
       '[hono-inertia] withErrors() before a redirect needs the `session` option to keep the errors for the next page',
     );
   }
+}
 
-  // Ensure Vary: X-Inertia on all responses
+// Every response depends on X-Inertia
+function addVary(c: Context): void {
   const vary = c.res.headers.get('Vary');
   if (!vary) {
     c.res.headers.set('Vary', 'X-Inertia');
   } else if (!vary.includes('X-Inertia')) {
     c.res.headers.set('Vary', `${vary}, X-Inertia`);
   }
-
-  return response;
 }
 
 // Shares props from a middleware that runs after inertia(), such as one that

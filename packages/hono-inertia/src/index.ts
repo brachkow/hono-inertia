@@ -1,5 +1,5 @@
 // Middleware factory
-export { inertia, inertiaShare, CLEAR_HISTORY_COOKIE } from './middleware.js';
+export { inertia, inertiaShare } from './middleware.js';
 
 // Serialization helpers
 export { serializePage, escapeHtml } from './serialize.js';

@@ -2,20 +2,19 @@ import type { Context } from 'hono';
 import { matchedRoutes } from 'hono/route';
 import { PROP_TYPE } from './symbols.js';
 import type {
-  DeferredProperty,
   DevtoolsBodyCapture,
   DevtoolsConfig,
   DevtoolsEntry,
   DevtoolsPropMeta,
   DevtoolsRequestType,
   DevtoolsStore,
-  MergeProperty,
   MergeSettings,
-  OptionalProperty,
   PageObject,
-  ScrollProperty,
+  PropertyHandlers,
   TaggedProperty,
 } from './types.js';
+import { isTaggedProp } from './properties.js';
+import { scrollMergeSettings } from './resolve.js';
 import { escapeHtml, stringifyPage } from './serialize.js';
 import {
   getPartialComponent,
@@ -23,12 +22,13 @@ import {
   getScrollMergeIntent,
   isInertiaRequest,
   isPrefetch,
+  parseHeaderList,
 } from './utilities.js';
 
 // Protocol: https://inertiajs.com/docs/devtools-protocol
-export const DEVTOOLS_ID_HEADER = 'X-Inertia-Devtools-Id';
-export const DEVTOOLS_PARENT_OUT_HEADER = 'X-Inertia-Devtools-Parent-Out';
-export const DEVTOOLS_BASE_PATH_HEADER = 'X-Inertia-Devtools-Base-Path';
+const DEVTOOLS_ID_HEADER = 'X-Inertia-Devtools-Id';
+const DEVTOOLS_PARENT_OUT_HEADER = 'X-Inertia-Devtools-Parent-Out';
+const DEVTOOLS_BASE_PATH_HEADER = 'X-Inertia-Devtools-Base-Path';
 const PARENT_HEADER = 'X-Inertia-Devtools-Parent';
 const TAB_HEADER = 'X-Inertia-Devtools-Tab';
 const VISIT_HEADER = 'X-Inertia-Devtools-Visit';
@@ -74,18 +74,27 @@ export interface DevtoolsOptions {
   componentPath: (component: string) => string | null;
 }
 
-// What render() captured for the recorder: the page as sent plus the wrapper
-// behind each included top-level prop, so the entry can classify them.
+// What render() captured for the recorder: the page as sent, and the props
+// render() got, so the entry can classify each one
 export interface DevtoolsPayload {
-  component: string;
   page: PageObject;
-  // Read inside the handler: Hono 5 restores routeIndex once next() returns,
-  // so the middleware would otherwise see its own path.
   routePath: string;
-  propTags: Record<string, TaggedProperty | undefined>;
-  rescuedProps: string[];
-  sharedKeys: string[];
+  properties: Record<string, unknown>;
 }
+
+// The prop type behind each top-level prop the page sends, as DevTools lists
+// them. A branch of nested props reads as a plain prop.
+const propertyTags = (
+  payload: DevtoolsPayload,
+): Record<string, TaggedProperty | undefined> =>
+  Object.fromEntries(
+    Object.keys(payload.page.props).map(
+      (key): [string, TaggedProperty | undefined] => {
+        const value = payload.properties[key];
+        return [key, isTaggedProp(value) ? value : undefined];
+      },
+    ),
+  );
 
 export interface DevtoolsRecording {
   startedAt: number;
@@ -186,23 +195,18 @@ function entryId(segment: string): string {
 
 function filterEntries(entries: DevtoolsEntry[], c: Context): DevtoolsEntry[] {
   const query = c.req.query();
-  const csv = (value: string | undefined) =>
-    (value ?? '')
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean);
-  const include = csv(query.type);
-  const exclude = csv(query.exclude);
+  const include = parseHeaderList(query.type);
+  const exclude = parseHeaderList(query.exclude);
   const offset = Math.max(0, Number.parseInt(query.offset ?? '', 10) || 0);
   const limit = Number.parseInt(query.limit ?? '', 10);
 
   let list = entries;
   if (query.component)
     list = list.filter((entry) => entry.__meta.component === query.component);
-  if (include.length > 0)
-    list = list.filter((entry) => include.includes(entry.__meta.requestType));
-  if (exclude.length > 0)
-    list = list.filter((entry) => !exclude.includes(entry.__meta.requestType));
+  if (include.size > 0)
+    list = list.filter((entry) => include.has(entry.__meta.requestType));
+  if (exclude.size > 0)
+    list = list.filter((entry) => !exclude.has(entry.__meta.requestType));
   if (offset > 0) list = list.slice(offset);
   if (Number.isFinite(limit)) list = list.slice(0, Math.max(1, limit));
   return list;
@@ -323,7 +327,7 @@ async function buildEntry(
       utime: nextUtime(now),
       method: c.req.method,
       url: redactUrl(c.req.url, options.redactKeys),
-      component: payload?.component ?? null,
+      component: payload?.page.component ?? null,
       requestType: resolveRequestType(c, payload !== null),
       status: c.res.status,
       redirectLocation: resolveRedirectLocation(c.res),
@@ -348,10 +352,7 @@ async function buildEntry(
       payload && page
         ? redactValue(
             Object.fromEntries(
-              Object.keys(payload.propTags).map((key) => [
-                key,
-                page.props[key],
-              ]),
+              Object.keys(page.props).map((key) => [key, page.props[key]]),
             ),
             options.redactKeys,
           )
@@ -365,7 +366,9 @@ async function buildEntry(
       action: null,
     },
     renderSource: null,
-    componentPath: payload ? options.componentPath(payload.component) : null,
+    componentPath: payload
+      ? options.componentPath(payload.page.component)
+      : null,
   };
 }
 
@@ -409,7 +412,8 @@ function buildPropertyMeta(
   const deferredDelivery = c.req.header(DEFERRED_HEADER) !== undefined;
   const scrollDirection = getScrollMergeIntent(c);
   const resetProperties = getResetProperties(c);
-  const rescued = new Set(payload.rescuedProps);
+  const rescued = new Set(payload.page.rescuedProps);
+  const shared = new Set(payload.page.sharedProps);
 
   const mergeMeta = (settings: MergeSettings): Partial<DevtoolsPropMeta> => ({
     mergeDirection: settings.strategy === 'prepend' ? 'prepend' : 'append',
@@ -418,47 +422,42 @@ function buildPropertyMeta(
     }),
   });
 
-  const classifiers: Record<
-    TaggedProperty[typeof PROP_TYPE],
-    (tag: TaggedProperty) => Partial<DevtoolsPropMeta>
-  > = {
+  const classifiers: PropertyHandlers<Partial<DevtoolsPropMeta>> = {
     live: () => ({}),
     always: () => ({ inertiaType: 'always' }),
-    optional: (tag) => ({
+    optional: (_path, property) => ({
       inertiaType: 'optional',
-      ...((tag as OptionalProperty).onceSettings && { once: true }),
+      ...(property.onceSettings && { once: true }),
     }),
-    deferred: (tag) => {
-      const deferred = tag as DeferredProperty;
-      return {
-        inertiaType: deferredDelivery ? 'defer' : null,
-        ...(deferredDelivery && { deferGroup: deferred.group }),
-        ...(deferred.onceSettings && { once: true }),
-        ...(deferred.mergeSettings && mergeMeta(deferred.mergeSettings)),
-      };
-    },
-    merge: (tag) => ({
+    deferred: (_path, property) => ({
+      inertiaType: deferredDelivery ? 'defer' : null,
+      ...(deferredDelivery && { deferGroup: property.group }),
+      ...(property.onceSettings && { once: true }),
+      ...(property.mergeSettings && mergeMeta(property.mergeSettings)),
+    }),
+    merge: (_path, property) => ({
       inertiaType: 'merge',
-      ...mergeMeta((tag as MergeProperty).mergeSettings),
+      ...mergeMeta(property.mergeSettings),
     }),
     once: () => ({ inertiaType: 'once', once: true }),
-    scroll: (tag) => ({
+    scroll: (_path, property) => ({
       inertiaType: 'scroll',
-      ...mergeMeta({
-        strategy: scrollDirection,
-        appendPaths: [],
-        prependPaths: [],
-        matchOn: (tag as ScrollProperty).matchOnFields,
-      }),
+      ...mergeMeta(scrollMergeSettings(property, scrollDirection)),
     }),
   };
 
   const properties: Record<string, DevtoolsPropMeta> = {};
-  for (const [key, tag] of Object.entries(payload.propTags)) {
+  for (const [key, tag] of Object.entries(propertyTags(payload))) {
+    const classify = tag
+      ? (classifiers[tag[PROP_TYPE]] as (
+          path: string,
+          property: TaggedProperty,
+        ) => Partial<DevtoolsPropMeta>)
+      : undefined;
     properties[key] = {
-      shared: payload.sharedKeys.includes(key),
+      shared: shared.has(key),
       inertiaType: null,
-      ...(tag && classifiers[tag[PROP_TYPE]](tag)),
+      ...(tag && classify?.(key, tag)),
       ...(resetProperties.has(key) && { reset: true }),
       ...(rescued.has(key) && { rescued: true }),
       ...(tag && 'liveMetadata' in tag && tag.liveMetadata && { live: true }),

@@ -15,11 +15,30 @@ export function cacheControlValue(
   return config.cacheControl ?? DEFAULT_CACHE_CONTROL;
 }
 
+export const cacheControlHeaders = (
+  config: Pick<ResolvedInertiaConfig, 'cacheControl'>,
+): Record<string, string> => {
+  const cacheControl = cacheControlValue(config);
+  return cacheControl === undefined ? {} : { 'Cache-Control': cacheControl };
+};
+
+// A 409 the Inertia client answers with a visit: X-Inertia-Location or
+// X-Inertia-Redirect
+export const conflictResponse = (
+  config: Pick<ResolvedInertiaConfig, 'cacheControl'>,
+  headers: Record<string, string>,
+): Response =>
+  new Response(null, {
+    status: 409,
+    headers: { ...headers, ...cacheControlHeaders(config) },
+  });
+
 export function isInertiaRequest(c: Context): boolean {
   return c.req.header('X-Inertia') === 'true';
 }
 
-function parseHeaderList(header: string | undefined): Set<string> {
+// A comma-separated header or query value, without blanks
+export function parseHeaderList(header: string | undefined): Set<string> {
   if (!header) return new Set();
   return new Set(
     header
@@ -29,9 +48,9 @@ function parseHeaderList(header: string | undefined): Set<string> {
   );
 }
 
-// Returned as a Set so membership checks in response.ts are O(1) — an attacker
-// could otherwise send thousands of comma-separated keys and force O(n) scans
-// per prop on every partial reload.
+// Sets, so readPartialRequest() checks a prop's few path segments against
+// them: an attacker could otherwise send thousands of keys and force a scan
+// of all of them per prop on every partial reload
 export function getPartialData(c: Context): Set<string> {
   return parseHeaderList(c.req.header('X-Inertia-Partial-Data'));
 }
@@ -67,12 +86,6 @@ export function isPrefetch(c: Context): boolean {
 export function getScrollMergeIntent(c: Context): 'append' | 'prepend' {
   const header = c.req.header('X-Inertia-Infinite-Scroll-Merge-Intent');
   return header === 'prepend' ? 'prepend' : 'append';
-}
-
-// Present only on incremental infinite-scroll fetches; its absence means a fresh
-// load, which is how the server decides whether to reset the scroll collection.
-export function hasScrollMergeIntent(c: Context): boolean {
-  return c.req.header('X-Inertia-Infinite-Scroll-Merge-Intent') !== undefined;
 }
 
 // A Location of `//host/path` or `/\host/path` is protocol-relative, and
