@@ -164,13 +164,29 @@ export interface InertiaAssets {
 }
 
 // The root template inertia() renders when there is no `render` option
+// Values that may depend on the page and the request
+type PerRequest<T> = (page: PageObject, c: Context) => T | Promise<T>;
+
 export interface TemplateOptions {
-  // <html lang>
-  lang?: string;
+  // <html lang>, fixed or per request, e.g. from a locale prop. undefined
+  // leaves it out.
+  lang?: string | PerRequest<string | undefined>;
+  // More attributes for <html>, such as data-theme. Values are escaped, and
+  // undefined leaves the attribute out.
+  htmlAttributes?: PerRequest<Record<string, string | undefined>>;
   // A <title> for pages whose SSR output has none
   title?: string;
-  // More HTML for <head>, such as a favicon or fonts
-  head?: string | ((page: PageObject, c: Context) => string | Promise<string>);
+  // More HTML for <head>, such as a favicon or fonts. A function also gets
+  // render()'s view data and the SSR result, e.g. to add meta tags only when
+  // SSR rendered none.
+  head?:
+    | string
+    | ((
+        page: PageObject,
+        c: Context,
+        viewData: Record<string, unknown>,
+        ssr: SsrResult | undefined,
+      ) => string | Promise<string>);
   // The root element's id, which createInertiaApp() reads. Defaults to 'app'.
   id?: string;
 }

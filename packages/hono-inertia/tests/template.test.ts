@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { inertia } from '../src/middleware.js';
 import type { InertiaAssets, InertiaConfig } from '../src/types.js';
 
@@ -107,6 +107,89 @@ describe('default template', () => {
     const html = await firstVisit({});
 
     expect(html).toContain('<div id="app"></div>');
+  });
+});
+
+describe('template attributes and head', () => {
+  const ssrAssets: InertiaAssets = {
+    ...assets,
+    ssr: () =>
+      Promise.resolve({
+        head: ['<meta name="from" content="ssr">'],
+        body: '<div id="app">rendered</div>',
+      }),
+  };
+
+  it('takes lang from a function of the page', async () => {
+    const html = await firstVisit({
+      assets,
+      template: { lang: (page) => String(page.props.name).toLowerCase() },
+    });
+
+    expect(html).toContain('<html lang="ada">');
+  });
+
+  it('leaves lang out when the function returns undefined', async () => {
+    const html = await firstVisit({
+      assets,
+      template: { lang: () => undefined },
+    });
+
+    expect(html).toContain('<html><head>');
+  });
+
+  it('adds htmlAttributes, escaped, without undefined values', async () => {
+    const html = await firstVisit({
+      assets,
+      template: {
+        lang: 'en',
+        htmlAttributes: () => ({
+          'data-theme': 'a"b',
+          'data-mode': undefined,
+        }),
+      },
+    });
+
+    expect(html).toContain('<html lang="en" data-theme="a&quot;b">');
+  });
+
+  it('rejects an attribute name that could break the tag', async () => {
+    const response = await createApp({
+      assets,
+      template: { htmlAttributes: () => ({ 'x onload': '1' }) },
+    }).request('/');
+
+    expect(response.status).toBe(500);
+  });
+
+  it('passes the view data and the SSR result to head', async () => {
+    const head = vi.fn(() => '');
+    const app = new Hono()
+      .use(inertia({ assets: ssrAssets, template: { head } }))
+      .get('/', (c) => c.var.inertia.render('Home', {}, { robots: 'noindex' }));
+
+    await app.request('/');
+
+    expect(head).toHaveBeenCalledWith(
+      expect.objectContaining({ component: 'Home' }),
+      expect.anything(),
+      { robots: 'noindex' },
+      {
+        head: '<meta name="from" content="ssr">',
+        body: '<div id="app">rendered</div>',
+      },
+    );
+  });
+
+  it('puts the asset tags before the SSR head and template head', async () => {
+    const html = await firstVisit({
+      assets: ssrAssets,
+      template: { head: '<link rel="icon" href="/icon.svg">' },
+    });
+
+    expect(html).toContain(
+      '<script src="/Home.js"></script><meta name="from" content="ssr"><link rel="icon" href="/icon.svg"></head>',
+    );
   });
 });
 
