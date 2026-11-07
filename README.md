@@ -520,11 +520,15 @@ The adapter resolves it once, and the client caches it across navigations:
 ```ts
 import { once } from '@brachkow/hono-inertia';
 
+const DAY = 24 * 60 * 60 * 1000;
+
 c.var.inertia.render('Pricing', {
   plans: once(() => fetchPlans()),
-  config: once(() => fetchConfig(), 'app-config', 86400),
+  config: once(() => fetchConfig(), 'app-config', Date.now() + DAY),
 });
 ```
+
+`expiresAt` is a timestamp in milliseconds, which the client compares with `Date.now()`. After it passes, the client asks for the prop again. A full visit leaves out a once prop the client already holds, and a partial reload that names it sends a fresh value.
 
 ### `live(value, options)`
 
@@ -633,7 +637,7 @@ app.post('/posts/:id/comments', async (c) => {
 });
 ```
 
-`c.var.inertia.redirect(url)` sends the same 409 for any URL. To keep the fragment of the URL the user came from after an ordinary redirect, call `c.var.inertia.preserveFragment()`.
+`c.var.inertia.redirect(url)` sends the same 409 for any URL. To keep the fragment of the URL the user came from after an ordinary redirect, call `c.var.inertia.preserveFragment()`. Like [`clearHistory()`](#history-encryption), it works before a redirect: the middleware keeps the flag in a short-lived cookie (`inertia_preserve_fragment`) until the next rendered page.
 
 ## Redirecting back
 
