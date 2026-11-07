@@ -42,11 +42,14 @@ type OptionalKeys<P> = {
 
 type Simplify<T> = { [K in keyof T]: T[K] } & {};
 
-export type ResolvedProperties<P> = Simplify<
-  { [K in Exclude<keyof P, OptionalKeys<P>>]: PropertyValue<P[K]> } & {
-    [K in OptionalKeys<P>]?: PropertyValue<P[K]>;
-  }
->;
+// Distributes over a union of props, whose keyof holds only the shared keys
+export type ResolvedProperties<P> = P extends unknown
+  ? Simplify<
+      { [K in Exclude<keyof P, OptionalKeys<P>>]: PropertyValue<P[K]> } & {
+        [K in OptionalKeys<P>]?: PropertyValue<P[K]>;
+      }
+    >
+  : never;
 
 // ---------------------------------------------------------------------------
 // From what the server holds to what JSON.stringify sends the client
@@ -198,9 +201,13 @@ type AllKeys<T> = T extends unknown ? keyof T : never;
 
 // A page rendered from several routes gets the union of their props. Each
 // member lists every key, so reading a key only some routes send type-checks
-// and gives possibly undefined.
+// and gives possibly undefined. errors is left out: MergeProperties gives every
+// member errors, and an `errors?: undefined` there would leave the member
+// impossible.
 type Normalize<T, All = T> = T extends unknown
-  ? Simplify<T & Partial<Record<Exclude<AllKeys<All>, keyof T>, undefined>>>
+  ? Simplify<
+      T & Partial<Record<Exclude<AllKeys<All>, keyof T | 'errors'>, undefined>>
+    >
   : never;
 
 type MergeProperties<Shared, Own> = Own extends unknown

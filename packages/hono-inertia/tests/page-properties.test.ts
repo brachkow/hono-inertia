@@ -359,6 +359,50 @@ describe('PageProps', () => {
     });
   });
 
+  it('keeps every member of a union of props', async () => {
+    const app = new Hono().use(inertia({ render })).get('/login', (c) =>
+      c.var.inertia.render('Login', {
+        site: 'x',
+        ...(c.req.query('failed') ? { failed: true } : { limited: true }),
+      }),
+    );
+
+    expectTypeOf<PagePropsFor<typeof app, 'Login'>>().toEqualTypeOf<
+      | { site: string; failed: boolean; limited?: undefined; errors: Errors }
+      | { site: string; limited: boolean; failed?: undefined; errors: Errors }
+    >();
+    expect(await firstVisitProperties(app, '/login?failed=1')).toEqual({
+      site: 'x',
+      failed: true,
+      errors: {},
+    });
+  });
+
+  it('keeps routes that render a page without errors next to one with', async () => {
+    const app = new Hono()
+      .use(inertia({ render }))
+      .get('/add', (c) =>
+        c.var.inertia.render('Add', { name: 'x', initialUrl: 'u' }),
+      )
+      .post('/add', (c) =>
+        c.var.inertia.render('Add', { name: 'x', errors: { name: 'bad' } }),
+      );
+
+    expectTypeOf<PagePropsFor<typeof app, 'Add'>>().toEqualTypeOf<
+      | { name: string; initialUrl: string; errors: Errors }
+      | {
+          name: string;
+          initialUrl?: undefined;
+          errors: { name: string } & Errors;
+        }
+    >();
+    expect(await firstVisitProperties(app, '/add')).toEqual({
+      name: 'x',
+      initialUrl: 'u',
+      errors: {},
+    });
+  });
+
   it('keeps every render of a page in one handler', async () => {
     const app = new Hono().use(inertia({ render })).get('/login', (c) => {
       if (c.req.query('limited')) {
