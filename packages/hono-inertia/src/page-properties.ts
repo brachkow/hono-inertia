@@ -220,22 +220,38 @@ type SerializedEach<U> = U extends unknown ? Serialized<U> : never;
 
 type RegisteredApp = AppRegistry extends { app: infer A } ? A : never;
 
+// The pages the registered app's routes render
+export type RenderedPage = RenderOutput<RegisteredApp>['component'];
+
+// What the routes of page C send, one member per render
+type RouteOutputs<App, C> = Normalize<
+  SerializedEach<Extract<RenderOutput<App>, { component: C }>['props']>
+>;
+
 // Kept separate from PageProps so tests can pass an app without the registry
 export type PagePropsFor<
   App,
   C extends RenderOutput<App>['component'],
 > = C extends unknown
-  ? MergeProperties<
-      SharedProperties<App>,
-      Normalize<
-        SerializedEach<Extract<RenderOutput<App>, { component: C }>['props']>
-      >
-    >
+  ? MergeProperties<SharedProperties<App>, RouteOutputs<App, C>>
   : never;
 
 // The props a page component receives, taken from the routes that render it
-export type PageProps<C extends RenderOutput<RegisteredApp>['component']> =
-  PagePropsFor<RegisteredApp, C>;
+export type PageProps<C extends RenderedPage> = PagePropsFor<RegisteredApp, C>;
+
+type WithoutErrors<T> = T extends unknown ? Simplify<Omit<T, 'errors'>> : never;
+
+export type RoutePropsFor<
+  App,
+  C extends RenderOutput<App>['component'],
+> = C extends unknown ? WithoutErrors<RouteOutputs<App, C>> : never;
+
+// Only what the routes of page C send, without shared props and errors, such
+// as the fixtures of a story or a component test
+export type RouteProps<C extends RenderedPage> = RoutePropsFor<
+  RegisteredApp,
+  C
+>;
 
 // ---------------------------------------------------------------------------
 // Checks that a Vue page declares every prop its routes pass

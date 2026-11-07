@@ -13,6 +13,7 @@ import {
 import type {
   MissingVuePagePropsFor,
   PagePropsFor,
+  RoutePropsFor,
   SharedProps,
 } from '../src/page-properties.js';
 import type { PageObject, ScrollMetadata } from '../src/types.js';
@@ -274,6 +275,24 @@ describe('PageProps', () => {
     expect(await firstVisitProperties(app, '/')).toEqual({
       appName: 'Demo',
       locale: 'en',
+      errors: {},
+    });
+  });
+
+  it('gives the props only the routes send as RouteProps', async () => {
+    const app = new Hono()
+      .use(inertia({ render, share: () => ({ appName: 'Demo' }) }))
+      .get('/add', (c) => c.var.inertia.render('Add', { name: 'x' }))
+      .post('/add', (c) =>
+        c.var.inertia.render('Add', { name: 'x', errors: { name: 'bad' } }),
+      );
+
+    expectTypeOf<RoutePropsFor<typeof app, 'Add'>>().toEqualTypeOf<{
+      name: string;
+    }>();
+    expect(await firstVisitProperties(app, '/add')).toEqual({
+      appName: 'Demo',
+      name: 'x',
       errors: {},
     });
   });

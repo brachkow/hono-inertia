@@ -28,6 +28,10 @@ export default defineConfig(
             // of @inertiajs/core's InertiaConfig that it fills
             SharedProps: true,
             sharedPageProps: true,
+            // Read as PageProps without the shared ones, and its helper
+            RouteProps: true,
+            RoutePropsFor: true,
+            usePageProps: true,
           },
           replacements: {
             res: { response: true, resource: false, result: false },
