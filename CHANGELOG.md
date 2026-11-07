@@ -57,6 +57,12 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 - `PageProps` keeps every member when a render's props are a union, such as a conditional spread. It used to keep only the keys all members share.
 - `PageProps` keeps the routes that render a page without `errors` when another route renders it with `errors`. Their props used to be typed as `undefined`.
 
+**Vue pages without prop names**
+
+- New `@brachkow/hono-inertia/vue` entry with `usePageProps<'Page'>()`. A Vue page reads its typed props from the current page, without writing out each name in `defineProps`. It needs `@inertiajs/vue3`, an optional peer dependency.
+- The generated pages file leaves a Vue page that calls `usePageProps()` and has no `defineProps` out of its props check, and lists it in a comment. In dev, it now regenerates when a `.vue` page changes.
+- `RouteProps<'Page'>` gives what the routes of a page send, without shared props and `errors`, for story and test fixtures.
+
 **Testing helpers**
 
 - New `@brachkow/hono-inertia/testing` entry with `inertiaRequest()`, `inertiaHeaders()` and `getPage()`, which reads the page from JSON or from the first visit's HTML.

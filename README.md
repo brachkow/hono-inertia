@@ -1453,6 +1453,41 @@ Vue's `defineProps<T>()` can't take `PageProps` directly, because the SFC compil
 
 The generated file also checks each `.vue` page the other way. When a route sends a prop the page doesn't declare, `vue-tsc` fails in the generated file and names the prop (`'Missing props': "total"`). Shared props and `errors` are left out of that check, because a page declares them only if it reads them.
 
+To skip the prop names, a Vue page can read its props from the current page with `usePageProps()` from `@brachkow/hono-inertia/vue`. It needs `@inertiajs/vue3`, and it works during SSR:
+
+```vue
+<script setup lang="ts">
+  import { usePageProps } from '@brachkow/hono-inertia/vue';
+
+  const page = usePageProps<'Users/Index'>();
+</script>
+
+<template>
+  <p v-for="user in page.users" :key="user.id">{{ user.name }}</p>
+</template>
+```
+
+`page` has the type `PageProps<'Users/Index'>`, shared props and `errors` included. It reads `usePage().props` on every access, so it updates after each visit and reload. A variable that holds `usePage().props` keeps the first page's props, because Inertia puts a new object there on each visit. A page that calls `usePageProps()` in `<script setup>` and has no `defineProps` is left out of the generated check, and the file lists it in a comment. It stays in `InertiaPages`, so `render()` still takes its name.
+
+Compared with `defineProps`, a page that uses `usePageProps()` behaves differently:
+
+- Read the props as `page.users`. `const { users } = usePageProps()` copies the values once and doesn't update after `router.reload()` or a partial reload. No type or lint check catches it.
+- It always shows the current page. As soon as a visit lands, it has the next page's props, for example while an exit transition plays or in `onBeforeUnmount`. `defineProps` keeps the props the component was rendered with.
+- There are no client-side defaults. Without `withDefaults`, a route has to send every prop, or the page handles `undefined`. A missing optional boolean is `undefined`, where Vue's `defineProps` gives `false`.
+- The generated check is off for that page, so nothing reports a prop that routes send and the page never reads.
+- The page can't be rendered as a child component with other data, because it always reads the current page.
+- Stories and component tests set the page props through whatever mocks `@inertiajs/vue3`, not component props. Reset the mocked page before each test, or one test's props show up in the next.
+
+`RouteProps<'Users/Index'>` gives what the routes of a page send, without shared props and `errors`. It types fixtures for stories and tests against the routes:
+
+```ts
+import type { RouteProps } from '@brachkow/hono-inertia';
+
+const props: RouteProps<'Users/Index'> = { users: [], stats: { total: 0 } };
+```
+
+The vue-node example's `Home` page uses `usePageProps()`, and its other pages use `defineProps`.
+
 The [examples](#examples) use this setup. Options: `output` sets the file's path (default: the directory plus `.gen.ts`), `extensions` the page file extensions (default: `tsx`, `jsx`, `vue`, `svelte`), and `exclude` page names to leave out.
 
 `export` names the export of `server` that holds the app, for a Workers entry whose default export is a handler object such as `{ fetch, scheduled }`. It defaults to `'default'`:
