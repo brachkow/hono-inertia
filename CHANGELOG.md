@@ -50,7 +50,9 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 
 - `inertiaShare(fn)` shares props from a middleware that runs after `inertia()`, for example once the session is loaded, and records their type for `PageProps`. It can return `undefined` to share nothing.
 - `PageProps` keeps the props a typed middleware shares when `inertia()` has no `share` option or an untyped one. It used to drop all shared props then.
-- `SharedProps<typeof app>` gives the shared props without `errors`. The `pages.sharedPageProps` option declares them as `@inertiajs/core`'s `sharedPageProps` in the generated file.
+- `SharedProps<typeof app>` gives the shared props without `errors`. The `pages.sharedPageProps` option declares them as `@inertiajs/core`'s `sharedPageProps` in the generated file. With in-process SSR, the SSR entry needs an explicit return type, or TypeScript reports a circular type.
+
+- `PageProps` and `SharedProps` type props as the client receives them after JSON. A `Date` is a `string`, a value with `toJSON()` has its return type, and functions and `undefined` fields are left out. They used to keep the server's types.
 
 **Testing helpers**
 

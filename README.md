@@ -1424,6 +1424,8 @@ The Vite plugin can write a file that ties each page component to the routes tha
 
 `PageProps` resolves lazy functions and prop wrappers to their values. `optional()` and `deferred()` props are optional, because the first visit leaves them out. Props from a typed `share()` and the `errors` prop are included. When several routes render the same page with different props, a prop that only some of them send is possibly `undefined`.
 
+The types describe the props as the client receives them, after JSON. A `Date`, or anything else with `toJSON()`, has the type that `toJSON()` returns, so a `Date` is a `string`. Inside objects, fields that are functions or symbols are left out, and a field that may be `undefined` is optional. In arrays, those values are `null`. `Map` and `Set` arrive as empty objects. A `bigint` stays a `bigint`, because the client (3.8+) turns it back into one.
+
 In Svelte 5, annotate `$props()` the same way:
 
 ```svelte
@@ -1434,7 +1436,7 @@ In Svelte 5, annotate `$props()` the same way:
 </script>
 ```
 
-Vue's `defineProps<T>()` can't take `PageProps` directly, because the SFC compiler has to read the prop names from `T`. Write the names out and take each type from `PageProps`. `vue-tsc` then fails when a route stops sending a prop:
+Vue's `defineProps<T>()` can't take `PageProps` directly, because the SFC compiler has to read the prop names from `T`, and it can't resolve a type computed from the routes. So in Vue pages the prop names stay manual: write them out and take each type from `PageProps`. `vue-tsc` then fails when a route stops sending a prop:
 
 ```vue
 <script setup lang="ts">
@@ -1478,6 +1480,17 @@ pages: { directory: 'src/pages', server: 'src/server.ts', sharedPageProps: true 
 ```
 
 It augments `@inertiajs/core`, so the app needs `@inertiajs/core` as a direct dependency, and a hand-written `sharedPageProps` declaration has to go. `SharedProps<typeof app>` gives the same type for your own declarations.
+
+When the app renders SSR in the same process, give the SSR entry an explicit return type. Otherwise TypeScript reports `'sharedPageProps' is referenced directly or indirectly in its own type annotation` and gives up on the app's type. The app holds the SSR function in `ssr.render`, the function's inferred type goes through `createInertiaApp()`, and that reads `sharedPageProps`, which comes from the app:
+
+```ts
+import type { PageObject, SsrRenderResult } from '@brachkow/hono-inertia';
+
+const renderPage = (page: PageObject): Promise<SsrRenderResult> =>
+  createInertiaApp({/* ... */});
+```
+
+The [examples](#examples) turn `sharedPageProps` on and type their SSR entries this way.
 
 ### Typing `c.var.inertia`
 
