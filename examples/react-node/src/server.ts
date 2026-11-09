@@ -4,6 +4,7 @@ import {
   deferred,
   inertia,
   inertiaValidator,
+  live,
   merge,
   optional,
 } from '@brachkow/hono-inertia';
@@ -68,6 +69,15 @@ const app = new Hono()
       }),
     });
   })
+  // Reloaded by the client when TokenRotated arrives on the tokens channel
+  .get('/live', (c) =>
+    c.var.inertia.render('Live', {
+      token: live(() => crypto.randomUUID(), {
+        channel: 'tokens',
+        on: 'TokenRotated',
+      }),
+    }),
+  )
   .get('/contact', (c) => c.var.inertia.render('Contact'))
   // A failed submit goes back to the form with the errors, and a precognition
   // request gets its answer without reaching the handler

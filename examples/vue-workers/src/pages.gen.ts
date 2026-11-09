@@ -3,12 +3,14 @@ import type app from './worker';
 import type { SharedProps, VuePage } from '@brachkow/hono-inertia';
 import type ContactPage from './pages/Contact.vue';
 import type HomePage from './pages/Home.vue';
+import type LivePage from './pages/Live.vue';
 import type UsersIndexPage from './pages/Users/Index.vue';
 
 declare module '@brachkow/hono-inertia' {
   interface InertiaPages {
     Contact: true;
     Home: true;
+    Live: true;
     'Users/Index': true;
   }
   interface AppRegistry {
@@ -28,5 +30,6 @@ export type { PageProps } from '@brachkow/hono-inertia';
 export type VuePages = [
   VuePage<'Contact', typeof ContactPage>,
   VuePage<'Home', typeof HomePage>,
+  VuePage<'Live', typeof LivePage>,
   VuePage<'Users/Index', typeof UsersIndexPage>,
 ];

@@ -8,6 +8,7 @@ declare module '@brachkow/hono-inertia' {
   interface InertiaPages {
     Contact: true;
     Home: true;
+    Live: true;
     'Users/Index': true;
   }
   interface AppRegistry {
@@ -24,7 +25,7 @@ declare module '@inertiajs/core' {
 export type { PageProps } from '@brachkow/hono-inertia';
 
 // Fails typecheck when a Vue page doesn't declare a prop its routes pass
-// Left out, as they read their props with usePageProps(): Home
+// Left out, as they read their props with usePageProps(): Home, Live
 export type VuePages = [
   VuePage<'Contact', typeof ContactPage>,
   VuePage<'Users/Index', typeof UsersIndexPage>,

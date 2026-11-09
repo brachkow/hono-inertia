@@ -6,6 +6,7 @@ declare module '@brachkow/hono-inertia' {
   interface InertiaPages {
     Contact: true;
     Home: true;
+    Live: true;
     'Users/Index': true;
   }
   interface AppRegistry {

@@ -180,3 +180,30 @@ test.describe('forms', () => {
     await expect(page.getByTestId('flash')).toHaveCount(0);
   });
 });
+
+test.describe('live props', () => {
+  test('reloads a live prop when its broadcast event arrives', async ({
+    page,
+  }) => {
+    await page.goto('/live');
+    const token = page.getByTestId('live-token');
+    await expect(token).not.toBeEmpty();
+    const before = (await token.textContent()) ?? '';
+    const reload = page.waitForRequest(
+      (request) => request.headers()['x-inertia-partial-data'] === 'token',
+    );
+
+    // Sent again until it lands, as an event sent before the client has
+    // subscribed is lost
+    await expect(async () => {
+      await page.evaluate(() => {
+        const channel = new BroadcastChannel('tokens');
+        channel.postMessage({ event: 'TokenRotated' });
+        channel.close();
+      });
+      await expect(token).not.toHaveText(before, { timeout: 2000 });
+    }).toPass({ timeout: 15_000 });
+
+    await reload;
+  });
+});
