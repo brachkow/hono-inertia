@@ -10,15 +10,15 @@
   },
   "dependencies": {
     "@brachkow/hono-inertia": "workspace:*",
-    "@inertiajs/core": "^3.9.1",
-    "@inertiajs/vue3": "^3.9.1",
+    "@inertiajs/core": "^3.11.0",
+    "@inertiajs/vue3": "^3.11.0",
     "hono": "catalog:",
     "vue": "^3.5.44",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.64.0",
-    "@inertiajs/vite": "^3.9.1",
+    "@inertiajs/vite": "^3.11.0",
     "@vitejs/plugin-vue": "^6.0.10",
     "typescript": "catalog:",
     "vite": "catalog:",

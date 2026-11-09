@@ -72,7 +72,7 @@
     "vue": ">=3.3.0"
   },
   "devDependencies": {
-    "@inertiajs/vue3": "^3.9.1",
+    "@inertiajs/vue3": "^3.11.0",
     "@size-limit/preset-small-lib": "^14.1.0",
     "hono": "catalog:",
     "hono-4.8.0": "npm:hono@4.8.0",

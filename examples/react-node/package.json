@@ -11,8 +11,8 @@
   "dependencies": {
     "@brachkow/hono-inertia": "workspace:*",
     "@hono/node-server": "^2.1.5",
-    "@inertiajs/core": "^3.9.1",
-    "@inertiajs/react": "^3.9.1",
+    "@inertiajs/core": "^3.11.0",
+    "@inertiajs/react": "^3.11.0",
     "hono": "catalog:",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
@@ -20,7 +20,7 @@
   },
   "devDependencies": {
     "@hono/vite-dev-server": "^0.26.1",
-    "@inertiajs/vite": "^3.9.1",
+    "@inertiajs/vite": "^3.11.0",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

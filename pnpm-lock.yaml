@@ -66,11 +66,11 @@ importers:
         specifier: ^2.1.5
         version: 2.1.5(hono@4.13.13)
       '@inertiajs/core':
-        specifier: ^3.9.1
-        version: 3.9.1
+        specifier: ^3.11.0
+        version: 3.11.0
       '@inertiajs/react':
-        specifier: ^3.9.1
-        version: 3.9.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: ^3.11.0
+        version: 3.11.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       hono:
         specifier: 'catalog:'
         version: 4.13.13
@@ -88,8 +88,8 @@ importers:
         specifier: ^0.26.1
         version: 0.26.1(hono@4.13.13)(wrangler@4.151.0(@types/node@26.6.5))
       '@inertiajs/vite':
-        specifier: ^3.9.1
-        version: 3.9.1(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))
+        specifier: ^3.11.0
+        version: 3.11.0(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))
       '@types/node':
         specifier: ^26.6.5
         version: 26.6.5
@@ -118,11 +118,11 @@ importers:
         specifier: ^2.1.5
         version: 2.1.5(hono@4.13.13)
       '@inertiajs/core':
-        specifier: ^3.9.1
-        version: 3.9.1
+        specifier: ^3.11.0
+        version: 3.11.0
       '@inertiajs/svelte':
-        specifier: ^3.9.1
-        version: 3.9.1(svelte@5.57.2(@typescript-eslint/types@8.71.2))
+        specifier: ^3.11.0
+        version: 3.11.0(svelte@5.57.2(@typescript-eslint/types@8.71.2))
       hono:
         specifier: 'catalog:'
         version: 4.13.13
@@ -137,8 +137,8 @@ importers:
         specifier: ^0.26.1
         version: 0.26.1(hono@4.13.13)(wrangler@4.151.0(@types/node@26.6.5))
       '@inertiajs/vite':
-        specifier: ^3.9.1
-        version: 3.9.1(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))
+        specifier: ^3.11.0
+        version: 3.11.0(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))
       '@sveltejs/vite-plugin-svelte':
         specifier: ^7.3.1
         version: 7.3.1(svelte@5.57.2(@typescript-eslint/types@8.71.2))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))
@@ -164,11 +164,11 @@ importers:
         specifier: ^2.1.5
         version: 2.1.5(hono@4.13.13)
       '@inertiajs/core':
-        specifier: ^3.9.1
-        version: 3.9.1
+        specifier: ^3.11.0
+        version: 3.11.0
       '@inertiajs/vue3':
-        specifier: ^3.9.1
-        version: 3.9.1(vue@3.5.44(typescript@5.9.3))
+        specifier: ^3.11.0
+        version: 3.11.0(vue@3.5.44(typescript@5.9.3))
       hono:
         specifier: 'catalog:'
         version: 4.13.13
@@ -183,8 +183,8 @@ importers:
         specifier: ^0.26.1
         version: 0.26.1(hono@4.13.13)(wrangler@4.151.0(@types/node@26.6.5))
       '@inertiajs/vite':
-        specifier: ^3.9.1
-        version: 3.9.1(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))
+        specifier: ^3.11.0
+        version: 3.11.0(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))
       '@types/node':
         specifier: ^26.6.5
         version: 26.6.5
@@ -207,11 +207,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/hono-inertia
       '@inertiajs/core':
-        specifier: ^3.9.1
-        version: 3.9.1
+        specifier: ^3.11.0
+        version: 3.11.0
       '@inertiajs/vue3':
-        specifier: ^3.9.1
-        version: 3.9.1(vue@3.5.44(typescript@5.9.3))
+        specifier: ^3.11.0
+        version: 3.11.0(vue@3.5.44(typescript@5.9.3))
       hono:
         specifier: 'catalog:'
         version: 4.13.13
@@ -226,8 +226,8 @@ importers:
         specifier: ^1.64.0
         version: 1.64.0(@types/node@26.6.5)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))(wrangler@4.151.0(@types/node@26.6.5))
       '@inertiajs/vite':
-        specifier: ^3.9.1
-        version: 3.9.1(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))
+        specifier: ^3.11.0
+        version: 3.11.0(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))
       '@vitejs/plugin-vue':
         specifier: ^6.0.10
         version: 6.0.10(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))(vue@3.5.44(typescript@5.9.3))
@@ -247,8 +247,8 @@ importers:
   packages/hono-inertia:
     devDependencies:
       '@inertiajs/vue3':
-        specifier: ^3.9.1
-        version: 3.9.1(vue@3.5.44(typescript@5.9.3))
+        specifier: ^3.11.0
+        version: 3.11.0(vue@3.5.44(typescript@5.9.3))
       '@size-limit/preset-small-lib':
         specifier: ^14.1.0
         version: 14.1.0(size-limit@14.1.0)
@@ -1364,34 +1364,52 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@inertiajs/core@3.9.1':
-    resolution: {integrity: sha512-ScLQZ1/KXlvmqCEJMEZABSK5updJZIli1kaG/coWXpWMmpSLsazSJkR7esITYp7X5vTgrOGNIrcRmdMp/GQ0NA==}
+  '@inertiajs/core@3.11.0':
+    resolution: {integrity: sha512-YDqkKHsTiDUKofVzE3p6IduuU1u0ZwmheSpk2AZP6Eig3ZwhTlchDiLbUhFUCd138naqlhjRh2rTxIXeKrnmOQ==}
     peerDependencies:
       axios: ^1.15.2
     peerDependenciesMeta:
       axios:
         optional: true
 
-  '@inertiajs/react@3.9.1':
-    resolution: {integrity: sha512-fRWElF5XIm1j01ecQCEehx0KPLEYVA6fCdWvig7XUhwhmSQG6EIyNum3eG8ZEfYuY7mWhNyqae/MSRIv+bAsjw==}
+  '@inertiajs/react@3.11.0':
+    resolution: {integrity: sha512-G5JZ5B27hPuwPEJ/vw3aW4eFJ4KmGvmcFkA+28IXXgOFQcse0GPCmv0/lLAw2vbbLMNqcsNzWNJH9XJmOZkejA==}
     peerDependencies:
+      '@laravel/echo-react': ^2.0.0
+      '@types/react': ^19.0.0
+      '@types/react-dom': ^19.0.0
       react: ^19.0.0
       react-dom: ^19.0.0
+    peerDependenciesMeta:
+      '@laravel/echo-react':
+        optional: true
+      '@types/react':
+        optional: true
+      '@types/react-dom':
+        optional: true
 
-  '@inertiajs/svelte@3.9.1':
-    resolution: {integrity: sha512-wNj2CkFj0rfTsF5n0ZzjDc52w9Ek96AE3wL+2KFX6iDKbD4YHPoleArkTDBiTHCDECeR6kBM82PzorspSWzq4Q==}
+  '@inertiajs/svelte@3.11.0':
+    resolution: {integrity: sha512-vBnBJDQew8rfOGeD3ONe0XD25QdYkVnsgMhiuF0i5DQ/SmzjYmVGIhBPDMdIVknUE5q/WvbCnI0EH42OnnImJg==}
     peerDependencies:
+      '@laravel/echo-svelte': ^2.0.0
       svelte: ^5.0.0
+    peerDependenciesMeta:
+      '@laravel/echo-svelte':
+        optional: true
 
-  '@inertiajs/vite@3.9.1':
-    resolution: {integrity: sha512-Phwwa/joUAxuZO/KoPnBNab5skQVHBwmYFk+OMMyS+qqB4gg/BpDSmWLepW7kiSVJ4AF/SLeJEwWvBH49EWiqg==}
+  '@inertiajs/vite@3.11.0':
+    resolution: {integrity: sha512-BQDD++BbQ/Q7U2E3yPGYki/vkwC+pT2DNUXUItrGeMefLy8aBaJXftF979+hupU/V3rfXf1RpGZZRi+BcQ5jRQ==}
     peerDependencies:
       vite: ^7.0.0 || ^8.0.0
 
-  '@inertiajs/vue3@3.9.1':
-    resolution: {integrity: sha512-pISiTjoCm86xHFMdG7QhkzKXrX3fMf9Ihgst08xalxv4pOzwQ5L/Hw/RnOzrqO34waykPEWgAr34nyo2IQ80mg==}
+  '@inertiajs/vue3@3.11.0':
+    resolution: {integrity: sha512-O1NnujzskjOWOI4OlGmZfNbpkzzO/PvHGQyMv2de6ntwc2UZvFHUa0UoGOgqV3bjJINMdjJdaU+mOkNPATVERQ==}
     peerDependencies:
+      '@laravel/echo-vue': ^2.0.0
       vue: ^3.0.0
+    peerDependenciesMeta:
+      '@laravel/echo-vue':
+        optional: true
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -3165,8 +3183,8 @@ packages:
     resolution: {integrity: sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ==}
     engines: {node: '>=6'}
 
-  laravel-precognition@2.1.0:
-    resolution: {integrity: sha512-W9ZobjRAReiIawSWxXUPR6q+Bvq5seO6tn+scdURl/JKOFKveXvR4Sno2KxGqQt2cI81nh8Vt2cFlaOMqXqLNw==}
+  laravel-precognition@2.1.1:
+    resolution: {integrity: sha512-Wg05+puJ5qiNsE8rdO5JmSiqQ2xcEf7442AIZiDhZg1JyPOePv5SSCu0fO7z7LqmJcPMxNNuOIcZd6UatEmYug==}
     peerDependencies:
       axios: ^1.4.0
     peerDependenciesMeta:
@@ -5037,34 +5055,37 @@ snapshots:
   '@img/sharp-win32-x64@0.35.5':
     optional: true
 
-  '@inertiajs/core@3.9.1':
+  '@inertiajs/core@3.11.0':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
       es-toolkit: 1.52.0
-      laravel-precognition: 2.1.0
+      laravel-precognition: 2.1.1
 
-  '@inertiajs/react@3.9.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@inertiajs/react@3.11.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
-      '@inertiajs/core': 3.9.1
+      '@inertiajs/core': 3.11.0
       es-toolkit: 1.52.0
-      laravel-precognition: 2.1.0
+      laravel-precognition: 2.1.1
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
+    optionalDependencies:
+      '@types/react': 19.3.0
+      '@types/react-dom': 19.3.0(@types/react@19.3.0)
     transitivePeerDependencies:
       - axios
 
-  '@inertiajs/svelte@3.9.1(svelte@5.57.2(@typescript-eslint/types@8.71.2))':
+  '@inertiajs/svelte@3.11.0(svelte@5.57.2(@typescript-eslint/types@8.71.2))':
     dependencies:
-      '@inertiajs/core': 3.9.1
+      '@inertiajs/core': 3.11.0
       es-toolkit: 1.52.0
-      laravel-precognition: 2.1.0
+      laravel-precognition: 2.1.1
       svelte: 5.57.2(@typescript-eslint/types@8.71.2)
     transitivePeerDependencies:
       - axios
 
-  '@inertiajs/vite@3.9.1(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))':
+  '@inertiajs/vite@3.11.0(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))':
     dependencies:
-      '@inertiajs/core': 3.9.1
+      '@inertiajs/core': 3.11.0
       '@jridgewell/remapping': 2.3.5
       magic-string: 0.30.21
       tinyglobby: 0.2.17
@@ -5072,11 +5093,11 @@ snapshots:
     transitivePeerDependencies:
       - axios
 
-  '@inertiajs/vue3@3.9.1(vue@3.5.44(typescript@5.9.3))':
+  '@inertiajs/vue3@3.11.0(vue@3.5.44(typescript@5.9.3))':
     dependencies:
-      '@inertiajs/core': 3.9.1
+      '@inertiajs/core': 3.11.0
       es-toolkit: 1.52.0
-      laravel-precognition: 2.1.0
+      laravel-precognition: 2.1.1
       vue: 3.5.44(typescript@5.9.3)
     transitivePeerDependencies:
       - axios
@@ -6723,7 +6744,7 @@ snapshots:
 
   kleur@4.1.5: {}
 
-  laravel-precognition@2.1.0:
+  laravel-precognition@2.1.1:
     dependencies:
       es-toolkit: 1.52.0
 
