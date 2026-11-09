@@ -140,7 +140,7 @@ A full visit leaves out a once prop the client already holds, and a partial relo
 
 ## `live(value, options)`
 
-Refreshes the prop when a broadcast event arrives (client 3.10+). The client subscribes to the channels in `page.liveProps` and makes a partial reload for the props that listen to an event:
+Refreshes the prop when a broadcast event arrives (client 3.11+). The client subscribes to the channels in `page.liveProps` and makes a partial reload for the props that listen to an event:
 
 ```ts
 import { live } from '@brachkow/hono-inertia';

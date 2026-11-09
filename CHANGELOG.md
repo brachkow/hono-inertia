@@ -67,7 +67,7 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 - `inertiaValidator(target, schema)` validates with any Standard Schema library (Zod, Valibot, ArkType) without a runtime dependency. Failed submits redirect back with the errors, clients that ask for JSON get a 422, and precognition requests get 204 or 422 without running the handler.
 - `c.var.inertia.back()` redirects to the path of the `Referer`, and never to another origin. It takes a fallback, or `{ fallback, status, removeQuery }`.
 
-**Live props** (client 3.10+)
+**Live props** (client 3.11+)
 
 - `live(value, { channel, on, throttle? })`, and `.live()` on `always`, `optional`, `deferred` and `once` props, send `page.liveProps` so the client refreshes those props on broadcast events. Merge props cannot be live.
 - `broadcastProperties(props)` builds the event payload that delivers values without a reload. `c.var.inertia.socketId()` reads `X-Socket-Id`.

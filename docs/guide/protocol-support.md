@@ -36,7 +36,7 @@ The adapter implements the Inertia.js v3 protocol, and the lists below say which
 - [Once props](/guide/props#once-fn-options) with `once`, including keys, expiry and `X-Inertia-Except-Once-Props`
 - [Combined prop types](/guide/props#chaining), such as `deferred(fn).merge().once()`
 - [Nested props](/guide/rendering#nested-props): prop types and lazy functions inside objects, and dot paths in partial reloads
-- [Live props](/guide/props#live-value-options) with `live()` or `.live()`, `broadcastProperties()` and `socketId()` (client 3.10+)
+- [Live props](/guide/props#live-value-options) with `live()` or `.live()`, `broadcastProperties()` and `socketId()` (client 3.11+)
 - [Precognition](/guide/validation#precognition) with `inertiaValidator()`, which takes any Standard Schema such as Zod, Valibot or ArkType
 - [External redirects](/guide/redirects#external-redirects) with `c.var.inertia.location()`
 - [Flash data](/guide/flash-messages) with `c.var.inertia.flash()`
