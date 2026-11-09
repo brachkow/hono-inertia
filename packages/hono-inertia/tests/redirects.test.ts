@@ -114,6 +114,41 @@ describe('Empty 200 responses', () => {
     expect(response.headers.get('X-Request-Id')).toBe('abc');
   });
 
+  it('keeps a body of "0"', async () => {
+    const app = createApp();
+    app.post('/count', (c) => c.text('0'));
+
+    const response = await app.request('/count', {
+      method: 'POST',
+      headers: inertiaHeaders(),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('0');
+  });
+
+  it('keeps a streamed body', async () => {
+    const app = createApp();
+    app.post('/export', (c) =>
+      c.body(
+        new ReadableStream({
+          start: (controller) => {
+            controller.enqueue(new TextEncoder().encode('chunk'));
+            controller.close();
+          },
+        }),
+      ),
+    );
+
+    const response = await app.request('/export', {
+      method: 'POST',
+      headers: inertiaHeaders(),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('chunk');
+  });
+
   it('leaves an empty 200 alone for a non-Inertia request', async () => {
     const app = createApp();
     app.post('/webhook', (c) => c.body(null));
