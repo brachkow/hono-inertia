@@ -1,0 +1,323 @@
+import type { Hono, TypedResponse } from 'hono';
+import type { ExtractSchema } from 'hono/types';
+import type { PROP_TYPE } from './symbols.js';
+import type { TaggedProperty } from './types.js';
+
+// ---------------------------------------------------------------------------
+// Registries, filled in by the file the Vite plugin generates
+// ---------------------------------------------------------------------------
+
+// Page component names. While empty, render() accepts any string.
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- filled by declaration merging
+export interface InertiaPages {}
+
+// The Hono app that PageProps reads route outputs from:
+// `interface AppRegistry { app: typeof app }`
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- filled by declaration merging
+export interface AppRegistry {}
+
+export type PageName = keyof InertiaPages extends never
+  ? string
+  : Extract<keyof InertiaPages, string>;
+
+// ---------------------------------------------------------------------------
+// From the props a handler passes to what the page component receives
+// ---------------------------------------------------------------------------
+
+type Resolved<V> = V extends () => infer R ? Awaited<R> : V;
+
+// A plain object, whose props the adapter resolves like the top-level ones.
+// Objects with toJSON(), arrays, Map and Set are sent as they are.
+type IsBranch<V> = 0 extends 1 & V
+  ? false
+  : V extends
+        | TaggedProperty
+        | readonly unknown[]
+        | ((...arguments_: never[]) => unknown)
+        | { toJSON: (...arguments_: never[]) => unknown }
+        | ReadonlyMap<unknown, unknown>
+        | ReadonlySet<unknown>
+    ? false
+    : V extends object
+      ? true
+      : false;
+
+type PropertyValue<V> = V extends TaggedProperty
+  ? V extends { value: infer F }
+    ? Resolved<F>
+    : never
+  : IsBranch<V> extends true
+    ? ResolvedProperties<V>
+    : Resolved<V>;
+
+// Left out of the first visit, so the component sees them as possibly missing
+type MissingOnFirstVisit =
+  { [PROP_TYPE]: 'optional' } | { [PROP_TYPE]: 'deferred' };
+
+type OptionalKeys<P> = {
+  [K in keyof P]: P[K] extends MissingOnFirstVisit ? K : never;
+}[keyof P];
+
+type Simplify<T> = { [K in keyof T]: T[K] } & {};
+
+// Distributes over a union of props, whose keyof holds only the shared keys
+export type ResolvedProperties<P> = P extends unknown
+  ? Simplify<
+      { [K in Exclude<keyof P, OptionalKeys<P>>]: PropertyValue<P[K]> } & {
+        [K in OptionalKeys<P>]?: PropertyValue<P[K]>;
+      }
+    >
+  : never;
+
+// ---------------------------------------------------------------------------
+// From what the server holds to what JSON.stringify sends the client
+// ---------------------------------------------------------------------------
+
+type JsonPrimitive = string | number | boolean | null;
+
+// Left out of an object, and null in an array
+type Unsendable = undefined | symbol | ((...arguments_: never[]) => unknown);
+
+type SerializedElement<V> = V extends Unsendable ? null : Serialized<V>;
+
+// Undefined in the type, so JSON leaves the key out at times. unknown counts
+// as always present, or every unknown prop would turn optional.
+type MaybeUndefined<V> = unknown extends V
+  ? false
+  : undefined extends V
+    ? true
+    : false;
+
+// A key whose value can never be sent is dropped, and one that may be
+// undefined arrives only sometimes
+type SerializedObject<T> = Simplify<
+  {
+    [
+      K in keyof T as K extends symbol
+        ? never
+        : [T[K]] extends [Unsendable]
+          ? never
+          : MaybeUndefined<T[K]> extends true
+            ? never
+            : K
+    ]: Serialized<T[K]>;
+  } & {
+    [
+      K in keyof T as K extends symbol
+        ? never
+        : [T[K]] extends [Unsendable]
+          ? never
+          : MaybeUndefined<T[K]> extends true
+            ? K
+            : never
+    ]?: Serialized<Exclude<T[K], undefined>>;
+  }
+>;
+
+// JSON.stringify's rules: toJSON() decides first, so a Date arrives as a
+// string; Map and Set have no own enumerable properties. BigInt stays, because
+// the adapter sends it as a marker the client (3.8+) turns back into a BigInt.
+export type Serialized<T> = 0 extends 1 & T
+  ? T
+  : unknown extends T
+    ? unknown
+    : T extends JsonPrimitive | bigint
+      ? T
+      : T extends Unsendable
+        ? never
+        : T extends { toJSON: (...arguments_: never[]) => infer R }
+          ? Serialized<R>
+          : T extends ReadonlyMap<unknown, unknown> | ReadonlySet<unknown>
+            ? Record<string, never>
+            : T extends readonly unknown[]
+              ? { [I in keyof T]: SerializedElement<T[I]> }
+              : T extends object
+                ? SerializedObject<T>
+                : never;
+
+declare const RENDER_PROPS: unique symbol;
+
+// What render() returns: a Response whose type also records the component
+// and its props, so PageProps can read them from the app's routes.
+// TypeScript reduces a handler's returns by subtype, so a render whose props
+// extend another's would vanish into it. The phantom field makes the type
+// invariant in its props, and every render stays in the union.
+// One member per page name, so render(flag ? 'Home' : 'Other', props) records
+// an output for each of them
+export type RenderResponse<C extends string, P> = C extends unknown
+  ? Response &
+      TypedResponse<
+        { component: C; props: ResolvedProperties<P> },
+        200,
+        'html'
+      > & {
+        readonly [RENDER_PROPS]?: (properties: P) => P;
+      }
+  : never;
+
+// ---------------------------------------------------------------------------
+// Shared props, carried in the app's Env by the middleware
+// ---------------------------------------------------------------------------
+
+declare const SHARED_PROPS: unique symbol;
+
+export interface InertiaSharedEnv<V> {
+  Variables: { [SHARED_PROPS]: V };
+}
+
+// Hono 4.8 has three type parameters and later versions four, so only the
+// first is matched
+type AppEnvironment<App> = App extends Hono<infer E> ? E : never;
+
+// An index signature, such as an untyped share() returning
+// Record<string, unknown>, says nothing about the keys, so only named keys
+// are kept. Dropping the whole type instead would also drop what typed
+// middlewares on the same chain share.
+type KnownKeys<V> = {
+  [
+    K in keyof V as string extends K
+      ? never
+      : number extends K
+        ? never
+        : symbol extends K
+          ? never
+          : K
+  ]: V[K];
+};
+
+// Several middlewares record their shared props as an intersection, which
+// infer V merges
+type SharedProperties<App> =
+  AppEnvironment<App> extends InertiaSharedEnv<infer V>
+    ? Serialized<ResolvedProperties<KnownKeys<V>>>
+    : object;
+
+// The props every page gets from share() and inertiaShare(), without errors.
+// The file the Vite plugin generates can declare them for the client.
+export type SharedProps<App> = SharedProperties<App>;
+
+// ---------------------------------------------------------------------------
+// PageProps
+// ---------------------------------------------------------------------------
+
+// Matches @inertiajs/core: field errors, or field errors per error bag
+type Errors = Record<string, string>;
+type ErrorBag = Record<string, Errors>;
+
+// Distributes over a route's outputs: inferring O from the whole union would
+// reduce it by subtype and drop a render whose props extend another's
+type Output<Route> = Route extends { output: infer O } ? O : never;
+
+type Outputs<App> = {
+  [Path in keyof ExtractSchema<App>]: {
+    [Method in keyof ExtractSchema<App>[Path]]: Output<
+      ExtractSchema<App>[Path][Method]
+    >;
+  }[keyof ExtractSchema<App>[Path]];
+}[keyof ExtractSchema<App>];
+
+type RenderOutput<App> =
+  Outputs<App> extends infer U
+    ? U extends { component: string; props: unknown }
+      ? U
+      : never
+    : never;
+
+type AllKeys<T> = T extends unknown ? keyof T : never;
+
+// A page rendered from several routes gets the union of their props. Each
+// member lists every key, so reading a key only some routes send type-checks
+// and gives possibly undefined. errors is left out: MergeProperties gives every
+// member errors, and an `errors?: undefined` there would leave the member
+// impossible.
+type Normalize<T, All = T> = T extends unknown
+  ? Simplify<
+      T & Partial<Record<Exclude<AllKeys<All>, keyof T | 'errors'>, undefined>>
+    >
+  : never;
+
+type MergeProperties<Shared, Own> = Own extends unknown
+  ? Simplify<Omit<Shared, keyof Own> & Own & { errors: Errors & ErrorBag }>
+  : never;
+
+// Each route's props as the client receives them, before Normalize fills in
+// the keys other routes send
+type SerializedEach<U> = U extends unknown ? Serialized<U> : never;
+
+type RegisteredApp = AppRegistry extends { app: infer A } ? A : never;
+
+// The pages the registered app's routes render
+export type RenderedPage = RenderOutput<RegisteredApp>['component'];
+
+// What the routes of page C send, one member per render
+type RouteOutputs<App, C> = Normalize<
+  SerializedEach<Extract<RenderOutput<App>, { component: C }>['props']>
+>;
+
+// Kept separate from PageProps so tests can pass an app without the registry
+// Shared props join each route's props before Normalize, so a route that
+// overrides a shared prop doesn't take it away from the routes that don't
+export type PagePropsFor<
+  App,
+  C extends RenderOutput<App>['component'],
+> = C extends unknown
+  ? Normalize<
+      MergeProperties<
+        SharedProperties<App>,
+        SerializedEach<Extract<RenderOutput<App>, { component: C }>['props']>
+      >
+    >
+  : never;
+
+// The props a page component receives, taken from the routes that render it
+export type PageProps<C extends RenderedPage> = PagePropsFor<RegisteredApp, C>;
+
+type WithoutErrors<T> = T extends unknown ? Simplify<Omit<T, 'errors'>> : never;
+
+export type RoutePropsFor<
+  App,
+  C extends RenderOutput<App>['component'],
+> = C extends unknown ? WithoutErrors<RouteOutputs<App, C>> : never;
+
+// Only what the routes of page C send, without shared props and errors, such
+// as the fixtures of a story or a component test
+export type RouteProps<C extends RenderedPage> = RoutePropsFor<
+  RegisteredApp,
+  C
+>;
+
+// ---------------------------------------------------------------------------
+// Checks that a Vue page declares every prop its routes pass
+// ---------------------------------------------------------------------------
+
+// Vue's defineProps can't take PageProps, so a Vue page lists its props by
+// hand. These types catch a prop the routes pass that the list leaves out.
+
+// The prop names a Vue component declares, from the instance type vue-tsc
+// gives it
+type VueDeclaredKeys<Component> = Component extends abstract new (
+  ...parameters: never[]
+) => { $props: infer P }
+  ? keyof P
+  : never;
+
+// Shared props and errors are left out, also when a route passes errors
+// itself: a page reads them only if it needs them
+export type MissingVuePagePropsFor<App, C extends string, Component> = Exclude<
+  AllKeys<Extract<RenderOutput<App>, { component: C }>['props']>,
+  VueDeclaredKeys<Component> | 'errors'
+>;
+
+type DeclaresRouteProperties<C extends string, Component> = [
+  MissingVuePagePropsFor<RegisteredApp, C, Component>,
+] extends [never]
+  ? unknown
+  : { 'Missing props': MissingVuePagePropsFor<RegisteredApp, C, Component> };
+
+// Fails typecheck, naming the props, when the Vue component of page C leaves
+// out a prop its routes pass. The file the Vite plugin generates applies it to
+// every .vue page.
+export type VuePage<
+  C extends PageName,
+  Component extends DeclaresRouteProperties<C, Component>,
+> = [C, Component];
