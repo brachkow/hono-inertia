@@ -11,7 +11,7 @@ A pnpm monorepo:
 - `packages/hono-inertia/` is the published library. Paths below are relative to it.
 - `examples/` holds runnable apps (`react-node`, `vue-node`, `svelte-node`, `vue-workers`) that double as guides. They implement the same pages and depend on the library via `workspace:*`, which resolves to its `dist/`, so build the library first.
 - `docs/` is the VitePress site published to GitHub Pages (brachkow.github.io/hono-inertia). The guide pages in `docs/guide/` are the documentation; the README keeps the intro, features and install, and links to them. `vitepress-plugin-llms` writes `llms.txt` from them.
-- `e2e/` is one Playwright suite that runs against every example twice: the production build, and the Vite dev server (ports +1000), where `hmr.spec.ts` also edits a page and checks it updates without a reload.
+- `e2e/` is one Playwright suite that runs against every example twice: the production build, and the Vite dev server (ports +1000), where `hmr.spec.ts` also edits a page and checks it updates without a reload. CI runs it on Hono 4 and again on Hono 5, by changing `hono` in the catalog in `pnpm-workspace.yaml` and reinstalling.
 
 ## Goals
 

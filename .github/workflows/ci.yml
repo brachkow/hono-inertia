@@ -38,6 +38,11 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # A range, so this picks up the stable Hono 5 when it ships
+        hono: [catalog, '^5.0.0-rc.1']
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -55,6 +60,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
 
-      - run: pnpm install --frozen-lockfile
+      # The adapter and the examples share the catalog's hono, so changing it
+      # there keeps one Hono in each bundle
+      - name: Use the Hono version under test
+        if: matrix.hono != 'catalog'
+        run: |
+          sed -i "s/^  hono: .*/  hono: ${{ matrix.hono }}/" pnpm-workspace.yaml
+
+      - run: pnpm install ${{ matrix.hono == 'catalog' && '--frozen-lockfile' || '--no-frozen-lockfile' }}
       - run: pnpm --filter e2e exec playwright install --with-deps chromium
       - run: pnpm test:e2e
