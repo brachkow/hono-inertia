@@ -6,7 +6,7 @@ description: Install the adapter and render a first Inertia page from a Hono app
 
 ## Requirements
 
-- Hono 4.8.0 or newer, including Hono 5
+- Hono 4.8.0 or a later 4.x, or Hono 5
 - An Inertia v3 client: `@inertiajs/vue3`, `@inertiajs/react` or `@inertiajs/svelte`. BigInt props need client 3.8 or newer, and server-provided head elements need 3.5 or newer
 - Node.js 22.12 or newer when running on Node.js. On Cloudflare Workers, no Node.js compatibility flag is needed
 - Vite 7 or newer, only for the optional Vite plugin
