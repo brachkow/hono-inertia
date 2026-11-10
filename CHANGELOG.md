@@ -1,12 +1,17 @@
 # Changelog
 
-The notes of every release, newest first. [GitHub Releases](https://github.com/brachkow/hono-inertia/releases) has the same notes for 2.0.0 and later. Unreleased is the draft for the next release.
+The notes of every release, newest first. [GitHub Releases](https://github.com/brachkow/hono-inertia/releases) has the same notes for 2.0.0 and later.
 
-## Unreleased
+## 4.0.0 (2026-11-10)
 
-This draft covers sessions, validation, live props, testing helpers and the redirect changes. The other changes on the v4 branch (Hono 4.8+ and Hono 5, the Vite plugin, typed page props) still need their entries.
+The documentation moved to [brachkow.github.io/hono-inertia](https://brachkow.github.io/hono-inertia/), with guides for React, Vue and Svelte, and `llms.txt` for coding assistants.
 
 ### Breaking changes
+
+**Requirements**
+
+- Hono 4.8.0 or later 4.x, or Hono 5 (`^4.8.0 || ^5.0.0-rc.1`). 3.x accepted any Hono from 4.0.0, and 4.8.0 is the first release with the `hono/route` helper the adapter imports.
+- Node.js 22.12.0 or later.
 
 **Error bags follow the protocol**
 
@@ -40,11 +45,6 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 
 ### Fixes
 
-- `flash()` with a BigInt before a redirect works with the cookie session. It used to throw in `JSON.stringify` and turn the redirect into a 500.
-- `inertiaValidator()` keeps errors for fields named like `Object.prototype` keys, such as `constructor`. It used to throw and answer with a 500.
-- A prefetch that redirects no longer writes the session, so it can't replace errors or flash data the next page hasn't shown.
-- `inertiaHeaders()` lets a header in `headers` win over a generated one written in another case. Fetch used to join the two values, for example into a version that caused a 409.
-- `PageProps` types a `deferred().rescue()` prop as possibly `null`, keeps props for each page a handler chooses with `render(flag ? 'A' : 'B', props)`, and keeps a shared prop's type for routes that don't override it.
 - A once prop the client already holds is now listed in `onceProps` when the server leaves it out. The client copies its cached value forward only for props the response lists, so the prop used to be `undefined` on the next page.
 - `deferred().once()` and `optional().once()` send once metadata on full visits, and a deferred once prop the client holds is no longer listed in `deferredProps`. It used to be fetched again, skipped by the server, and lost.
 - A partial reload that names a once prop sends a fresh value, as in inertia-laravel. It used to send nothing when the client held the prop.
@@ -53,6 +53,25 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 - The version mismatch 409 could send `X-Inertia-Location: //host/path`, a protocol-relative URL to another origin, when the request path started with `//`. The adapter now collapses leading slashes and backslashes in every path it builds into a `Location` or `page.url`. This also affected 3.x.
 
 ### Highlights
+
+**Hono 5**
+
+- Works with Hono 5. The unit tests, the typecheck and the end-to-end suite run on Hono 4 and Hono 5.
+
+**Vite plugin**
+
+- New `@brachkow/hono-inertia/vite-plugin` entry with `honoInertia({ entry })`. Its `virtual:hono-inertia/assets` module gives the server the asset version, the HTML tags that load the client build, the parsed client `manifest`, and the SSR entry. Vite is an optional peer dependency, from 7.0.0.
+- `assetTagsFor(component)` adds the stylesheets and `modulepreload` links of the rendered page and its imports. Page names map to files through `pages`, or through the `pageSource` option (`'src/pages/[name].vue'`, with `[name]` allowed more than once).
+- Every tag carries `crossorigin`, as in Vite's own HTML output, and a client build with `cssCodeSplit: false` gets its single CSS file.
+
+**Typed page props**
+
+- The plugin's `pages` option writes a `pages.gen.ts` file that ties each page component to the routes that render it. `PageProps<'Page'>` gives a page the props its routes send, with shared props and `errors`, and `render()` rejects a page name that has no file.
+- In dev, the file is written again when a page is added or deleted. Commit it, so `tsc` works before Vite has run.
+- The types describe the props as the client receives them after JSON. A `Date` is a `string`, a value with `toJSON()` has its return type, and functions and `undefined` fields are left out.
+- A page that several routes render, or that one handler renders more than once, gets every set of props, including unions such as a conditional spread.
+- For Vue pages, which name each prop in `defineProps`, the file checks that a page declares every prop its routes send.
+- `pages.export` names the export that holds the app, for Workers entries that default-export a handler object. `pages.name` maps a file to a page name, or skips it with `null`.
 
 **Sessions**
 
@@ -76,26 +95,20 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 **Shared props**
 
 - `inertiaShare(fn)` shares props from a middleware that runs after `inertia()`, for example once the session is loaded, and records their type for `PageProps`. It can return `undefined` to share nothing.
-- `PageProps` keeps the props a typed middleware shares when `inertia()` has no `share` option or an untyped one. It used to drop all shared props then.
+- `PageProps` includes the props a typed middleware shares, also when `inertia()` has no `share` option.
 - `SharedProps<typeof app>` gives the shared props without `errors`. The `pages.sharedPageProps` option declares them as `@inertiajs/core`'s `sharedPageProps` in the generated file. With in-process SSR, the SSR entry needs an explicit return type, or TypeScript reports a circular type.
-
-- `PageProps` and `SharedProps` type props as the client receives them after JSON. A `Date` is a `string`, a value with `toJSON()` has its return type, and functions and `undefined` fields are left out. They used to keep the server's types.
-- `PageProps` keeps every `render()` of a page in one handler. A render whose props extended another render's used to be dropped, along with its extra props.
-- `PageProps` keeps every member when a render's props are a union, such as a conditional spread. It used to keep only the keys all members share.
-- `PageProps` keeps the routes that render a page without `errors` when another route renders it with `errors`. Their props used to be typed as `undefined`.
 
 **Vue pages without prop names**
 
 - New `@brachkow/hono-inertia/vue` entry with `usePageProps<'Page'>()`. A Vue page reads its typed props from the current page, without writing out each name in `defineProps`. It needs `@inertiajs/vue3`, an optional peer dependency.
-- The generated pages file leaves a Vue page that calls `usePageProps()` and has no `defineProps` out of its props check, and lists it in a comment. In dev, it now regenerates when a `.vue` page changes.
+- The generated pages file leaves a Vue page that calls `usePageProps()` and has no `defineProps` out of its props check, and lists it in a comment. In dev, it regenerates when a `.vue` page changes.
 - `RouteProps<'Page'>` gives what the routes of a page send, without shared props and `errors`, for story and test fixtures.
 - `<PagePropsProvider page props>` and `providePageProps()` give a subtree its own page props, which `usePageProps()` reads instead of the current page. Stories and component tests render a page with typed props this way, also several times side by side. `vue` is an optional peer dependency.
-- The pages file finds `usePageProps()` and `defineProps()` as calls in `<script setup>`, leaving out comments and strings. A comment that mentioned `defineProps` used to put a page back in the props check.
 
 **Less setup**
 
 - `inertia({ assets })` takes the Vite plugin's virtual module (`import * as assets from 'virtual:hono-inertia/assets'`) and gets the version, the asset tags and the SSR entry from it. `render` is optional: without it, a built-in template renders the page, with `template: { lang, title, head, id }`.
-- The plugin's new `ssr` option names the SSR entry. Its default export becomes the module's `ssr`, which `inertia({ assets })` renders with. Because the module's type is fixed, an SSR entry passed this way no longer needs an explicit return type.
+- The plugin's new `ssr` option names the SSR entry. Its default export becomes the module's `ssr`, which `inertia({ assets })` renders with. Because the module's type is fixed, an SSR entry passed this way doesn't need an explicit return type.
 - `session` takes `cookieSession()`'s options directly: `session: { secret }`.
 - `template.lang` takes a function of the page and the context, `template.htmlAttributes` adds attributes to `<html>`, and a `template.head` function also gets the view data and the SSR result. The asset tags come before the SSR head.
 
@@ -117,21 +130,14 @@ This draft covers sessions, validation, live props, testing helpers and the redi
 
 - 302 to 303 conversion also covers QUERY requests.
 
-**Vite plugin**
-
-- `assetTags` links the single CSS file of a client build with `cssCodeSplit: false`. It used to have no stylesheet at all, so pages rendered unstyled.
-- Every tag carries `crossorigin`, as in Vite's own HTML output.
-- `assetTagsFor(component)` adds the stylesheets and `modulepreload` links of the rendered page and its imports. Page names map to files through `pages`, or through the new `pageSource` option (`'src/pages/[name].vue'`, with `[name]` allowed more than once).
-- The virtual module exports the parsed client `manifest`.
-- `pages.export` names the export that holds the app, for Workers entries that default-export a handler object. `pages.name` maps a file to a page name, or skips it with `null`.
-
 ### Upgrading
 
+- Upgrade to Hono 4.8.0 or later and Node.js 22.12.0 or later.
 - Replace `render` and `version` with `assets`, and `ssr: { render }` with the plugin's `ssr` option, unless you need your own HTML. The examples show the change.
 - Rename `setMatchOn()` to `matchOn()` and `redirect()` to `clientRedirect()`, and move `scroll()` and `once()` to their option objects. TypeScript points at each call.
 - Check pages that read a scroll prop's `reset`, and props that hold functions inside objects (see Breaking changes).
 
-- Replace a hand-rolled flash cookie with `session: cookieSession({ secret })` and call `flash()` before the redirect. The examples show the change.
+- Replace a hand-rolled flash cookie with `session: { secret }` and call `flash()` before the redirect. The examples show the change.
 - Check handlers that return an empty 200 or redirect to a URL with `#` (see Breaking changes).
 - Check forms that use `errorBag` (see Breaking changes).
 
