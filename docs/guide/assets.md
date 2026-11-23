@@ -10,7 +10,7 @@ The 409 also carries the new version in `X-Inertia-Version`. The client uses it 
 
 ## Vite plugin
 
-`honoInertia()` connects the server to the client build. It gives the server the version and the HTML tags that load the client:
+`honoInertia()` connects the server to the client build. It gives the server the version and the HTML tags that load the client. [Vite plugin](/guide/vite-plugin) explains why the server needs it and how it works next to `@inertiajs/vite`.
 
 ```ts
 // vite.config.ts
