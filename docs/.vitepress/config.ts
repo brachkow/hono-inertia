@@ -55,6 +55,7 @@ export default defineConfig({
       {
         text: 'Build and deploy',
         items: [
+          { text: 'Vite plugin', link: '/guide/vite-plugin' },
           { text: 'Asset versioning', link: '/guide/assets' },
           { text: 'SSR', link: '/guide/ssr' },
         ],
